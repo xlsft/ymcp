@@ -35,6 +35,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerAttachments(s)
 	t.registerVcs(s)
 	t.registerTagAdmin(s)
+	t.registerRawAPI(s)
 }
 
 type toolset struct {

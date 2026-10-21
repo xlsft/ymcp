@@ -1339,3 +1339,51 @@ func TestTagAndSavedSearchAdmin(t *testing.T) {
 		t.Errorf("deleted = %v", deleted)
 	}
 }
+
+func TestCallAPI(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/issues/DEMO-7", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("fields") != "idReadable,summary" || q.Get("$top") != "10" || strings.Join(q["customFields"], ",") != "State,Type" {
+			t.Errorf("query = %v", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"idReadable":"DEMO-7","summary":"s"}`)
+	})
+	api.json("POST /api/issues/DEMO-7/comments", `{"id":"4-1"}`)
+	api.handle("DELETE /api/issues/DEMO-7/tags/6-1", func(w http.ResponseWriter, r *http.Request) {})
+	hub := http.NewServeMux()
+	hub.HandleFunc("GET /hub/api/rest/usergroups", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"usergroups":[]}`)
+	})
+	cs := connectHub(t, api, hub)
+
+	var issue struct{ IDReadable string }
+	if isErr, text := call(t, cs, "call_api", map[string]any{
+		"method": "GET", "path": "/api/issues/DEMO-7?fields=idReadable,summary",
+		"query": map[string]any{"$top": 10, "customFields": []string{"State", "Type"}},
+	}, &issue); isErr || issue.IDReadable != "DEMO-7" {
+		t.Errorf("GET: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "call_api", map[string]any{"method": "POST", "path": "issues/DEMO-7/comments", "body": map[string]any{"text": "hi"}}, nil); isErr {
+		t.Errorf("POST: %s", text)
+	}
+	if b := api.bodies("/api/issues/DEMO-7/comments"); len(b) != 1 || b[0]["text"] != "hi" {
+		t.Errorf("POST body = %v", b)
+	}
+	if isErr, text := call(t, cs, "call_api", map[string]any{"method": "DELETE", "path": "issues/DEMO-7/tags/6-1"}, nil); isErr || !strings.Contains(text, `"ok": true`) {
+		t.Errorf("DELETE: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "call_api", map[string]any{"method": "GET", "path": "/hub/api/rest/usergroups", "api": "hub"}, nil); isErr || !strings.Contains(text, "usergroups") {
+		t.Errorf("hub GET: isErr=%v %q", isErr, text)
+	}
+	for _, bad := range []string{"https://evil.example/api/issues", "//evil.example/x", "issues/../admin/users", "../x"} {
+		if isErr, text := call(t, cs, "call_api", map[string]any{"method": "GET", "path": bad}, nil); !isErr {
+			t.Errorf("path %q accepted: %s", bad, text)
+		}
+	}
+	if isErr, _ := call(t, cs, "call_api", map[string]any{"method": "GET", "path": "issues", "body": map[string]any{"x": 1}}, nil); !isErr {
+		t.Error("GET with a body accepted")
+	}
+}

@@ -162,13 +162,18 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 // HubGet performs a GET against the Hub REST API, <hub>/api/rest/<path>,
 // with a Hub-scoped token.
 func (c *Client) HubGet(ctx context.Context, path string, query url.Values, out any) error {
+	return c.HubDo(ctx, http.MethodGet, path, query, nil, out)
+}
+
+// HubDo is Do for the Hub REST API, <hub>/api/rest/<path>.
+func (c *Client) HubDo(ctx context.Context, method, path string, query url.Values, body, out any) error {
 	u, err := c.auth.HubURL(ctx)
 	if err != nil {
 		return err
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + "/api/rest/" + strings.TrimLeft(path, "/")
 	u.RawQuery = query.Encode()
-	return c.do(ctx, HubScope, http.MethodGet, u, nil, out)
+	return c.do(ctx, HubScope, method, u, body, out)
 }
 
 // Download fetches a file YouTrack links to, such as an attachment URL
