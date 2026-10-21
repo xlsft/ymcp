@@ -4,9 +4,11 @@ package e2e
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -48,14 +50,18 @@ func (f *fixture) requiredFields(t *testing.T) map[string]any {
 	return fields
 }
 
+var fixtures atomic.Int32
+
 func newFixture(t *testing.T) *fixture {
 	f := &fixture{}
 	api(t, "GET", "users/me", map[string]any{"fields": "id,login"}, nil, &f.me)
 
-	f.key = "YE" + runID
+	// Each fixture gets its own project: YE<run><A, B, …>.
+	n := fixtures.Add(1)
+	f.key = fmt.Sprintf("YE%s%c", runID, 'A'+n-1)
 	var created struct{ ID, ShortName string }
 	api(t, "POST", "admin/projects", map[string]any{"fields": "id,shortName", "template": "scrum"},
-		map[string]any{"name": marker + " " + runID, "shortName": f.key, "leader": map[string]any{"id": f.me.ID}}, &created)
+		map[string]any{"name": marker + " " + f.key, "shortName": f.key, "leader": map[string]any{"id": f.me.ID}}, &created)
 	f.projectID = created.ID
 	t.Cleanup(func() {
 		r := call(t, "call_api", map[string]any{"method": "DELETE", "path": "admin/projects/" + f.projectID})
@@ -96,7 +102,7 @@ func TestScenarios(t *testing.T) {
 		var found struct {
 			Projects []struct{ ShortName string }
 		}
-		must(t, "find_projects", map[string]any{"nameContains": runID}, &found)
+		must(t, "find_projects", map[string]any{"nameContains": f.key}, &found)
 		if len(found.Projects) != 1 || found.Projects[0].ShortName != f.key {
 			t.Errorf("find_projects = %+v", found)
 		}
