@@ -39,13 +39,13 @@ func TestRegularUser(t *testing.T) {
 		}
 	}()
 
-	// The first sign-in creates the YouTrack user; then it joins the team.
+	// The first sign-in creates the YouTrack user; then it gets access.
 	var me struct{ Login string }
 	user.must(t, "get_current_user", nil, &me)
 	if me.Login != login {
 		t.Fatalf("signed in as %q", me.Login)
 	}
-	joinTeam(t, f, login)
+	grantAccess(t, user, f, hubUser.ID)
 
 	// No issues yet: the schema can't be read without admin rights.
 	r := user.call(t, "get_issue_fields_schema", map[string]any{"projectKey": f.key})
@@ -114,49 +114,45 @@ func TestRegularUser(t *testing.T) {
 	}
 }
 
-// joinTeam adds a user to the fixture project's team. Projects left Hub
-// in YouTrack 2026, so this goes through YouTrack's API; it tries the
-// group endpoint, then setting the team's users, and checks the result.
-func joinTeam(t *testing.T, f *fixture, login string) {
+// grantAccess gives a Hub user a Developer-like role in Hub's Global
+// project, which covers the fixture project. YouTrack 2026 keeps projects
+// out of Hub, and its project team API doesn't take new members.
+func grantAccess(t *testing.T, user *server, f *fixture, hubID string) {
 	t.Helper()
-	var ytUsers []struct{ ID, Login string }
-	api(t, "GET", "users", map[string]any{"fields": "id,login", "query": login}, nil, &ytUsers)
-	if len(ytUsers) != 1 {
-		t.Fatalf("YouTrack users for %s = %+v", login, ytUsers)
+	var roles struct {
+		Roles []struct{ ID, Key string }
 	}
-	userID := ytUsers[0].ID
-	var team struct {
-		ID    string
-		Users []struct{ ID, Login string }
-	}
-	teamPath := "admin/projects/" + f.projectID + "/team"
-	readTeam := func() bool {
-		api(t, "GET", teamPath, map[string]any{"fields": "id,users(id,login)"}, nil, &team)
-		for _, u := range team.Users {
-			if u.ID == userID {
-				return true
+	api(t, "GET", "roles", map[string]any{"fields": "id,key", "$top": 1000}, nil, &roles, "hub")
+	roleID := ""
+	for _, want := range []string{"developer", "contributor"} {
+		for _, r := range roles.Roles {
+			if r.Key == want && roleID == "" {
+				roleID = r.ID
 			}
 		}
-		return false
 	}
-	readTeam()
-
-	users := []any{map[string]any{"id": userID}}
-	for _, u := range team.Users {
-		users = append(users, map[string]any{"id": u.ID})
+	if roleID == "" {
+		t.Fatalf("no developer or contributor role among %+v", roles.Roles)
 	}
+	role := map[string]any{"role": map[string]any{"id": roleID}, "project": map[string]any{"id": "0"}}
 	attempts := []map[string]any{
-		{"method": "POST", "path": "groups/" + team.ID + "/users", "query": map[string]any{"fields": "id"}, "body": map[string]any{"id": userID}},
-		{"method": "POST", "path": teamPath, "query": map[string]any{"fields": "id"}, "body": map[string]any{"users": users}},
+		{"api": "hub", "method": "POST", "path": "users/" + hubID + "/projectroles", "query": map[string]any{"fields": "id"}, "body": role},
+		{"api": "hub", "method": "POST", "path": "projectroles", "query": map[string]any{"fields": "id"},
+			"body": map[string]any{"role": role["role"], "project": role["project"], "owner": map[string]any{"id": hubID}}},
 	}
 	var tried []string
 	for _, args := range attempts {
 		r := call(t, "call_api", args)
-		if !r.isError && readTeam() {
-			t.Logf("joined the team with %s %s", args["method"], args["path"])
-			return
+		if !r.isError {
+			if p := user.call(t, "get_project", map[string]any{"projectKey": f.key}); !p.isError {
+				t.Logf("access granted with POST %s", args["path"])
+				return
+			} else {
+				tried = append(tried, fmt.Sprintf("POST %s: ok, but get_project: %s", args["path"], p.text))
+				continue
+			}
 		}
-		tried = append(tried, fmt.Sprintf("%s %s: error=%v %s", args["method"], args["path"], r.isError, r.text))
+		tried = append(tried, fmt.Sprintf("POST %s: %s", args["path"], r.text))
 	}
-	t.Fatalf("can't add %s to the %s team:\n%s", login, f.key, strings.Join(tried, "\n"))
+	t.Fatalf("can't give %s access to %s:\n%s", hubID, f.key, strings.Join(tried, "\n"))
 }
