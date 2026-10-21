@@ -1,0 +1,15 @@
+# Binaries
+/bin/
+/youtrack-mcp
+*.exe
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Tooling
+.idea/
+.vscode/
+.DS_Store
+coverage.out
