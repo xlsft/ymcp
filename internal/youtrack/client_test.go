@@ -344,3 +344,36 @@ func TestRetriesOnlyWhatIsSafeToRepeat(t *testing.T) {
 		}
 	}
 }
+
+func TestRetriesWithHubScopeWhenAsked(t *testing.T) {
+	var f *youtracktest.Server
+	var calls atomic.Int32
+	c, f := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if strings.HasSuffix(r.URL.Path, "/plain") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized","error_description":"Invalid token"}`))
+			return
+		}
+		if !f.HasScope(r, HubScope) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"invalid_token","error_description":"The operation requires the \"0-0-0-0-0\" scope, but the token is granted for [` + youtracktest.ServiceID + `]."}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	if err := c.Do(context.Background(), http.MethodDelete, "users/2-5", nil, nil, nil); err != nil {
+		t.Fatalf("DELETE with the Hub scope: %v", err)
+	}
+	// The first try, a re-login on 401, then the request with both scopes.
+	if n := calls.Load(); n != 3 {
+		t.Errorf("%d calls, want 3", n)
+	}
+	// Other 401s don't ask for a Hub token: a try and a re-login only.
+	calls.Store(0)
+	if err := c.Do(context.Background(), http.MethodGet, "users/plain", nil, nil, nil); err == nil || calls.Load() != 2 {
+		t.Errorf("plain 401: %v after %d calls, want an error after 2", err, calls.Load())
+	}
+}

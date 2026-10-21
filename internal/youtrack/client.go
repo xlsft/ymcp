@@ -317,6 +317,10 @@ func (c *Client) exchange(ctx context.Context, scope, method string, u *url.URL,
 		case <-time.After(wait):
 		}
 	}
+	if err == nil && scope == "" && resp.StatusCode == http.StatusUnauthorized && needsHubScope(data) {
+		c.log.Info("retrying youtrack request with a Hub-scoped token", "method", method, "path", u.Path)
+		resp, data, err = c.attempt(ctx, youtrackAndHub, method, u, contentType, payload)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -341,6 +345,14 @@ func (c *Client) attempt(ctx context.Context, scope, method string, u *url.URL, 
 		resp, data, err = c.send(ctx, scope, method, u, contentType, payload)
 	}
 	return resp, data, err
+}
+
+// needsHubScope reports whether YouTrack refused a token for lacking the
+// Hub scope: The operation requires the "0-0-0-0-0" scope, but the token
+// is granted for [<service>]; the quotes come JSON-escaped.
+func needsHubScope(body []byte) bool {
+	s := string(body)
+	return strings.Contains(s, "requires the") && strings.Contains(s, HubScope) && strings.Contains(s, "scope")
 }
 
 // retryable reports whether a failed request may be sent again. 429 and

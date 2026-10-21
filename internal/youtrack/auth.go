@@ -103,9 +103,16 @@ func (a *hubAuth) Token(ctx context.Context, scope string) (string, error) {
 	return a.tokens[scope].value, nil
 }
 
+// youtrackAndHub asks for a token valid for both YouTrack and Hub, which
+// some YouTrack endpoints, e.g. deleting users, insist on.
+const youtrackAndHub = "\x00youtrack+hub"
+
 func scopeName(scope string) string {
-	if scope == HubScope {
+	switch scope {
+	case HubScope:
 		return "hub"
+	case youtrackAndHub:
+		return "youtrack+hub"
 	}
 	return "youtrack"
 }
@@ -204,8 +211,11 @@ func (a *hubAuth) redirectURI() string {
 }
 
 func (a *hubAuth) oauthQuery(scope, credentials, state string) url.Values {
-	if scope == "" {
+	switch scope {
+	case "":
 		scope = a.serviceID
+	case youtrackAndHub:
+		scope = a.serviceID + " " + HubScope
 	}
 	return url.Values{
 		"response_type":       {"token"},

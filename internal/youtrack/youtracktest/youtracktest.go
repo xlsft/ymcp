@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -110,12 +111,19 @@ func (f *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, q.Get("redirect_uri")+"#"+frag.Encode(), http.StatusFound)
 }
 
-// authorized checks the bearer token is valid for scope, answering 401 otherwise.
-func (f *Server) authorized(w http.ResponseWriter, r *http.Request, scope string) bool {
+// HasScope reports whether the request's token was issued for scope; a
+// token may cover several, space-separated, as Hub allows.
+func (f *Server) HasScope(r *http.Request, scope string) bool {
 	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	f.mu.Lock()
-	ok := f.tokens[tok] == scope
-	f.mu.Unlock()
+	defer f.mu.Unlock()
+	granted, ok := f.tokens[tok]
+	return ok && slices.Contains(strings.Fields(granted), scope)
+}
+
+// authorized checks the bearer token is valid for scope, answering 401 otherwise.
+func (f *Server) authorized(w http.ResponseWriter, r *http.Request, scope string) bool {
+	ok := f.HasScope(r, scope)
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
