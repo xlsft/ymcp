@@ -39,6 +39,7 @@ func captureStdout(t *testing.T, f func() error) (string, error) {
 func isolate(t *testing.T) string {
 	t.Helper()
 	keyring.MockInit()
+	profile = "" // run() resets it; tests that skip run() must not inherit it
 	dir := t.TempDir()
 	t.Setenv("YMCP_CONFIG", filepath.Join(dir, "config.json"))
 	t.Setenv("YMCP_LOG_FILE", filepath.Join(dir, "ymcp.log"))
