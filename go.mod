@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/term v0.47.0
 )
