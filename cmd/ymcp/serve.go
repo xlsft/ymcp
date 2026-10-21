@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,22 +34,25 @@ func newServer(yt *youtrack.Client, logger *slog.Logger) *mcp.Server {
 	return s
 }
 
-// logRequests logs connecting clients and every tool call with its
-// arguments, duration and outcome; other methods are logged at debug level.
+// logRequests logs each new client and every tool call with its arguments,
+// duration and outcome; other methods are logged at debug level.
 func logRequests(logger *slog.Logger) mcp.Middleware {
+	var seen sync.Map // client + protocol already logged
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			start := time.Now()
 			res, err := next(ctx, method, req)
 			took := time.Since(start).Round(time.Millisecond)
 
-			switch p := req.GetParams().(type) {
-			case *mcp.InitializeParams:
-				client := "unknown"
-				if p.ClientInfo != nil {
-					client = strings.TrimSpace(p.ClientInfo.Name + " " + p.ClientInfo.Version)
+			// Clients on the 2026-07-28 protocol skip initialize and send
+			// their info with every request, so look at all of them.
+			if name, protocol, ok := clientOf(req); ok {
+				if _, logged := seen.LoadOrStore(name+"|"+protocol, true); !logged {
+					logger.Info("client connected", "client", name, "protocol", protocol)
 				}
-				logger.Info("client connected", "client", client, "protocol", p.ProtocolVersion)
+			}
+
+			switch p := req.GetParams().(type) {
 			case *mcp.CallToolParamsRaw:
 				args := shorten(string(p.Arguments), 300)
 				switch r, _ := res.(*mcp.CallToolResult); {
@@ -69,6 +73,25 @@ func logRequests(logger *slog.Logger) mcp.Middleware {
 			return res, err
 		}
 	}
+}
+
+// clientOf names the client behind a request and its protocol version.
+func clientOf(req mcp.Request) (name, protocol string, ok bool) {
+	r, isServerReq := req.(interface {
+		ClientInfo() *mcp.Implementation
+		ProtocolVersion() string
+	})
+	if !isServerReq {
+		return "", "", false
+	}
+	info, protocol := r.ClientInfo(), r.ProtocolVersion()
+	if p, isInit := req.GetParams().(*mcp.InitializeParams); isInit {
+		info, protocol = p.ClientInfo, p.ProtocolVersion
+	}
+	if info == nil {
+		return "", "", false
+	}
+	return strings.TrimSpace(info.Name + " " + info.Version), protocol, true
 }
 
 func toolText(r *mcp.CallToolResult) string {
