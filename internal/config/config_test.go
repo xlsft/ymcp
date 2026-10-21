@@ -68,3 +68,11 @@ func TestChangingLoginDropsOldPassword(t *testing.T) {
 		t.Errorf("new password = %q", pw)
 	}
 }
+
+func TestDefaultPath(t *testing.T) {
+	t.Setenv("YMCP_CONFIG", "")
+	p, err := Path()
+	if err != nil || filepath.Base(p) != "config.json" || filepath.Base(filepath.Dir(p)) != "ymcp" {
+		t.Errorf("Path = %q, %v", p, err)
+	}
+}

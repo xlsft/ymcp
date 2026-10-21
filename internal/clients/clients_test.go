@@ -189,3 +189,54 @@ func TestOpencodeCommandIsArray(t *testing.T) {
 		t.Errorf("opencode.json:\n%s", got)
 	}
 }
+
+func TestPathsPerOS(t *testing.T) {
+	for _, c := range []struct {
+		goos, client, want string
+		env                map[string]string
+	}{
+		{"linux", "claude-desktop", ".config/Claude/claude_desktop_config.json", nil},
+		{"linux", "zed", "xdg/zed/settings.json", map[string]string{"XDG_CONFIG_HOME": "XDG"}},
+		{"windows", "claude-desktop", "Roaming/Claude/claude_desktop_config.json", map[string]string{"APPDATA": "Roaming"}},
+		{"windows", "zed", "Roaming/Zed/settings.json", map[string]string{"APPDATA": "Roaming"}},
+		{"windows", "devin", "Roaming/devin/mcp_config.json", map[string]string{"APPDATA": "Roaming"}},
+		{"darwin", "cline", "custom/cline.json", map[string]string{"CLINE_MCP_SETTINGS_PATH": "CUSTOM"}},
+	} {
+		e := newEnv(t)
+		e.OS = c.goos
+		root := e.Home
+		e.Getenv = func(k string) string {
+			if v, ok := c.env[k]; ok {
+				return filepath.Join(root, strings.ToLower(v))
+			}
+			return ""
+		}
+		if c.client == "cline" {
+			e.Getenv = func(k string) string {
+				if k == "CLINE_MCP_SETTINGS_PATH" {
+					return filepath.Join(root, "custom", "cline.json")
+				}
+				return ""
+			}
+		}
+		if err := byID(t, c.client).Install(e.Env, "/opt/ymcp"); err != nil {
+			t.Fatalf("%s/%s: %v", c.goos, c.client, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.ToLower(c.want)))); err != nil {
+			t.Errorf("%s/%s: expected %s: %v", c.goos, c.client, c.want, err)
+		}
+	}
+}
+
+func TestSystemEnv(t *testing.T) {
+	e, err := System("darwin")
+	if err != nil || e.Home == "" || e.Getenv == nil || e.LookPath == nil || e.Run == nil {
+		t.Fatalf("System = %+v, %v", e, err)
+	}
+	if err := e.Run("false"); err == nil {
+		t.Error("failing command reported success")
+	}
+	if len(All()) != 14 {
+		t.Errorf("clients = %d, want 14", len(All()))
+	}
+}

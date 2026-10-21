@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -96,5 +97,35 @@ func TestNewer(t *testing.T) {
 		if got := Newer(c.tag, c.cur); got != c.want {
 			t.Errorf("Newer(%s, %s) = %v", c.tag, c.cur, got)
 		}
+	}
+}
+
+func TestExtractZipAndReplaceOnWindows(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("ymcp_windows_amd64/ymcp.exe")
+	w.Write([]byte("exe"))
+	zw.Close()
+	bin, err := extract("ymcp_windows_amd64.zip", buf.Bytes(), "windows")
+	if err != nil || string(bin) != "exe" {
+		t.Fatalf("extract = %q, %v", bin, err)
+	}
+	if _, err := extract("x.zip", buf.Bytes(), "linux"); err == nil {
+		t.Error("missing ymcp in zip not reported")
+	}
+	if ArchiveName("windows", "arm64") != "ymcp_windows_arm64.zip" || ArchiveName("linux", "amd64") != "ymcp_linux_amd64.tar.gz" {
+		t.Error("ArchiveName")
+	}
+
+	exe := filepath.Join(t.TempDir(), "ymcp.exe")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	if err := replace(exe, []byte("new"), "windows"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(exe); string(data) != "new" {
+		t.Errorf("exe = %q", data)
+	}
+	if data, _ := os.ReadFile(exe + ".old"); string(data) != "old" {
+		t.Errorf("old exe = %q", data)
 	}
 }
