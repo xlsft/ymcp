@@ -11,8 +11,14 @@ import (
 	"strings"
 )
 
-// ServerName is the name ymcp is registered under in every client.
-const ServerName = "youtrack"
+// Server is a ymcp registration: the name it appears under in a client
+// and the command that starts it, e.g. youtrack-beget running
+// `ymcp --profile youtrack-beget`.
+type Server struct {
+	Name    string
+	Command string
+	Args    []string
+}
 
 // Env is the machine the clients live on; tests replace it.
 type Env struct {
@@ -85,35 +91,44 @@ type Client struct {
 	Note string
 
 	detect    func(Env) bool
-	installed func(Env) bool
-	install   func(Env, string) error
-	uninstall func(Env) error
+	installed func(Env, string) bool
+	install   func(Env, Server) error
+	uninstall func(Env, string) error
 }
 
-func (c Client) Detected(e Env) bool  { return c.detect(e) }
-func (c Client) Installed(e Env) bool { return c.installed(e) }
+func (c Client) Detected(e Env) bool { return c.detect(e) }
 
-// Install registers the ymcp binary at bin.
-func (c Client) Install(e Env, bin string) error { return c.install(e, bin) }
+// Installed reports whether a server named name is registered.
+func (c Client) Installed(e Env, name string) bool { return c.installed(e, name) }
 
-// Uninstall removes the ymcp registration.
-func (c Client) Uninstall(e Env) error { return c.uninstall(e) }
+// Install registers s, replacing a registration of the same name.
+func (c Client) Install(e Env, s Server) error { return c.install(e, s) }
+
+// Uninstall removes the registration named name.
+func (c Client) Uninstall(e Env, name string) error { return c.uninstall(e, name) }
 
 // jsonClient is a client configured by a JSON or JSONC file.
-func jsonClient(id, name, note string, path func(Env) string, detect func(Env) bool, keyPath []string, entry func(bin string) any) Client {
+func jsonClient(id, name, note string, path func(Env) string, detect func(Env) bool, keyPath []string, entry func(Server) any) Client {
 	return Client{
 		ID: id, Name: name, Note: note,
 		detect:    detect,
-		installed: func(e Env) bool { return hasJSONEntry(path(e), keyPath, ServerName) },
-		install:   func(e Env, bin string) error { return setJSONEntry(path(e), keyPath, ServerName, entry(bin)) },
-		uninstall: func(e Env) error { return setJSONEntry(path(e), keyPath, ServerName, nil) },
+		installed: func(e Env, name string) bool { return hasJSONEntry(path(e), keyPath, name) },
+		install:   func(e Env, s Server) error { return setJSONEntry(path(e), keyPath, s.Name, entry(s)) },
+		uninstall: func(e Env, name string) error { return setJSONEntry(path(e), keyPath, name, nil) },
 	}
 }
 
-func stdioEntry(bin string) any { return map[string]any{"command": bin, "args": []string{}} }
+func (s Server) args() []string {
+	if s.Args == nil {
+		return []string{}
+	}
+	return s.Args
+}
 
-func typedStdioEntry(bin string) any {
-	return map[string]any{"type": "stdio", "command": bin, "args": []string{}}
+func stdioEntry(s Server) any { return map[string]any{"command": s.Command, "args": s.args()} }
+
+func typedStdioEntry(s Server) any {
+	return map[string]any{"type": "stdio", "command": s.Command, "args": s.args()}
 }
 
 // All lists the supported clients.
@@ -166,8 +181,8 @@ func All() []Client {
 			func(e Env) string { return clineSettings(e) },
 			func(e Env) bool { return e.exists(filepath.Join(e.Home, ".cline")) || e.onPath("cline") },
 			[]string{"mcpServers"},
-			func(bin string) any {
-				return map[string]any{"command": bin, "args": []string{}, "disabled": false, "autoApprove": []string{}}
+			func(s Server) any {
+				return map[string]any{"command": s.Command, "args": s.args(), "disabled": false, "autoApprove": []string{}}
 			}),
 		jsonClient("lmstudio", "LM Studio", restart,
 			func(e Env) string { return filepath.Join(e.Home, ".lmstudio", "mcp.json") },
@@ -177,8 +192,8 @@ func All() []Client {
 			opencodeConfig,
 			func(e Env) bool { return e.onPath("opencode") || e.exists(filepath.Join(e.xdgConfig(), "opencode")) },
 			[]string{"mcp"},
-			func(bin string) any {
-				return map[string]any{"type": "local", "command": []string{bin}, "enabled": true}
+			func(s Server) any {
+				return map[string]any{"type": "local", "command": append([]string{s.Command}, s.Args...), "enabled": true}
 			}),
 	}
 }
@@ -227,12 +242,12 @@ func claudeCode() Client {
 	return Client{
 		ID: "claude-code", Name: "Claude Code",
 		detect:    func(e Env) bool { return e.onPath("claude") },
-		installed: func(e Env) bool { return hasJSONEntry(path(e), []string{"mcpServers"}, ServerName) },
-		install: func(e Env, bin string) error {
-			_ = e.Run("claude", "mcp", "remove", "--scope", "user", ServerName)
-			return e.Run("claude", "mcp", "add", "--scope", "user", ServerName, "--", bin)
+		installed: func(e Env, name string) bool { return hasJSONEntry(path(e), []string{"mcpServers"}, name) },
+		install: func(e Env, s Server) error {
+			_ = e.Run("claude", "mcp", "remove", "--scope", "user", s.Name)
+			return e.Run("claude", append([]string{"mcp", "add", "--scope", "user", s.Name, "--", s.Command}, s.Args...)...)
 		},
-		uninstall: func(e Env) error { return e.Run("claude", "mcp", "remove", "--scope", "user", ServerName) },
+		uninstall: func(e Env, name string) error { return e.Run("claude", "mcp", "remove", "--scope", "user", name) },
 	}
 }
 
@@ -248,37 +263,44 @@ func codex() Client {
 	return Client{
 		ID: "codex", Name: "Codex",
 		detect: func(e Env) bool { return e.onPath("codex") || e.exists(home(e)) },
-		installed: func(e Env) bool {
+		installed: func(e Env, name string) bool {
 			data, err := os.ReadFile(path(e))
-			return err == nil && tomlBlock.Match(data)
+			return err == nil && tomlTable(name).Match(data)
 		},
-		install: func(e Env, bin string) error {
+		install: func(e Env, s Server) error {
 			if e.onPath("codex") {
-				_ = e.Run("codex", "mcp", "remove", ServerName)
-				return e.Run("codex", "mcp", "add", ServerName, "--", bin)
+				_ = e.Run("codex", "mcp", "remove", s.Name)
+				return e.Run("codex", append([]string{"mcp", "add", s.Name, "--", s.Command}, s.Args...)...)
 			}
-			return setTOMLBlock(path(e), fmt.Sprintf("[mcp_servers.%s]\ncommand = %s\nargs = []\n", ServerName, tomlString(bin)))
+			args := make([]string, len(s.Args))
+			for i, a := range s.Args {
+				args[i] = tomlString(a)
+			}
+			block := fmt.Sprintf("[mcp_servers.%s]\ncommand = %s\nargs = [%s]\n", s.Name, tomlString(s.Command), strings.Join(args, ", "))
+			return setTOMLBlock(path(e), s.Name, block)
 		},
-		uninstall: func(e Env) error {
+		uninstall: func(e Env, name string) error {
 			if e.onPath("codex") {
-				return e.Run("codex", "mcp", "remove", ServerName)
+				return e.Run("codex", "mcp", "remove", name)
 			}
-			return setTOMLBlock(path(e), "")
+			return setTOMLBlock(path(e), name, "")
 		},
 	}
 }
 
-var tomlBlock = regexp.MustCompile(`(?m)^\[mcp_servers\.` + ServerName + `\]\s*$`)
+func tomlTable(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^\[mcp_servers\.` + regexp.QuoteMeta(name) + `\]\s*$`)
+}
 
-// setTOMLBlock replaces the [mcp_servers.youtrack] table (up to the next
+// setTOMLBlock replaces the [mcp_servers.<name>] table (up to the next
 // table header) with block, or appends it; an empty block removes it.
-func setTOMLBlock(path, block string) error {
+func setTOMLBlock(path, name, block string) error {
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	text := string(data)
-	if loc := tomlBlock.FindStringIndex(text); loc != nil {
+	if loc := tomlTable(name).FindStringIndex(text); loc != nil {
 		end := len(text)
 		if next := regexp.MustCompile(`(?m)^\[`).FindStringIndex(text[loc[1]:]); next != nil {
 			end = loc[1] + next[0]

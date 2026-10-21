@@ -36,6 +36,9 @@ func newEnv(t *testing.T, onPath ...string) *fakeEnv {
 	return f
 }
 
+// srv is the default profile's registration.
+var srv = Server{Name: "youtrack", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack"}}
+
 func byID(t *testing.T, id string) Client {
 	t.Helper()
 	for _, c := range All() {
@@ -78,10 +81,10 @@ func TestZedKeepsCommentsAndKeys(t *testing.T) {
 }
 `)
 	zed := byID(t, "zed")
-	if !zed.Detected(e.Env) || zed.Installed(e.Env) {
+	if !zed.Detected(e.Env) || zed.Installed(e.Env, "youtrack") {
 		t.Fatal("zed should be detected and not installed")
 	}
-	if err := zed.Install(e.Env, "/opt/ymcp"); err != nil {
+	if err := zed.Install(e.Env, srv); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, path)
@@ -93,14 +96,47 @@ func TestZedKeepsCommentsAndKeys(t *testing.T) {
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Errorf("mode changed to %v", info.Mode().Perm())
 	}
-	if !zed.Installed(e.Env) || read(t, path+".ymcp.bak") == "" {
+	if !zed.Installed(e.Env, "youtrack") || read(t, path+".ymcp.bak") == "" {
 		t.Error("not installed or no backup")
 	}
-	if err := zed.Uninstall(e.Env); err != nil {
+	if err := zed.Uninstall(e.Env, "youtrack"); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, path); strings.Contains(got, "youtrack") || !strings.Contains(got, `"other"`) {
 		t.Errorf("after uninstall:\n%s", got)
+	}
+}
+
+func TestProfilesAreSeparateServers(t *testing.T) {
+	e := newEnv(t)
+	os.MkdirAll(filepath.Join(e.Home, ".cursor"), 0o755)
+	beget := Server{Name: "youtrack-beget", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-beget"}}
+	c := byID(t, "cursor")
+	for _, s := range []Server{srv, beget} {
+		if err := c.Install(e.Env, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !c.Installed(e.Env, "youtrack") || !c.Installed(e.Env, "youtrack-beget") || c.Installed(e.Env, "other") {
+		t.Fatal("both profiles should be registered, and nothing else")
+	}
+	if err := c.Uninstall(e.Env, "youtrack"); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(e.Home, ".cursor", "mcp.json"))
+	if strings.Contains(got, `"youtrack":`) || !strings.Contains(got, `"youtrack-beget"`) {
+		t.Errorf("after removing youtrack:\n%s", got)
+	}
+
+	// Codex tables of several profiles don't clobber each other.
+	codex := byID(t, "codex")
+	os.MkdirAll(filepath.Join(e.Home, ".codex"), 0o755)
+	codex.Install(e.Env, srv)
+	codex.Install(e.Env, beget)
+	codex.Install(e.Env, srv)
+	toml := read(t, filepath.Join(e.Home, ".codex", "config.toml"))
+	if strings.Count(toml, "[mcp_servers.youtrack]") != 1 || strings.Count(toml, "[mcp_servers.youtrack-beget]") != 1 {
+		t.Errorf("config.toml:\n%s", toml)
 	}
 }
 
@@ -111,14 +147,14 @@ func TestClaudeDesktopCreatesConfig(t *testing.T) {
 	if !c.Detected(e.Env) {
 		t.Fatal("not detected")
 	}
-	if err := c.Install(e.Env, "/opt/ymcp"); err != nil {
+	if err := c.Install(e.Env, srv); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(e.Home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))
 	if !strings.Contains(got, `"mcpServers"`) || !strings.Contains(got, `"command": "/opt/ymcp"`) {
 		t.Errorf("config:\n%s", got)
 	}
-	if !c.Installed(e.Env) {
+	if !c.Installed(e.Env, "youtrack") {
 		t.Error("not installed")
 	}
 }
@@ -129,7 +165,7 @@ func TestVSCodeUsesServersKey(t *testing.T) {
 	path := filepath.Join(e.Home, ".config", "Code", "User", "mcp.json")
 	write(t, path, `{"inputs": [], "servers": {}}`)
 	c := byID(t, "vscode")
-	if err := c.Install(e.Env, "/opt/ymcp"); err != nil {
+	if err := c.Install(e.Env, srv); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, path); !strings.Contains(got, `"inputs"`) || !strings.Contains(got, `"youtrack": {`) || !strings.Contains(got, `"type": "stdio"`) {
@@ -142,17 +178,17 @@ func TestCodexTOMLFallback(t *testing.T) {
 	path := filepath.Join(e.Home, ".codex", "config.toml")
 	write(t, path, "model = \"gpt\"\n\n[mcp_servers.youtrack]\ncommand = \"/old\"\nargs = []\n\n[mcp_servers.other]\ncommand = \"x\"\n")
 	c := byID(t, "codex")
-	if !c.Detected(e.Env) || !c.Installed(e.Env) {
+	if !c.Detected(e.Env) || !c.Installed(e.Env, "youtrack") {
 		t.Fatal("codex should be detected and installed")
 	}
-	if err := c.Install(e.Env, "/opt/ymcp"); err != nil {
+	if err := c.Install(e.Env, srv); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, path)
-	if strings.Contains(got, "/old") || !strings.Contains(got, "command = '/opt/ymcp'") || !strings.Contains(got, "[mcp_servers.other]") || !strings.HasPrefix(got, "model") {
+	if strings.Contains(got, "/old") || !strings.Contains(got, "command = '/opt/ymcp'\nargs = ['--profile', 'youtrack']") || !strings.Contains(got, "[mcp_servers.other]") || !strings.HasPrefix(got, "model") {
 		t.Errorf("config.toml:\n%s", got)
 	}
-	if err := c.Uninstall(e.Env); err != nil {
+	if err := c.Uninstall(e.Env, "youtrack"); err != nil {
 		t.Fatal(err)
 	}
 	if got := read(t, path); strings.Contains(got, "youtrack") || !strings.Contains(got, "[mcp_servers.other]") {
@@ -163,15 +199,15 @@ func TestCodexTOMLFallback(t *testing.T) {
 func TestCLIClients(t *testing.T) {
 	e := newEnv(t, "claude", "codex")
 	for _, id := range []string{"claude-code", "codex"} {
-		if err := byID(t, id).Install(e.Env, "/opt/ymcp"); err != nil {
+		if err := byID(t, id).Install(e.Env, srv); err != nil {
 			t.Fatal(err)
 		}
 	}
 	want := []string{
 		"claude mcp remove --scope user youtrack",
-		"claude mcp add --scope user youtrack -- /opt/ymcp",
+		"claude mcp add --scope user youtrack -- /opt/ymcp --profile youtrack",
 		"codex mcp remove youtrack",
-		"codex mcp add youtrack -- /opt/ymcp",
+		"codex mcp add youtrack -- /opt/ymcp --profile youtrack",
 	}
 	if strings.Join(e.ran, "\n") != strings.Join(want, "\n") {
 		t.Errorf("ran:\n%s", strings.Join(e.ran, "\n"))
@@ -181,11 +217,11 @@ func TestCLIClients(t *testing.T) {
 func TestOpencodeCommandIsArray(t *testing.T) {
 	e := newEnv(t, "opencode")
 	c := byID(t, "opencode")
-	if err := c.Install(e.Env, "/opt/ymcp"); err != nil {
+	if err := c.Install(e.Env, srv); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(e.Home, ".config", "opencode", "opencode.json"))
-	if !strings.Contains(got, `"command": [`) || !strings.Contains(got, `"type": "local"`) {
+	if !strings.Contains(got, `"/opt/ymcp",`) || !strings.Contains(got, `"--profile",`) || !strings.Contains(got, `"type": "local"`) {
 		t.Errorf("opencode.json:\n%s", got)
 	}
 }
@@ -211,7 +247,7 @@ func TestPathsPerOS(t *testing.T) {
 			}
 			return ""
 		}
-		if err := byID(t, c.client).Install(e.Env, "/opt/ymcp"); err != nil {
+		if err := byID(t, c.client).Install(e.Env, srv); err != nil {
 			t.Fatalf("%s/%s: %v", c.goos, c.client, err)
 		}
 		// Exact case matters: Linux file systems are case-sensitive.

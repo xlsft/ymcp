@@ -55,6 +55,7 @@ func setup(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	server := clients.Server{Name: cfg.Name, Command: bin, Args: []string{"--profile", cfg.Name}}
 	env, err := clients.System(runtime.GOOS)
 	if err != nil {
 		return err
@@ -81,11 +82,11 @@ func setup(ctx context.Context, args []string) error {
 			chosen = append(chosen, c.ID)
 		}
 	case interactive():
-		anyInstalled := slices.ContainsFunc(detected, func(c clients.Client) bool { return c.Installed(env) })
+		anyInstalled := slices.ContainsFunc(detected, func(c clients.Client) bool { return c.Installed(env, server.Name) })
 		opts := make([]huh.Option[string], 0, len(detected))
 		for _, c := range detected {
 			label := c.Name
-			installed := c.Installed(env)
+			installed := c.Installed(env, server.Name)
 			if installed {
 				label += styleDim.Render("  · added")
 			}
@@ -107,10 +108,10 @@ func setup(ctx context.Context, args []string) error {
 	var failed int
 	for _, c := range detected {
 		want := slices.Contains(chosen, c.ID)
-		had := c.Installed(env)
+		had := c.Installed(env, server.Name)
 		switch {
 		case want:
-			if err := c.Install(env, bin); err != nil {
+			if err := c.Install(env, server); err != nil {
 				failed++
 				fmt.Printf("%s %s: %v\n", styleWarn.Render("✗"), c.Name, err)
 				continue
@@ -121,7 +122,7 @@ func setup(ctx context.Context, args []string) error {
 			}
 			fmt.Printf("%s %s%s\n", styleOK.Render("✓"), c.Name, note)
 		case had:
-			if err := c.Uninstall(env); err != nil {
+			if err := c.Uninstall(env, server.Name); err != nil {
 				failed++
 				fmt.Printf("%s %s: %v\n", styleWarn.Render("✗"), c.Name, err)
 				continue
@@ -136,7 +137,7 @@ func setup(ctx context.Context, args []string) error {
 		}
 		fmt.Println(styleDim.Render("\nNot found on this machine: " + strings.Join(names, ", ")))
 	}
-	fmt.Println(styleDim.Render("\nServer: " + bin + " (stdio, name \"" + clients.ServerName + "\")"))
+	fmt.Println(styleDim.Render("\nServer: " + bin + " --profile " + server.Name + " (stdio, name \"" + server.Name + "\")"))
 	if failed > 0 {
 		return fmt.Errorf("%d client(s) failed", failed)
 	}
