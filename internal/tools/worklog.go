@@ -36,6 +36,61 @@ type timeTrackingSettings struct {
 
 const workItemFields = "id,date,text,duration(minutes,presentation),type(name),author(login),attributes(name,value(name))"
 
+type apiWorkItem struct {
+	ID       string `json:"id"`
+	Date     millis `json:"date"`
+	Text     string `json:"text"`
+	Duration struct {
+		Minutes      int    `json:"minutes"`
+		Presentation string `json:"presentation"`
+	} `json:"duration"`
+	Type       *namedRef `json:"type"`
+	Author     *userRef  `json:"author"`
+	Attributes []struct {
+		Name  string    `json:"name"`
+		Value *namedRef `json:"value"`
+	} `json:"attributes"`
+}
+
+func (w apiWorkItem) public() map[string]any {
+	out := map[string]any{
+		"id":          w.ID,
+		"date":        w.Date,
+		"duration":    w.Duration.Presentation,
+		"minutes":     w.Duration.Minutes,
+		"description": w.Text,
+	}
+	if w.Type != nil {
+		out["workType"] = w.Type.Name
+	}
+	if w.Author != nil {
+		out["author"] = w.Author.Login
+	}
+	if len(w.Attributes) > 0 {
+		attrs := map[string]any{}
+		for _, a := range w.Attributes {
+			if a.Value != nil {
+				attrs[a.Name] = a.Value.Name
+			} else {
+				attrs[a.Name] = nil
+			}
+		}
+		out["attributes"] = attrs
+	}
+	return out
+}
+
+type getIssueWorkItemsIn struct {
+	IssueID string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	Offset  int    `json:"offset,omitempty" jsonschema:"Number of work items to skip. Default 0."`
+	Limit   int    `json:"limit,omitempty" jsonschema:"Max work items to return. Default 20, max 50."`
+}
+
+type deleteWorkItemIn struct {
+	IssueID    string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	WorkItemID string `json:"workItemId" jsonschema:"Work item ID from get_issue_work_items or log_work, e.g. 199-6"`
+}
+
 func (t *toolset) registerWorkItems(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name: "log_work",
@@ -46,6 +101,45 @@ func (t *toolset) registerWorkItems(s *mcp.Server) {
 			p["durationMinutes"].ExclusiveMinimum = new(float64)
 		}),
 	}, t.logWork)
+
+	add(s, &mcp.Tool{
+		Name:        "get_issue_work_items",
+		Description: "Returns spent time work items of an issue, oldest first, with total minutes. Paginated.",
+		Annotations: readOnly("Get issue work items"),
+	}, t.getIssueWorkItems)
+
+	add(s, &mcp.Tool{
+		Name:        "delete_work_item",
+		Description: "Permanently deletes a spent time work item. Work item IDs come from get_issue_work_items.",
+		Annotations: mutating("Delete work item", true),
+	}, t.deleteWorkItem)
+}
+
+func (t *toolset) getIssueWorkItems(ctx context.Context, in getIssueWorkItemsIn) (any, error) {
+	offset, limit := page(in.Offset, in.Limit, 20, 50)
+	var items []apiWorkItem
+	path := "issues/" + url.PathEscape(in.IssueID) + "/timeTracking/workItems"
+	if err := t.yt.Get(ctx, path, url.Values{"fields": {workItemFields}, "$top": {"-1"}}, &items); err != nil {
+		return nil, err
+	}
+	totalMinutes := 0
+	for _, w := range items {
+		totalMinutes += w.Duration.Minutes
+	}
+	total := len(items)
+	out := []map[string]any{}
+	for _, w := range items[min(offset, total):min(offset+limit, total)] {
+		out = append(out, w.public())
+	}
+	return map[string]any{"issueId": in.IssueID, "workItems": out, "offset": offset, "total": total, "totalMinutes": totalMinutes}, nil
+}
+
+func (t *toolset) deleteWorkItem(ctx context.Context, in deleteWorkItemIn) (any, error) {
+	path := "issues/" + url.PathEscape(in.IssueID) + "/timeTracking/workItems/" + url.PathEscape(in.WorkItemID)
+	if err := t.yt.Delete(ctx, path, nil); err != nil {
+		return nil, err
+	}
+	return map[string]any{"issueId": in.IssueID, "deletedWorkItem": in.WorkItemID}, nil
 }
 
 func (t *toolset) logWork(ctx context.Context, in logWorkIn) (any, error) {
@@ -91,51 +185,13 @@ func (t *toolset) logWork(ctx context.Context, in logWorkIn) (any, error) {
 		}
 	}
 
-	var item struct {
-		ID       string `json:"id"`
-		Date     millis `json:"date"`
-		Text     string `json:"text"`
-		Duration struct {
-			Minutes      int    `json:"minutes"`
-			Presentation string `json:"presentation"`
-		} `json:"duration"`
-		Type       *namedRef `json:"type"`
-		Author     *userRef  `json:"author"`
-		Attributes []struct {
-			Name  string    `json:"name"`
-			Value *namedRef `json:"value"`
-		} `json:"attributes"`
-	}
+	var item apiWorkItem
 	path := "issues/" + url.PathEscape(in.IssueID) + "/timeTracking/workItems"
 	if err := t.yt.Post(ctx, path, url.Values{"fields": {workItemFields}}, body, &item); err != nil {
 		return nil, err
 	}
-
-	out := map[string]any{
-		"id":          item.ID,
-		"issueId":     in.IssueID,
-		"date":        item.Date,
-		"duration":    item.Duration.Presentation,
-		"minutes":     item.Duration.Minutes,
-		"description": item.Text,
-	}
-	if item.Type != nil {
-		out["workType"] = item.Type.Name
-	}
-	if item.Author != nil {
-		out["author"] = item.Author.Login
-	}
-	if len(item.Attributes) > 0 {
-		attrs := map[string]any{}
-		for _, a := range item.Attributes {
-			if a.Value != nil {
-				attrs[a.Name] = a.Value.Name
-			} else {
-				attrs[a.Name] = nil
-			}
-		}
-		out["attributes"] = attrs
-	}
+	out := item.public()
+	out["issueId"] = in.IssueID
 	return out, nil
 }
 

@@ -835,3 +835,31 @@ func fakeComments(t *testing.T, n, deleted int) http.HandlerFunc {
 		json.NewEncoder(w).Encode(out)
 	}
 }
+
+func TestWorkItemsListAndDelete(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issues/DEMO-7/timeTracking/workItems", `[
+		{"id":"8-1","date":1767225600000,"duration":{"minutes":30,"presentation":"30m"},"type":{"name":"Testing"},"author":{"login":"alice"}},
+		{"id":"8-2","date":1767225600000,"duration":{"minutes":60,"presentation":"1h"},"author":{"login":"bob"}}]`)
+	var deleted string
+	api.handle("DELETE /api/issues/DEMO-7/timeTracking/workItems/8-2", func(w http.ResponseWriter, r *http.Request) { deleted = r.URL.Path })
+	cs := connect(t, api)
+
+	var out struct {
+		WorkItems    []map[string]any
+		Total        int
+		TotalMinutes int
+	}
+	if isErr, text := call(t, cs, "get_issue_work_items", map[string]any{"issueId": "DEMO-7", "offset": 1}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.Total != 2 || out.TotalMinutes != 90 || len(out.WorkItems) != 1 || out.WorkItems[0]["id"] != "8-2" {
+		t.Errorf("out = %+v", out)
+	}
+	if isErr, text := call(t, cs, "delete_work_item", map[string]any{"issueId": "DEMO-7", "workItemId": "8-2"}, nil); isErr {
+		t.Fatal(text)
+	}
+	if deleted == "" {
+		t.Error("work item was not deleted")
+	}
+}
