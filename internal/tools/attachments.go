@@ -20,6 +20,7 @@ const (
 	maxInlineText    = 256 << 10
 	maxInlineImage   = 4 << 20
 	maxUpload        = 50 << 20
+	maxUploadTotal   = 200 << 20
 )
 
 type apiAttachment struct {
@@ -33,63 +34,94 @@ type apiAttachment struct {
 }
 
 type getIssueAttachmentsIn struct {
-	IssueID string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	IssueID   string `json:"issueId,omitempty" jsonschema:"Issue ID, e.g. DEMO-123 (or pass articleId)"`
+	ArticleID string `json:"articleId,omitempty" jsonschema:"Knowledge base article ID, e.g. DEMO-A-4 (instead of issueId)"`
 }
 
 type getAttachmentIn struct {
-	IssueID    string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	IssueID    string `json:"issueId,omitempty" jsonschema:"Issue ID, e.g. DEMO-123 (or pass articleId)"`
+	ArticleID  string `json:"articleId,omitempty" jsonschema:"Knowledge base article ID, e.g. DEMO-A-4 (instead of issueId)"`
 	Attachment string `json:"attachment" jsonschema:"Attachment ID (e.g. 12-169) or file name"`
 	SaveTo     string `json:"saveTo,omitempty" jsonschema:"Local file or directory to save the attachment to instead of returning it"`
 }
 
 type addAttachmentIn struct {
-	IssueID     string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
-	FilePath    string `json:"filePath,omitempty" jsonschema:"Local file to attach"`
-	FileName    string `json:"fileName,omitempty" jsonschema:"Name for the attachment; required with textContent, defaults to the file's name"`
-	TextContent string `json:"textContent,omitempty" jsonschema:"Attach this text instead of a local file, e.g. a log excerpt"`
+	IssueID     string   `json:"issueId,omitempty" jsonschema:"Issue ID, e.g. DEMO-123 (or pass articleId)"`
+	ArticleID   string   `json:"articleId,omitempty" jsonschema:"Knowledge base article ID, e.g. DEMO-A-4 (instead of issueId)"`
+	FilePath    string   `json:"filePath,omitempty" jsonschema:"Local file to attach"`
+	FilePaths   []string `json:"filePaths,omitempty" jsonschema:"Several local files to attach in one request, e.g. all images of an article"`
+	FileName    string   `json:"fileName,omitempty" jsonschema:"Name for a single attachment; required with textContent, defaults to the file's name"`
+	TextContent string   `json:"textContent,omitempty" jsonschema:"Attach this text instead of a local file, e.g. a log excerpt"`
 }
 
 type deleteAttachmentIn struct {
-	IssueID    string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	IssueID    string `json:"issueId,omitempty" jsonschema:"Issue ID, e.g. DEMO-123 (or pass articleId)"`
+	ArticleID  string `json:"articleId,omitempty" jsonschema:"Knowledge base article ID, e.g. DEMO-A-4 (instead of issueId)"`
 	Attachment string `json:"attachment" jsonschema:"Attachment ID (e.g. 12-169) or file name"`
 }
 
 func (t *toolset) registerAttachments(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "get_issue_attachments",
-		Description: "Lists the attachments of an issue: ID, file name, size, type, author and date.",
-		Annotations: readOnly("Get issue attachments"),
+		Description: "Lists the attachments of an issue or a knowledge base article: ID, file name, size, type, author and date.",
+		Annotations: readOnly("Get attachments"),
 	}, t.getIssueAttachments)
 
 	add(s, &mcp.Tool{
 		Name: "get_attachment",
-		Description: "Reads an attachment. Text files are returned as text and images as images; " +
+		Description: "Reads an attachment of an issue or article. Text files are returned as text and images as images; " +
 			"other files, or anything too large to inline, are saved to saveTo on this machine.",
 		Annotations: readOnly("Get attachment"),
 	}, t.getAttachment)
 
 	add(s, &mcp.Tool{
-		Name:        "add_attachment",
-		Description: "Attaches a local file, or the given text as a file, to an issue. Returns the attachment ID.",
+		Name: "add_attachment",
+		Description: "Attaches local files (filePath, or several with filePaths), or the given text as a file, to an issue " +
+			"or a knowledge base article. Article text can then reference the images by file name. Returns the attachment IDs.",
 		Annotations: mutating("Add attachment", false),
 	}, t.addAttachment)
 
 	add(s, &mcp.Tool{
 		Name:        "delete_attachment",
-		Description: "Permanently deletes an attachment from an issue.",
+		Description: "Permanently deletes an attachment from an issue or article.",
 		Annotations: mutating("Delete attachment", true),
 	}, t.deleteAttachment)
 }
 
-func (t *toolset) attachments(ctx context.Context, issueID string) ([]apiAttachment, error) {
+// attachmentOwner is the issue or article whose attachments a tool works on.
+type attachmentOwner struct {
+	key, id string // "issueId" or "articleId", and the ID
+}
+
+func ownerOf(issueID, articleID string) (attachmentOwner, error) {
+	switch {
+	case issueID != "" && articleID != "":
+		return attachmentOwner{}, fmt.Errorf("pass either issueId or articleId, not both")
+	case articleID != "":
+		return attachmentOwner{"articleId", articleID}, nil
+	case issueID != "":
+		return attachmentOwner{"issueId", issueID}, nil
+	}
+	return attachmentOwner{}, fmt.Errorf("pass issueId or articleId")
+}
+
+// path is the REST collection of the owner's attachments.
+func (o attachmentOwner) path() string {
+	if o.key == "articleId" {
+		return "articles/" + url.PathEscape(o.id) + "/attachments"
+	}
+	return "issues/" + url.PathEscape(o.id) + "/attachments"
+}
+
+func (t *toolset) attachments(ctx context.Context, o attachmentOwner) ([]apiAttachment, error) {
 	var list []apiAttachment
-	path := "issues/" + url.PathEscape(issueID) + "/attachments"
-	err := t.yt.Get(ctx, path, url.Values{"fields": {attachmentFields}, "$top": {"-1"}}, &list)
+	err := t.yt.Get(ctx, o.path(), url.Values{"fields": {attachmentFields}, "$top": {"-1"}}, &list)
 	return list, err
 }
 
-func (t *toolset) findAttachment(ctx context.Context, issueID, ref string) (apiAttachment, error) {
-	list, err := t.attachments(ctx, issueID)
+func (t *toolset) findAttachment(ctx context.Context, o attachmentOwner, ref string) (apiAttachment, error) {
+	issueID := o.id
+	list, err := t.attachments(ctx, o)
 	if err != nil {
 		return apiAttachment{}, err
 	}
@@ -109,7 +141,11 @@ func (t *toolset) findAttachment(ctx context.Context, issueID, ref string) (apiA
 }
 
 func (t *toolset) getIssueAttachments(ctx context.Context, in getIssueAttachmentsIn) (any, error) {
-	list, err := t.attachments(ctx, in.IssueID)
+	o, err := ownerOf(in.IssueID, in.ArticleID)
+	if err != nil {
+		return nil, err
+	}
+	list, err := t.attachments(ctx, o)
 	if err != nil {
 		return nil, err
 	}
@@ -129,11 +165,15 @@ func (t *toolset) getIssueAttachments(ctx context.Context, in getIssueAttachment
 		}
 		out = append(out, at)
 	}
-	return map[string]any{"issueId": in.IssueID, "attachments": out}, nil
+	return map[string]any{o.key: o.id, "attachments": out}, nil
 }
 
 func (t *toolset) getAttachment(ctx context.Context, in getAttachmentIn) (any, error) {
-	a, err := t.findAttachment(ctx, in.IssueID, in.Attachment)
+	o, err := ownerOf(in.IssueID, in.ArticleID)
+	if err != nil {
+		return nil, err
+	}
+	a, err := t.findAttachment(ctx, o, in.Attachment)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +200,7 @@ func (t *toolset) getAttachment(ctx context.Context, in getAttachmentIn) (any, e
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			return nil, err
 		}
-		return map[string]any{"issueId": in.IssueID, "attachment": a.Name, "savedTo": path, "size": len(data)}, nil
+		return map[string]any{o.key: o.id, "attachment": a.Name, "savedTo": path, "size": len(data)}, nil
 	}
 	if image {
 		return &mcp.CallToolResult{Content: []mcp.Content{
@@ -186,54 +226,88 @@ func isText(contentType string, data []byte) bool {
 }
 
 func (t *toolset) addAttachment(ctx context.Context, in addAttachmentIn) (any, error) {
-	var file youtrack.File
+	o, err := ownerOf(in.IssueID, in.ArticleID)
+	if err != nil {
+		return nil, err
+	}
+	paths := in.FilePaths
+	if in.FilePath != "" {
+		paths = append([]string{in.FilePath}, paths...)
+	}
+	var files []youtrack.File
 	switch {
-	case in.FilePath != "" && in.TextContent != "":
-		return nil, fmt.Errorf("pass either filePath or textContent, not both")
-	case in.FilePath != "":
-		info, err := os.Stat(in.FilePath)
-		if err != nil {
-			return nil, err
+	case len(paths) > 0 && in.TextContent != "":
+		return nil, fmt.Errorf("pass either files or textContent, not both")
+	case len(paths) > 0:
+		if in.FileName != "" && len(paths) > 1 {
+			return nil, fmt.Errorf("fileName only renames a single file")
 		}
-		if info.Size() > maxUpload {
-			return nil, fmt.Errorf("%s is larger than %d MB", in.FilePath, maxUpload>>20)
+		var total int64
+		for _, p := range paths {
+			info, err := os.Stat(p)
+			if err != nil {
+				return nil, err
+			}
+			if info.Size() > maxUpload {
+				return nil, fmt.Errorf("%s is larger than %d MB", p, maxUpload>>20)
+			}
+			if total += info.Size(); total > maxUploadTotal {
+				return nil, fmt.Errorf("files add up to more than %d MB; attach them in several calls", maxUploadTotal>>20)
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, youtrack.File{Name: filepath.Base(p), Content: data})
 		}
-		data, err := os.ReadFile(in.FilePath)
-		if err != nil {
-			return nil, err
-		}
-		file = youtrack.File{Name: filepath.Base(in.FilePath), Content: data}
 	case in.TextContent != "":
 		if in.FileName == "" {
 			return nil, fmt.Errorf("fileName is required with textContent")
 		}
-		file = youtrack.File{Content: []byte(in.TextContent)}
+		files = []youtrack.File{{Content: []byte(in.TextContent)}}
 	default:
-		return nil, fmt.Errorf("pass filePath or textContent")
+		return nil, fmt.Errorf("pass filePath, filePaths or textContent")
 	}
 	if in.FileName != "" {
-		file.Name = in.FileName
+		files[0].Name = in.FileName
 	}
 
 	var created []apiAttachment
-	path := "issues/" + url.PathEscape(in.IssueID) + "/attachments"
-	if err := t.yt.Upload(ctx, path, url.Values{"fields": {"id,name,size,mimeType"}}, []youtrack.File{file}, &created); err != nil {
+	if err := t.yt.Upload(ctx, o.path(), url.Values{"fields": {"id,name,size,mimeType"}}, files, &created); err != nil {
 		return nil, err
 	}
 	if len(created) == 0 {
 		return nil, fmt.Errorf("YouTrack accepted the upload but returned no attachment")
 	}
-	c := created[0]
-	return map[string]any{"issueId": in.IssueID, "id": c.ID, "name": c.Name, "size": c.Size, "mimeType": c.MimeType}, nil
+	type attachment struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Size     int64  `json:"size"`
+		MimeType string `json:"mimeType,omitempty"`
+	}
+	list := make([]attachment, 0, len(created))
+	for _, c := range created {
+		list = append(list, attachment{c.ID, c.Name, c.Size, c.MimeType})
+	}
+	out := map[string]any{o.key: o.id, "attachments": list}
+	if len(list) == 1 {
+		// A single upload also answers flat, as before multi-file uploads.
+		out["id"], out["name"], out["size"], out["mimeType"] = list[0].ID, list[0].Name, list[0].Size, list[0].MimeType
+	}
+	return out, nil
 }
 
 func (t *toolset) deleteAttachment(ctx context.Context, in deleteAttachmentIn) (any, error) {
-	a, err := t.findAttachment(ctx, in.IssueID, in.Attachment)
+	o, err := ownerOf(in.IssueID, in.ArticleID)
 	if err != nil {
 		return nil, err
 	}
-	if err := t.yt.Delete(ctx, "issues/"+url.PathEscape(in.IssueID)+"/attachments/"+url.PathEscape(a.ID), nil); err != nil {
+	a, err := t.findAttachment(ctx, o, in.Attachment)
+	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"issueId": in.IssueID, "deleted": a.Name, "id": a.ID}, nil
+	if err := t.yt.Delete(ctx, o.path()+"/"+url.PathEscape(a.ID), nil); err != nil {
+		return nil, err
+	}
+	return map[string]any{o.key: o.id, "deleted": a.Name, "id": a.ID}, nil
 }

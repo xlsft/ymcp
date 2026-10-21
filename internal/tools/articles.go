@@ -41,10 +41,17 @@ type apiArticle struct {
 	ChildArticles []apiArticleRef `json:"childArticles"`
 	Tags          []apiTag        `json:"tags"`
 	Visibility    *apiVisibility  `json:"visibility"`
+	Attachments   []struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Size     int64  `json:"size"`
+		MimeType string `json:"mimeType,omitempty"`
+	} `json:"attachments"`
 }
 
 const articleFields = "idReadable,summary,content,created,updated,reporter(login,fullName),project(shortName,name)," +
-	"parentArticle(idReadable,summary),childArticles(idReadable,summary),tags(id,name)," + visibilityFields
+	"parentArticle(idReadable,summary),childArticles(idReadable,summary),tags(id,name)," +
+	"attachments(id,name,size,mimeType)," + visibilityFields
 
 type createArticleIn struct {
 	Project         string   `json:"project" jsonschema:"Project key, e.g. HELP"`
@@ -90,7 +97,7 @@ func (t *toolset) registerArticles(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name: "get_article",
-		Description: "Returns an article: title, content, parent and sub-articles, tags and visibility. " +
+		Description: "Returns an article: title, content, parent and sub-articles, tags, attachments and visibility. " +
 			"Long content can be read in segments with linesOffset and linesCount.",
 		Annotations: readOnly("Get article"),
 	}, t.getArticle)
@@ -233,6 +240,7 @@ func (t *toolset) getArticle(ctx context.Context, in getArticleIn) (any, error) 
 		"childArticles": children,
 		"tags":          tags,
 		"visibility":    a.Visibility.public(),
+		"attachments":   a.Attachments,
 		"content":       strings.Join(lines[from:to], "\n"),
 		"linesOffset":   from,
 		"totalLines":    len(lines),

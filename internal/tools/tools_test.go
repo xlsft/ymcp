@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1500,5 +1501,63 @@ func TestFindTagsAndAttachmentList(t *testing.T) {
 	}
 	if isErr, text := call(t, cs, "get_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "zzz"}, nil); !isErr || !strings.Contains(text, "a.txt (12-1)") {
 		t.Errorf("unknown attachment: isErr=%v %q", isErr, text)
+	}
+}
+
+func TestArticleAttachments(t *testing.T) {
+	api := newFakeAPI(t)
+	var mu sync.Mutex
+	var uploaded []string
+	api.handle("POST /api/articles/HELP-A-1/attachments", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		var out []map[string]any
+		for i, fh := range r.MultipartForm.File["file"] {
+			mu.Lock()
+			uploaded = append(uploaded, fh.Filename)
+			mu.Unlock()
+			out = append(out, map[string]any{"id": fmt.Sprintf("12-%d", i+1), "name": fh.Filename, "size": fh.Size, "mimeType": "image/png"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	})
+	api.json("GET /api/articles/HELP-A-1/attachments", `[{"id":"12-1","name":"one.png","size":3,"mimeType":"image/png","url":"/api/files/12-1?sign=s"}]`)
+	var deleted string
+	api.handle("DELETE /api/articles/HELP-A-1/attachments/12-1", func(w http.ResponseWriter, r *http.Request) { deleted = r.URL.Path })
+	cs := connect(t, api)
+
+	dir := t.TempDir()
+	var paths []string
+	for _, name := range []string{"one.png", "two.png"} {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte("png"), 0o644)
+		paths = append(paths, p)
+	}
+	var added struct {
+		ArticleID   string
+		Attachments []struct{ ID, Name string }
+	}
+	if isErr, text := call(t, cs, "add_attachment", map[string]any{"articleId": "HELP-A-1", "filePaths": paths}, &added); isErr {
+		t.Fatal(text)
+	}
+	if added.ArticleID != "HELP-A-1" || len(added.Attachments) != 2 || strings.Join(uploaded, ",") != "one.png,two.png" {
+		t.Errorf("added = %+v, uploaded = %v", added, uploaded)
+	}
+
+	var list struct {
+		Attachments []struct{ Name string }
+	}
+	if isErr, text := call(t, cs, "get_issue_attachments", map[string]any{"articleId": "HELP-A-1"}, &list); isErr || len(list.Attachments) != 1 {
+		t.Errorf("list: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "delete_attachment", map[string]any{"articleId": "HELP-A-1", "attachment": "one.png"}, nil); isErr || deleted == "" {
+		t.Errorf("delete: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "get_issue_attachments", map[string]any{}, nil); !isErr || !strings.Contains(text, "issueId or articleId") {
+		t.Errorf("no owner: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "add_attachment", map[string]any{"articleId": "HELP-A-1", "filePaths": paths, "fileName": "x.png"}, nil); !isErr || !strings.Contains(text, "single file") {
+		t.Errorf("fileName with many files: isErr=%v %q", isErr, text)
 	}
 }
