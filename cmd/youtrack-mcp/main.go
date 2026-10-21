@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,6 +33,8 @@ func run() error {
 	addr := flag.String("addr", "127.0.0.1:8090", "listen address for -transport=http")
 	envFile := flag.String("env", "", "load YOUTRACK_* variables from this file (existing env wins)")
 	check := flag.Bool("check", false, "log in, print the current user and exit")
+	callTool := flag.String("call", "", "call one tool, print its result and exit")
+	callArgs := flag.String("args", "{}", "JSON arguments for -call")
 	verbose := flag.Bool("v", false, "verbose logging")
 	flag.Parse()
 
@@ -79,6 +82,10 @@ func run() error {
 		return s
 	}
 
+	if *callTool != "" {
+		return callOnce(ctx, newServer(), *callTool, *callArgs)
+	}
+
 	switch *transport {
 	case "stdio":
 		return newServer().Run(ctx, &mcp.StdioTransport{})
@@ -98,4 +105,36 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown transport %q", *transport)
 	}
+}
+
+// callOnce runs a single tool call through an in-memory MCP session, so the
+// result is exactly what a client would get.
+func callOnce(ctx context.Context, server *mcp.Server, name, rawArgs string) error {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return fmt.Errorf("-args: %w", err)
+	}
+	ct, st := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, st, nil); err != nil {
+		return err
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "youtrack-mcp-call", Version: version}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		return err
+	}
+	defer cs.Close()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		return err
+	}
+	for _, c := range res.Content {
+		if text, ok := c.(*mcp.TextContent); ok {
+			fmt.Println(text.Text)
+		}
+	}
+	if res.IsError {
+		return fmt.Errorf("tool %s failed", name)
+	}
+	return nil
 }

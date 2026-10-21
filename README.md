@@ -68,6 +68,15 @@ cp .env.example .env
 
 Если вход прошёл, команда выведет `ok: logged in to … as …`.
 
+Любой инструмент можно вызвать разово через тот же MCP-путь, которым пользуется клиент.
+Результат печатается в stdout, а если инструмент вернул ошибку, код выхода будет 1:
+
+```bash
+./bin/youtrack-mcp -env .env -call find_projects -args '{"nameContains":""}'
+./bin/youtrack-mcp -env .env -call search_issues -args '{"query":"for: me #Unresolved","limit":5}'
+./bin/youtrack-mcp -env .env -call get_user_group_members -args '{"group":"All Users","limit":3}'
+```
+
 ### Сеть: VPN, корпоративный DNS и прокси
 
 YouTrack доступен только из внутренней сети, то есть через VPN или офисный Wi-Fi. Снаружи
