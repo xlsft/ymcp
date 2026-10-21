@@ -12,10 +12,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
@@ -27,6 +23,12 @@ jobs:
   release:
     needs: [ci, e2e]
     runs-on: ubuntu-latest
+    # Releases never overlap, but only this job waits its turn: a run whose
+    # checks are stuck, e.g. on a macOS runner, doesn't hold up newer ones,
+    # and it releases nothing once main has moved on.
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write # keyless Sigstore signing of checksums.txt
