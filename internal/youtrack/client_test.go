@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -188,13 +189,19 @@ func TestDownloadAndUpload(t *testing.T) {
 			w.Header().Set("Content-Type", "text/plain")
 			w.Write([]byte("hello"))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/issues/X-1/attachments":
-			f, h, err := r.FormFile("file")
-			if err != nil {
+			// Like YouTrack, keep only the first file of each form field.
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
 				t.Fatal(err)
 			}
-			body, _ := io.ReadAll(f)
+			var created []string
+			for field := range r.MultipartForm.File {
+				f, _ := r.MultipartForm.File[field][0].Open()
+				body, _ := io.ReadAll(f)
+				created = append(created, fmt.Sprintf(`{"name":%q,"size":%d}`, r.MultipartForm.File[field][0].Filename, len(body)))
+			}
+			sort.Strings(created)
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `[{"name":%q,"size":%d}]`, h.Filename, len(body))
+			fmt.Fprintf(w, "[%s]", strings.Join(created, ","))
 		default:
 			http.NotFound(w, r)
 		}
@@ -209,10 +216,11 @@ func TestDownloadAndUpload(t *testing.T) {
 		Name string
 		Size int
 	}
-	if err := c.Upload(context.Background(), "issues/X-1/attachments", nil, []File{{Name: "a.txt", Content: []byte("12345")}}, &out); err != nil {
+	files := []File{{Name: "a.txt", Content: []byte("12345")}, {Name: "b.txt", Content: []byte("12345")}}
+	if err := c.Upload(context.Background(), "issues/X-1/attachments", nil, files, &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 1 || out[0].Name != "a.txt" || out[0].Size != 5 {
+	if len(out) != 2 || out[0].Name != "a.txt" || out[1].Name != "b.txt" || out[1].Size != 5 {
 		t.Errorf("upload = %+v", out)
 	}
 }

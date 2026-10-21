@@ -1201,7 +1201,7 @@ func TestAttachments(t *testing.T) {
 		io.WriteString(w, f.body)
 	})
 	api.handle("POST /api/issues/DEMO-7/attachments", func(w http.ResponseWriter, r *http.Request) {
-		f, h, err := r.FormFile("file")
+		f, h, err := r.FormFile("file0")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1513,7 +1513,9 @@ func TestArticleAttachments(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out []map[string]any
-		for i, fh := range r.MultipartForm.File["file"] {
+		// One file per form field, file0, file1, …, as YouTrack expects.
+		for i := range len(r.MultipartForm.File) {
+			fh := r.MultipartForm.File[fmt.Sprintf("file%d", i)][0]
 			mu.Lock()
 			uploaded = append(uploaded, fh.Filename)
 			mu.Unlock()

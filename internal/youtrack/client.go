@@ -211,8 +211,9 @@ type File struct {
 func (c *Client) Upload(ctx context.Context, path string, query url.Values, files []File, out any) error {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	for _, f := range files {
-		w, err := mw.CreateFormFile("file", f.Name)
+	for i, f := range files {
+		// YouTrack keeps one file per form field, so each gets its own.
+		w, err := mw.CreateFormFile(fmt.Sprintf("file%d", i), f.Name)
 		if err != nil {
 			return err
 		}
