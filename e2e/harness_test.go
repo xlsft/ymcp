@@ -132,7 +132,7 @@ func (s *server) dumpLog() {
 		return
 	}
 	fmt.Printf("---- ymcp server log (%s) ----\n", s.name)
-	fmt.Println(string(data))
+	fmt.Println(scrub(string(data)))
 }
 
 // result is a tool call outcome.
@@ -183,7 +183,7 @@ func (s *server) must(t testing.TB, tool string, args map[string]any, out any) s
 	t.Helper()
 	r := s.call(t, tool, args)
 	if r.isError {
-		t.Fatalf("%s(%v) failed: %s", tool, args, r.text)
+		t.Fatalf("%s", scrub(fmt.Sprintf("%s(%v) failed: %s", tool, args, r.text)))
 	}
 	if out != nil {
 		if err := json.Unmarshal([]byte(r.text), out); err != nil {
@@ -198,7 +198,7 @@ func (s *server) mustFail(t testing.TB, tool string, args map[string]any, want s
 	t.Helper()
 	r := s.call(t, tool, args)
 	if !r.isError {
-		t.Fatalf("%s(%v) succeeded, want an error with %q: %s", tool, args, want, r.text)
+		t.Fatalf("%s", scrub(fmt.Sprintf("%s(%v) succeeded, want an error with %q: %s", tool, args, want, r.text)))
 	}
 	if !strings.Contains(r.text, want) {
 		t.Fatalf("%s error %q does not contain %q", tool, r.text, want)
@@ -274,38 +274,25 @@ func sweep() {
 	}
 }
 
-// sweepUsers frees the license seats taken by earlier runs, which made a
-// user per run: deleting them in Hub left them in YouTrack. It deletes
-// them, handing their content to the admin, or failing that bans them,
-// since banned users don't count. Best effort, not in the leftovers check.
+// sweepUsers frees license seats taken by marked accounts other than the
+// member: earlier runs made a user per run, and deleting them in Hub left
+// them in YouTrack. Deleting them there needs a Hub-scoped token, so it
+// bans them; banned users don't count. Best effort, not in the leftovers
+// check.
 func sweepUsers() {
 	t := &sweepT{}
-	var me struct{ ID, Login string }
-	json.Unmarshal([]byte(call(t, "call_api", map[string]any{"method": "GET", "path": "users/me", "query": map[string]any{"fields": "id,login"}}).text), &me)
 	var users []struct {
 		ID, Login string
 		Banned    bool
 	}
-	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login,banned", "query": marker + "-user-", "$top": -1}})
+	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login,banned", "query": marker, "$top": -1}})
 	json.Unmarshal([]byte(r.text), &users)
 	for _, u := range users {
-		if !strings.HasPrefix(u.Login, marker+"-user-") {
+		if !strings.HasPrefix(u.Login, marker) || u.Login == memberLogin || u.Banned {
 			continue
 		}
-		attempts := []map[string]any{
-			{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.ID}},
-			{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.Login}},
-		}
-		if !u.Banned {
-			attempts = append(attempts, map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
-		}
-		for _, args := range attempts {
-			d := call(t, "call_api", args)
-			fmt.Printf("e2e: sweep YouTrack user %s: %s %v: error=%v %s\n", u.Login, args["method"], args["query"], d.isError, shortText(d.text))
-			if !d.isError {
-				break
-			}
-		}
+		d := call(t, "call_api", map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
+		fmt.Printf("e2e: ban YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
 	}
 }
 
@@ -324,6 +311,17 @@ func unbanMember(t *testing.T) {
 			t.Logf("unbanning %s in YouTrack: error=%v %s", memberLogin, r.isError, shortText(r.text))
 		}
 	}
+}
+
+// scrub hides the passwords the suite knows from text bound for the log;
+// CI logs of the public repository are public.
+func scrub(s string) string {
+	for _, pw := range []string{os.Getenv("YOUTRACK_E2E_PASSWORD"), memberPassword()} {
+		if pw != "" {
+			s = strings.ReplaceAll(s, pw, "***")
+		}
+	}
+	return s
 }
 
 // leftovers is what sweeping couldn't remove.

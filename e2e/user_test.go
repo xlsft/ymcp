@@ -14,47 +14,34 @@ import (
 // memberLogin is the one regular account the suite uses. The license limits
 // the number of users and YouTrack keeps deleted ones, so it is created on
 // the first run and kept; the sweep leaves it alone. Its password derives
-// from the admin's, so it needs no secret of its own.
-const memberLogin = marker + "-member"
+// from the admin's, so it needs no secret of its own, and Hub has no API
+// to reset it, so it must never reach a log (see scrub).
+const memberLogin = marker + "-regular"
 
 func memberPassword() string {
-	sum := sha256.Sum256([]byte("ymcp-e2e member\x00" + os.Getenv("YOUTRACK_E2E_PASSWORD")))
+	sum := sha256.Sum256([]byte(memberLogin + "\x00" + os.Getenv("YOUTRACK_E2E_PASSWORD")))
 	return "Ym-" + hex.EncodeToString(sum[:12]) + "-Pw!"
 }
 
-// ensureMember creates the member account if it is missing, unbans it and
-// resets its password, and returns its Hub ID.
+// ensureMember creates the member account in Hub if it is missing and
+// returns its Hub ID.
 func ensureMember(t *testing.T) string {
 	t.Helper()
 	var found struct {
-		Users []struct {
-			ID      string
-			Banned  bool
-			Details []struct{ ID, Type string }
-		}
+		Users []struct{ ID string }
 	}
-	api(t, "GET", "users", map[string]any{"fields": "id,banned,details(id,type)", "query": "login: " + memberLogin}, nil, &found, "hub")
-	password := map[string]any{"type": "PlainpasswordJSON", "value": memberPassword()}
-	if len(found.Users) == 0 {
-		var created struct{ ID string }
-		api(t, "POST", "users", map[string]any{"fields": "id"}, map[string]any{
-			"login": memberLogin, "name": memberLogin,
-			"details": []any{map[string]any{"type": "LoginuserdetailsJSON", "login": memberLogin, "password": password}},
-		}, &created, "hub")
-		t.Logf("created the member account %s", memberLogin)
-		return created.ID
+	api(t, "GET", "users", map[string]any{"fields": "id", "query": "login: " + memberLogin}, nil, &found, "hub")
+	if len(found.Users) > 0 {
+		return found.Users[0].ID
 	}
-	u := found.Users[0]
-	if u.Banned {
-		api(t, "POST", "users/"+u.ID, map[string]any{"fields": "id"}, map[string]any{"banned": false}, nil, "hub")
-		t.Logf("unbanned %s", memberLogin)
-	}
-	for _, d := range u.Details {
-		if d.Type == "LoginuserdetailsJSON" {
-			api(t, "POST", "users/"+u.ID+"/details/"+d.ID, map[string]any{"fields": "id"}, map[string]any{"type": d.Type, "password": password}, nil, "hub")
-		}
-	}
-	return u.ID
+	var created struct{ ID string }
+	api(t, "POST", "users", map[string]any{"fields": "id"}, map[string]any{
+		"login": memberLogin, "name": memberLogin,
+		"details": []any{map[string]any{"type": "LoginuserdetailsJSON", "login": memberLogin,
+			"password": map[string]any{"type": "PlainpasswordJSON", "value": memberPassword()}}},
+	}, &created, "hub")
+	t.Logf("created the member account %s", memberLogin)
+	return created.ID
 }
 
 // TestRegularUser runs ymcp as a project member without admin rights, where
