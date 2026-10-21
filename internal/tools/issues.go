@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -83,6 +84,10 @@ type searchIssuesIn struct {
 	Limit                int      `json:"limit,omitempty" jsonschema:"Max issues to return. Default 20, max 20."`
 }
 
+type countIssuesIn struct {
+	Query string `json:"query" jsonschema:"YouTrack search query, same syntax as search_issues"`
+}
+
 type issueBrief struct {
 	ID           string         `json:"id"`
 	Summary      string         `json:"summary"`
@@ -120,6 +125,12 @@ func (t *toolset) registerIssues(s *mcp.Server) {
 			"created, updated and the requested custom fields. Use get_issue for full details. Paginated.\n\n" + searchQueryHelp,
 		Annotations: readOnly("Search issues"),
 	}, t.searchIssues)
+
+	add(s, &mcp.Tool{
+		Name:        "count_issues",
+		Description: "Counts issues matching a YouTrack search query without fetching them.",
+		Annotations: readOnly("Count issues"),
+	}, t.countIssues)
 
 	add(s, &mcp.Tool{
 		Name: "get_issue",
@@ -190,6 +201,30 @@ func (t *toolset) searchIssues(ctx context.Context, in searchIssuesIn) (any, err
 		out = append(out, b)
 	}
 	return map[string]any{"issues": out, "offset": offset, "hasMore": hasMore}, nil
+}
+
+// countPoll is how long count_issues waits between polls while YouTrack
+// is still counting (it answers -1 until the count is ready).
+var countPoll = 300 * time.Millisecond
+
+func (t *toolset) countIssues(ctx context.Context, in countIssuesIn) (any, error) {
+	for attempt := 0; attempt < 40; attempt++ {
+		var res struct {
+			Count int `json:"count"`
+		}
+		if err := t.yt.Post(ctx, "issuesGetter/count", url.Values{"fields": {"count"}}, map[string]any{"query": in.Query}, &res); err != nil {
+			return nil, err
+		}
+		if res.Count >= 0 {
+			return map[string]any{"query": in.Query, "count": res.Count}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(countPoll):
+		}
+	}
+	return nil, fmt.Errorf("YouTrack is still counting issues for %q, try again later", in.Query)
 }
 
 func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {

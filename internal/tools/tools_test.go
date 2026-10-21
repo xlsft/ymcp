@@ -1066,3 +1066,33 @@ func TestIssueActivities(t *testing.T) {
 		t.Errorf("comment = %v", c)
 	}
 }
+
+func TestCountIssuesWaitsForResult(t *testing.T) {
+	countPoll = time.Millisecond
+	api := newFakeAPI(t)
+	var mu sync.Mutex
+	polls := 0
+	api.handle("POST /api/issuesGetter/count", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		polls++
+		n := polls
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if n < 3 {
+			io.WriteString(w, `{"count":-1}`)
+		} else {
+			io.WriteString(w, `{"count":42}`)
+		}
+	})
+	cs := connect(t, api)
+	var out struct{ Count int }
+	if isErr, text := call(t, cs, "count_issues", map[string]any{"query": "#Unresolved"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.Count != 42 || polls != 3 {
+		t.Errorf("count=%d polls=%d", out.Count, polls)
+	}
+	if b := api.bodies("/api/issuesGetter/count"); b[0]["query"] != "#Unresolved" {
+		t.Errorf("body = %v", b[0])
+	}
+}
