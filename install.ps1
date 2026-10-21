@@ -14,7 +14,13 @@ $Version = if ($env:YMCP_VERSION) { $env:YMCP_VERSION } else { 'latest' }
 $InstallDir = if ($env:YMCP_INSTALL_DIR) { $env:YMCP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\ymcp' }
 
 Write-Host ''
-Write-Host ' ymcp ' -NoNewline -ForegroundColor White -BackgroundColor DarkRed
+if ($Host.UI.SupportsVirtualTerminal) {
+  # The brand red #C62A22, same as the banner and ymcp itself.
+  $Esc = [char]27
+  Write-Host "$Esc[1;97;48;2;198;42;34m ymcp $Esc[0m" -NoNewline
+} else {
+  Write-Host ' ymcp ' -NoNewline -ForegroundColor White -BackgroundColor DarkRed
+}
 Write-Host ' YouTrack MCP installer'
 Write-Host "It's fun to fetch with the YMCP" -ForegroundColor DarkGray
 Write-Host ''

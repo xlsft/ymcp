@@ -15,7 +15,13 @@ INSTALL_DIR="${YMCP_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${YMCP_VERSION:-latest}"
 
 if [ -t 1 ]; then
-  RED="$(printf '\033[1;97;41m')"; BOLD="$(printf '\033[1m')"; DIM="$(printf '\033[2m')"
+  # The brand red #C62A22 (same as the banner and ymcp itself) where the
+  # terminal has true colour, the palette red otherwise.
+  case "${COLORTERM:-}" in
+    truecolor|24bit) RED="$(printf '\033[1;97;48;2;198;42;34m')" ;;
+    *)               RED="$(printf '\033[1;97;41m')" ;;
+  esac
+  BOLD="$(printf '\033[1m')"; DIM="$(printf '\033[2m')"
   GREEN="$(printf '\033[1;32m')"; YELLOW="$(printf '\033[1;33m')"; RESET="$(printf '\033[0m')"
 else
   RED=""; BOLD=""; DIM=""; GREEN=""; YELLOW=""; RESET=""
