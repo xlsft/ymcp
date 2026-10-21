@@ -250,9 +250,10 @@ func TestScenarios(t *testing.T) {
 		if linked.LinkedIssueCounts["relates to"] != 1 {
 			t.Errorf("link counts = %v", linked.LinkedIssueCounts)
 		}
-		must(t, "unlink_issues", map[string]any{"targetIssueId": parent, "linkType": "relates to", "issueToLinkId": other}, &linked)
-		if linked.LinkedIssueCounts["relates to"] != 0 {
-			t.Errorf("after unlink = %v", linked.LinkedIssueCounts)
+		var unlinked struct{ LinkedIssueCounts map[string]int }
+		must(t, "unlink_issues", map[string]any{"targetIssueId": parent, "linkType": "relates to", "issueToLinkId": other}, &unlinked)
+		if unlinked.LinkedIssueCounts["relates to"] != 0 {
+			t.Errorf("after unlink = %v", unlinked.LinkedIssueCounts)
 		}
 		mustFail(t, "link_issues", map[string]any{"targetIssueId": parent, "linkType": "no such link", "issueToLinkId": other}, "unknown link type")
 		must(t, "delete_issue", map[string]any{"issueId": other}, nil)
@@ -324,10 +325,7 @@ func TestScenarios(t *testing.T) {
 
 	t.Run("commands", func(t *testing.T) {
 		state := f.enumValue(t, "State", 1)
-		cmd := "State " + state
-		if strings.Contains(state, " ") {
-			cmd = "State {" + state + "}"
-		}
+		cmd := "State " + state // multi-word values go as is, without braces
 		var dry struct{ Valid bool }
 		must(t, "apply_command", map[string]any{"command": cmd, "issueIds": []string{child}, "dryRun": true}, &dry)
 		if !dry.Valid {
@@ -411,7 +409,7 @@ func TestScenarios(t *testing.T) {
 		var found struct {
 			Boards []struct{ ID string }
 		}
-		must(t, "find_agile_boards", map[string]any{"nameContains": runID}, &found)
+		must(t, "find_agile_boards", map[string]any{"nameContains": boardName}, &found)
 		if len(found.Boards) != 1 {
 			t.Fatalf("find_agile_boards = %+v", found)
 		}
@@ -449,11 +447,14 @@ func TestScenarios(t *testing.T) {
 			t.Errorf("find_user = %+v", me)
 		}
 		var groups struct {
-			Groups []struct{ Name string }
+			Groups []struct {
+				Name       string
+				UsersCount int
+			}
 		}
-		must(t, "find_user_groups", map[string]any{"nameContains": ""}, &groups)
+		must(t, "find_user_groups", map[string]any{"nameContains": "All Users"}, &groups)
 		if len(groups.Groups) == 0 {
-			t.Fatal("no groups")
+			t.Fatal("no All Users group")
 		}
 		var members struct{ Total int }
 		must(t, "get_user_group_members", map[string]any{"group": groups.Groups[0].Name, "limit": 1}, &members)
@@ -475,12 +476,10 @@ func TestScenarios(t *testing.T) {
 	})
 
 	t.Run("delete issues", func(t *testing.T) {
-		must(t, "delete_issue", map[string]any{"issueId": child}, nil)
-		must(t, "delete_issue", map[string]any{"issueId": parent}, nil)
-		var count struct{ Count int }
-		must(t, "count_issues", map[string]any{"query": "project: " + f.key}, &count)
-		if count.Count != 0 {
-			t.Errorf("issues left in %s: %d", f.key, count.Count)
+		// The search index lags behind deletions, so check each issue directly.
+		for _, id := range []string{child, parent} {
+			must(t, "delete_issue", map[string]any{"issueId": id}, nil)
+			mustFail(t, "get_issue", map[string]any{"issueId": id}, "404")
 		}
 	})
 }

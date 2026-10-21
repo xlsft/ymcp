@@ -82,6 +82,10 @@ func TestMain(m *testing.M) {
 	sweep()
 	code := m.Run()
 	sweep()
+	if left := leftovers(); len(left) > 0 {
+		fmt.Println("e2e: objects left behind:", left)
+		code = 1
+	}
 	session.Close()
 	if code != 0 {
 		dumpLog()
@@ -174,37 +178,43 @@ func api(t testing.TB, method, path string, query map[string]any, body any, out 
 	must(t, "call_api", args, out)
 }
 
-// sweep deletes objects left by any run, this one included.
-func sweep() {
+// marked lists objects named with the marker, by API path: projects (not
+// yet deleted), boards, tags and saved searches. Deleted projects linger as
+// "<name> (pending deletion)" while YouTrack removes them in the background.
+func marked() map[string][]string {
 	t := &sweepT{}
-	var projects []struct{ ID, Name, ShortName string }
-	if r := call(t, "call_api", map[string]any{"method": "GET", "path": "admin/projects", "query": map[string]any{"fields": "id,name,shortName", "$top": -1}}); !r.isError {
-		json.Unmarshal([]byte(r.text), &projects)
-	}
-	for _, p := range projects {
-		if strings.HasPrefix(p.Name, marker) {
-			r := call(t, "call_api", map[string]any{"method": "DELETE", "path": "admin/projects/" + p.ID})
-			fmt.Printf("e2e: sweep project %s (%s): error=%v\n", p.ShortName, p.Name, r.isError)
-		}
-	}
-	for _, kind := range []struct{ path, field string }{
-		{"agiles", "name"}, {"tags", "name"}, {"savedQueries", "name"},
-	} {
-		var items []map[string]any
-		r := call(t, "call_api", map[string]any{"method": "GET", "path": kind.path, "query": map[string]any{"fields": "id,name,owner(login)", "$top": -1}})
+	found := map[string][]string{}
+	for _, path := range []string{"admin/projects", "agiles", "tags", "savedQueries"} {
+		var items []struct{ ID, Name string }
+		r := call(t, "call_api", map[string]any{"method": "GET", "path": path, "query": map[string]any{"fields": "id,name", "$top": -1}})
 		if r.isError {
+			fmt.Printf("e2e: listing %s: %s\n", path, r.text)
 			continue
 		}
 		json.Unmarshal([]byte(r.text), &items)
 		for _, it := range items {
-			name, _ := it[kind.field].(string)
-			if strings.HasPrefix(name, marker) {
-				r := call(t, "call_api", map[string]any{"method": "DELETE", "path": kind.path + "/" + it["id"].(string)})
-				fmt.Printf("e2e: sweep %s %q: error=%v\n", kind.path, name, r.isError)
+			if strings.HasPrefix(it.Name, marker) && !strings.HasSuffix(it.Name, "(pending deletion)") {
+				found[path] = append(found[path], it.ID+" "+it.Name)
 			}
 		}
 	}
+	return found
 }
+
+// sweep deletes marked objects left by any run, this one included.
+func sweep() {
+	t := &sweepT{}
+	for path, items := range marked() {
+		for _, it := range items {
+			id, name, _ := strings.Cut(it, " ")
+			r := call(t, "call_api", map[string]any{"method": "DELETE", "path": path + "/" + id})
+			fmt.Printf("e2e: sweep %s %q: error=%v\n", path, name, r.isError)
+		}
+	}
+}
+
+// leftovers is what sweeping couldn't remove.
+func leftovers() map[string][]string { return marked() }
 
 // sweepT lets sweep use the test helpers outside a test.
 type sweepT struct{ testing.TB }
