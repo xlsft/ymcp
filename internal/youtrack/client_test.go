@@ -157,3 +157,15 @@ func TestHubGetUsesHubScopedToken(t *testing.T) {
 		t.Errorf("logins=%d issued=%d, want 1 login and one token per scope", logins, issued)
 	}
 }
+
+func TestErrorWithoutCode(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error_description":"Value is not allowed"}`))
+	})
+	err := c.Post(context.Background(), "issues/X-1", nil, map[string]any{}, nil)
+	if want := "youtrack: POST /api/issues/X-1: 400: Value is not allowed"; err == nil || err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+}

@@ -93,8 +93,10 @@ type Error struct {
 func (e *Error) Error() string {
 	prefix := fmt.Sprintf("youtrack: %s %s: %d", e.Method, e.Path, e.Status)
 	switch {
-	case e.Description != "":
+	case e.Description != "" && e.Code != "":
 		return fmt.Sprintf("%s %s: %s", prefix, e.Code, e.Description)
+	case e.Description != "":
+		return fmt.Sprintf("%s: %s", prefix, e.Description)
 	case e.Code != "":
 		return fmt.Sprintf("%s %s", prefix, e.Code)
 	default:
