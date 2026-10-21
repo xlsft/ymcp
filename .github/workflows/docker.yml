@@ -6,8 +6,9 @@ name: Docker
 #
 #   gh workflow run docker.yml -f version=v0.5.0
 #
-# Needs the DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets; the
-# DOCKERHUB_IMAGE variable overrides the repository name.
+# Needs the YOUTRACK_DOCKERHUB_LOGIN and YOUTRACK_DOCKERHUB_TOKEN secrets;
+# the image is <login>/ymcp unless the DOCKERHUB_IMAGE variable says
+# otherwise.
 on:
   workflow_call:
     inputs:
@@ -28,18 +29,18 @@ jobs:
   push:
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'xlsft/ymcp' }}
+      IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/ymcp', secrets.YOUTRACK_DOCKERHUB_LOGIN) }}
       VERSION: ${{ inputs.version }}
     steps:
       - name: Docker Hub credentials
         id: creds
         env:
-          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          TOKEN: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
         run: |
           if [ -n "$TOKEN" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::No DOCKERHUB_TOKEN secret, so no image was pushed"
+            echo "::warning::No YOUTRACK_DOCKERHUB_TOKEN secret, so no image was pushed"
           fi
       - uses: actions/checkout@v7
         if: steps.creds.outputs.ok == 'true'
@@ -50,8 +51,8 @@ jobs:
       - uses: docker/login-action@v3
         if: steps.creds.outputs.ok == 'true'
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.YOUTRACK_DOCKERHUB_LOGIN }}
+          password: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
       - uses: docker/metadata-action@v5
         if: steps.creds.outputs.ok == 'true'
         id: meta
