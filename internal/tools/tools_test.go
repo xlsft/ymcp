@@ -1,11 +1,13 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -40,7 +42,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var body map[string]any
 		data, _ := io.ReadAll(r.Body)
-		if len(data) > 0 {
+		r.Body = io.NopCloser(bytes.NewReader(data))
+		if len(data) > 0 && strings.Contains(r.Header.Get("Content-Type"), "json") {
 			if err := json.Unmarshal(data, &body); err != nil {
 				a.t.Errorf("POST %s: bad JSON: %v", r.URL.Path, err)
 			}
@@ -1177,5 +1180,71 @@ func TestApplyCommand(t *testing.T) {
 	got, _ := json.Marshal(api.bodies("/api/commands"))
 	if string(got) != `[{"comment":"done","issues":[{"idReadable":"DEMO-1"},{"idReadable":"DEMO-2"}],"query":"State Fixed","silent":true}]` {
 		t.Errorf("applied = %s", got)
+	}
+}
+
+func TestAttachments(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issues/DEMO-7/attachments", `[
+		{"id":"12-1","name":"log.txt","size":5,"mimeType":"text/plain","url":"/api/files/12-1?sign=s"},
+		{"id":"12-2","name":"shot.png","size":4,"mimeType":"image/png","url":"/api/files/12-2?sign=s"},
+		{"id":"12-3","name":"blob.bin","size":3,"mimeType":"application/octet-stream","url":"/api/files/12-3?sign=s"}]`)
+	files := map[string]struct{ ct, body string }{
+		"/api/files/12-1": {"text/plain", "hello"},
+		"/api/files/12-2": {"image/png", "\x89PNG"},
+		"/api/files/12-3": {"application/octet-stream", "\x00\x01\x02"},
+	}
+	api.handle("GET /api/files/", func(w http.ResponseWriter, r *http.Request) {
+		f := files[r.URL.Path]
+		w.Header().Set("Content-Type", f.ct)
+		io.WriteString(w, f.body)
+	})
+	api.handle("POST /api/issues/DEMO-7/attachments", func(w http.ResponseWriter, r *http.Request) {
+		f, h, err := r.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(f)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"id":"12-9","name":%q,"size":%d}]`, h.Filename, len(body))
+	})
+	var deleted string
+	api.handle("DELETE /api/issues/DEMO-7/attachments/12-3", func(w http.ResponseWriter, r *http.Request) { deleted = r.URL.Path })
+	cs := connect(t, api)
+
+	if isErr, text := call(t, cs, "get_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "log.txt"}, nil); isErr || text != "hello" {
+		t.Errorf("text attachment: isErr=%v %q", isErr, text)
+	}
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_attachment", Arguments: map[string]any{"issueId": "DEMO-7", "attachment": "12-2"}})
+	if err != nil || res.IsError || len(res.Content) != 2 {
+		t.Fatalf("image attachment: %v %+v", err, res)
+	}
+	if img, ok := res.Content[1].(*mcp.ImageContent); !ok || img.MIMEType != "image/png" || string(img.Data) != "\x89PNG" {
+		t.Errorf("image content = %+v", res.Content[1])
+	}
+	if isErr, text := call(t, cs, "get_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "blob.bin"}, nil); !isErr || !strings.Contains(text, "pass saveTo") {
+		t.Errorf("binary inline: isErr=%v %q", isErr, text)
+	}
+	dir := t.TempDir()
+	var saved struct{ SavedTo string }
+	if isErr, text := call(t, cs, "get_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "blob.bin", "saveTo": dir}, &saved); isErr {
+		t.Fatal(text)
+	}
+	if data, _ := os.ReadFile(saved.SavedTo); string(data) != "\x00\x01\x02" {
+		t.Errorf("saved %q = %q", saved.SavedTo, data)
+	}
+
+	var added struct {
+		ID, Name string
+		Size     int
+	}
+	if isErr, text := call(t, cs, "add_attachment", map[string]any{"issueId": "DEMO-7", "fileName": "note.md", "textContent": "# hi"}, &added); isErr {
+		t.Fatal(text)
+	}
+	if added.ID != "12-9" || added.Name != "note.md" || added.Size != 4 {
+		t.Errorf("added = %+v", added)
+	}
+	if isErr, text := call(t, cs, "delete_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "blob.bin"}, nil); isErr || deleted == "" {
+		t.Errorf("delete: isErr=%v %q", isErr, text)
 	}
 }

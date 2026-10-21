@@ -39,6 +39,7 @@ type apiIssue struct {
 	CustomFields []customField `json:"customFields"`
 	Links        []apiLink     `json:"links"`
 	Attachments  []struct {
+		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Size     int64  `json:"size"`
 		MimeType string `json:"mimeType"`
@@ -66,7 +67,7 @@ const (
 		"project(id,shortName,name),reporter(login,fullName),tags(name)," +
 		"customFields(" + customFieldValueFields + ")," +
 		"links(" + linkFields + ")," +
-		"attachments(name,size,mimeType,url)"
+		"attachments(id,name,size,mimeType,url)"
 	commentFields = "id,text,created,updated,author(login,fullName)"
 )
 
@@ -255,6 +256,7 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 	}
 
 	type attachment struct {
+		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Size     int64  `json:"size"`
 		MimeType string `json:"mimeType,omitempty"`
@@ -262,7 +264,7 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 	}
 	attachments := make([]attachment, 0, len(is.Attachments))
 	for _, a := range is.Attachments {
-		attachments = append(attachments, attachment{a.Name, a.Size, a.MimeType, t.yt.BaseURL() + a.URL})
+		attachments = append(attachments, attachment{a.ID, a.Name, a.Size, a.MimeType, t.yt.BaseURL() + a.URL})
 	}
 
 	var reporter string

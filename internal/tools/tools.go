@@ -32,6 +32,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerActivities(s)
 	t.registerReports(s)
 	t.registerCommands(s)
+	t.registerAttachments(s)
 }
 
 type toolset struct {
@@ -73,6 +74,8 @@ func add[In any](s *mcp.Server, tool *mcp.Tool, h handler[In]) {
 func textResult(v any) *mcp.CallToolResult {
 	var text string
 	switch v := v.(type) {
+	case *mcp.CallToolResult:
+		return v
 	case string:
 		text = v
 	case json.RawMessage:
