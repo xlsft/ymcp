@@ -142,6 +142,45 @@ With `--token` or `YMCP_HTTP_TOKEN`, every request must carry `Authorization: Be
 the client's entry for the URL. Without a token the server is open to anyone who can reach it, so keep it on
 `127.0.0.1` (the default) or set a token; ymcp warns when it listens elsewhere without one.
 
+### Docker
+
+The [`xlsft/ymcp`](https://hub.docker.com/r/xlsft/ymcp) image runs the HTTP server for linux/amd64 and linux/arm64.
+Profiles live in the `/config` volume. There is no keychain in a container, so passwords are kept in that volume's
+config file (mode 0600); treat the volume as a secret.
+
+Add a profile. `auth` asks for the URL, login and password and checks them before saving:
+
+```sh
+docker run -it --rm -v ymcp:/config xlsft/ymcp auth
+docker run -it --rm -v ymcp:/config xlsft/ymcp --profile youtrack-beget auth   # another instance
+```
+
+Run the server on port 8090 with a token:
+
+```sh
+docker run -d --name ymcp --restart unless-stopped \
+  -p 127.0.0.1:8090:8090 -v ymcp:/config \
+  -e YMCP_HTTP_TOKEN="$(openssl rand -hex 32)" \
+  xlsft/ymcp
+docker logs ymcp   # lists each profile and its URL
+```
+
+For a single instance without a volume, pass the connection instead:
+`-e YOUTRACK_URL=https://youtrack.example.com -e YOUTRACK_LOGIN=… -e YOUTRACK_PASSWORD=…`.
+
+Then point clients at a profile's URL with the token, e.g. in Claude Code:
+
+```sh
+claude mcp add --transport http youtrack http://127.0.0.1:8090/youtrack --header "Authorization: Bearer <token>"
+```
+
+or in a JSON config:
+
+```json
+{ "mcpServers": { "youtrack": { "type": "http", "url": "http://127.0.0.1:8090/youtrack",
+  "headers": { "Authorization": "Bearer <token>" } } } }
+```
+
 ### Logs
 
 The server logs its start, every client that connects and every tool call. Each line has the arguments, how long the
