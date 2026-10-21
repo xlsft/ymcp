@@ -29,8 +29,8 @@ Usage:
 
 Commands:
   serve     Run the MCP server (default). Flags: --transport stdio|http, --addr
-  auth      Set or replace the YouTrack URL, login and password
-  setup     Configure credentials and register ymcp in MCP clients
+  auth      Set or replace the URL, login and password of a profile
+  setup     Add, edit or remove YouTrack profiles and register them in MCP clients
   check     Log in and print the current user
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
   logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is

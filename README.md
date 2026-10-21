@@ -37,19 +37,27 @@ irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
 
 The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, which:
 
-1. asks for your YouTrack URL, login and password, and verifies them before saving anything;
-2. lists the MCP clients found on your machine, with a checkbox for each;
-3. registers ymcp as the `youtrack` stdio server in the clients you pick, and removes it from the ones you uncheck.
+1. asks for a profile name, `youtrack` by default;
+2. asks for your YouTrack URL, login and password, and verifies them before saving anything;
+3. lists the MCP clients found on your machine, with a checkbox for each;
+4. registers ymcp as a stdio server in the clients you pick, and removes it from the ones you uncheck.
 
-Run `ymcp setup` again at any time to add or remove clients.
+Run `ymcp setup` again at any time to edit a profile, add or remove clients, or add another YouTrack.
+
+### Several YouTrack instances
+
+Each YouTrack instance is a profile, and each profile is its own MCP server. The profile's display name gives the
+server name: `YouTrack (xlsft)` becomes `youtrack-xlsft`, `youtrack-beget` stays as it is. A repeated `ymcp setup`
+lists your profiles: pick one to edit it, rename it (its client entries move along), or add or remove a profile.
+Clients run `ymcp --profile <key>`, so every instance shows up next to the others with its own tools.
 
 ## Commands
 
 | Command | |
 |---|---|
 | `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http --addr 127.0.0.1:8090` serves Streamable HTTP |
-| `ymcp setup` | Sign in and pick MCP clients. `--clients cursor,zed`, `--all` and `--reauth` skip the questions |
-| `ymcp auth` | Set or replace the URL, login and password. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
+| `ymcp setup` | Add or edit a profile, sign in and pick MCP clients. `--name`, `--clients cursor,zed`, `--all`, `--reauth` and `--remove` skip the questions |
+| `ymcp auth` | Set or replace the URL, login and password of a profile. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
 | `ymcp logs` | Show what the server did; `-f` follows the log live, `-n 200` shows more lines |
@@ -85,11 +93,15 @@ wrong value comes back with the list of valid ones.
 | Tags and saved searches | `find_tags`, `create_tag`, `update_tag`, `delete_tag`, `create_saved_search`, `update_saved_search`, `delete_saved_search` |
 | Escape hatch | `call_api`: any YouTrack or Hub REST endpoint as you, for whatever the other tools don't cover |
 
+Every command takes `--profile <key>` (or `YMCP_PROFILE`) to pick the YouTrack instance, e.g.
+`ymcp --profile youtrack-beget check`. Without it ymcp uses the `youtrack` profile, or the only one there is.
+
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
 ## Configuration
 
-`ymcp auth` stores the URL, login and proxy in `<config dir>/ymcp/config.json`, a file only you can read:
+`ymcp setup` and `ymcp auth` store each profile's name, URL, login and proxy in `<config dir>/ymcp/config.json`,
+a file only you can read:
 
 - macOS: `~/Library/Application Support`
 - Linux: `~/.config`
@@ -98,13 +110,14 @@ Tools that delete or bulk-change data are marked with `destructiveHint`, so clie
 The password goes to the system keychain: Keychain on macOS, Secret Service on Linux, Credential Manager on Windows.
 It falls back to the config file only where no keychain exists.
 
-Environment variables override the stored values. That's handy for CI or for several instances:
+Environment variables override the stored values of the profile in use. That's handy for CI:
 
 | Variable | |
 |---|---|
 | `YOUTRACK_URL` | Instance root, e.g. `https://youtrack.example.com` (no `/api`) |
 | `YOUTRACK_LOGIN`, `YOUTRACK_PASSWORD` | YouTrack or Hub account, LDAP included |
 | `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY` (or direct, when that proxy can't reach YouTrack), `none` to always connect directly, or a proxy URL |
+| `YMCP_PROFILE` | Profile to use, like `--profile` |
 | `YMCP_CONFIG` | Path of the config file |
 
 `--env FILE` loads these variables from a dotenv file (see [`.env.example`](.env.example)).
@@ -140,11 +153,11 @@ Claude Code · Claude Desktop · Cursor · VS Code (Copilot) · Windsurf · Devi
 Antigravity · JetBrains Junie · Cline · LM Studio · opencode
 
 ymcp edits each client's config in place and keeps your other servers, keys and comments. It leaves a
-`.ymcp.bak` copy next to the original. For any other client, register a stdio server named `youtrack` that runs
-the `ymcp` binary with no arguments:
+`.ymcp.bak` copy next to the original. For any other client, register a stdio server per profile that runs the
+`ymcp` binary with `--profile <key>`:
 
 ```json
-{ "mcpServers": { "youtrack": { "command": "/path/to/ymcp", "args": [] } } }
+{ "mcpServers": { "youtrack": { "command": "/path/to/ymcp", "args": ["--profile", "youtrack"] } } }
 ```
 
 ## How sign-in works
