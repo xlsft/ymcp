@@ -102,13 +102,14 @@ Environment variables override the stored values. That's handy for CI or for sev
 |---|---|
 | `YOUTRACK_URL` | Instance root, e.g. `https://youtrack.example.com` (no `/api`) |
 | `YOUTRACK_LOGIN`, `YOUTRACK_PASSWORD` | YouTrack or Hub account, LDAP included |
-| `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY`, `none` to connect directly, or a proxy URL |
+| `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY` (or direct, when that proxy can't reach YouTrack), `none` to always connect directly, or a proxy URL |
 | `YMCP_CONFIG` | Path of the config file |
 
 `--env FILE` loads these variables from a dotenv file (see [`.env.example`](.env.example)).
 
-> **Behind a VPN?** If an outbound proxy is set in your environment, requests may bypass the internal DNS.
-> Set the proxy to `none`. When something other than YouTrack answers, ymcp says so instead of failing with a JSON error.
+> **Behind a VPN?** MCP clients often pass an `HTTP(S)_PROXY` meant for the internet. Such a proxy resolves an
+> internal YouTrack through public DNS and never reaches it. When the proxy comes from the environment and doesn't
+> lead to YouTrack, ymcp connects directly instead and logs why. An explicitly configured proxy is always used.
 
 ### Logs
 
