@@ -87,10 +87,10 @@ func TestRegularUser(t *testing.T) {
 	var groups struct {
 		Groups []struct{ Name string }
 	}
+	// /api/groups is admin-only; Hub may show the member no groups at all,
+	// as on YouTrack 2026, but the call must not fail.
 	user.must(t, "find_user_groups", map[string]any{"nameContains": "All Users"}, &groups)
-	if len(groups.Groups) == 0 {
-		t.Error("member sees no groups")
-	}
+	t.Logf("member sees %d groups named All Users", len(groups.Groups))
 
 	// Members can't erase comments; they are marked deleted and come back.
 	var c struct {
@@ -109,9 +109,15 @@ func TestRegularUser(t *testing.T) {
 		t.Errorf("comments after delete = %+v", comments)
 	}
 	user.must(t, "restore_issue_comment", map[string]any{"issueId": first.ID, "commentId": c.Comment.ID}, nil)
-	user.must(t, "get_issue_comments", map[string]any{"issueId": first.ID}, &comments)
-	if len(comments.Comments) != 1 || comments.Comments[0].Deleted {
-		t.Errorf("comments after restore = %+v", comments)
+	var restored struct {
+		Comments []struct {
+			ID      string
+			Deleted bool
+		}
+	}
+	user.must(t, "get_issue_comments", map[string]any{"issueId": first.ID}, &restored)
+	if len(restored.Comments) != 1 || restored.Comments[0].Deleted {
+		t.Errorf("comments after restore = %+v", restored)
 	}
 }
 
