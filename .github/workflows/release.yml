@@ -39,6 +39,15 @@ jobs:
       - name: Next version
         id: version
         run: |
+          # A newer push has its own run, which releases everything; tagging
+          # this older commit would race it, and GitHub refuses a tag whose
+          # workflows differ from main's.
+          git fetch -q origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "No release: main moved on to $(git rev-parse --short origin/main), whose run releases" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           version=$(.github/scripts/next-version.sh)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ -n "$version" ]; then
