@@ -36,6 +36,16 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
 ```
 
+Or with a package manager, then run `ymcp setup`:
+
+```sh
+brew install xlsft/tap/ymcp                                                  # macOS, Linux
+scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp   # Windows
+winget install xlsft.ymcp                                                    # Windows, once Microsoft accepts it
+```
+
+Package-managed copies update through their manager (`brew upgrade ymcp` and so on); `ymcp update` says so.
+
 The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, which:
 
 1. asks for a profile name, `youtrack` by default;

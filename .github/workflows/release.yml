@@ -79,6 +79,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pushes to xlsft/homebrew-tap, xlsft/scoop-bucket and the
+          # xlsft/winget-pkgs fork, and opens the winget pull request.
+          YMCP_PACKAGES_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
 
   docker:
     needs: release

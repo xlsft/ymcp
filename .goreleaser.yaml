@@ -41,6 +41,73 @@ signs:
     signature: "${artifact}.sigstore.json"
     args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
 
+# Package managers. Their repositories are outside this one, so publishing
+# needs the YMCP_PACKAGES_TOKEN secret; without it they are skipped.
+
+homebrew_casks:
+  - name: ymcp
+    repository:
+      owner: xlsft
+      name: homebrew-tap
+      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+    homepage: https://github.com/xlsft/ymcp
+    description: YouTrack MCP server with the full YouTrack toolset
+    license: MIT
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    skip_upload: '{{ if envOrDefault "YMCP_PACKAGES_TOKEN" "" }}false{{ else }}true{{ end }}'
+    hooks:
+      post:
+        # The binary isn't notarized; let it run without Gatekeeper's prompt.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ymcp"]
+          end
+
+scoops:
+  - name: ymcp
+    repository:
+      owner: xlsft
+      name: scoop-bucket
+      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+    homepage: https://github.com/xlsft/ymcp
+    description: YouTrack MCP server with the full YouTrack toolset
+    license: MIT
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    skip_upload: '{{ if envOrDefault "YMCP_PACKAGES_TOKEN" "" }}false{{ else }}true{{ end }}'
+
+winget:
+  - name: ymcp
+    publisher: xlsft
+    package_identifier: xlsft.ymcp
+    short_description: YouTrack MCP server with the full YouTrack toolset
+    description: |
+      ymcp gives AI clients (Claude, Cursor, VS Code, Zed, Codex and others) the full YouTrack MCP toolset plus
+      deletes, sprints, attachments, history and reports, signing in with a YouTrack login and password.
+    license: MIT
+    homepage: https://github.com/xlsft/ymcp
+    publisher_url: https://github.com/xlsft
+    release_notes_url: https://github.com/xlsft/ymcp/releases/tag/{{ .Tag }}
+    tags: [youtrack, mcp, cli]
+    commit_author:
+      name: github-actions[bot]
+      email: 41898282+github-actions[bot]@users.noreply.github.com
+    skip_upload: '{{ if envOrDefault "YMCP_PACKAGES_TOKEN" "" }}false{{ else }}true{{ end }}'
+    repository:
+      owner: xlsft
+      name: winget-pkgs
+      branch: "ymcp-{{ .Version }}"
+      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+      pull_request:
+        enabled: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
 changelog:
   use: github
   sort: asc
@@ -73,6 +140,8 @@ release:
     ```powershell
     irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
     ```
+
+    Homebrew: `brew install xlsft/tap/ymcp` · Scoop: `scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp` · winget: `winget install xlsft.ymcp` (once Microsoft merges the package).
 
     Already installed: `ymcp update`. Docker: `docker pull xlsoftware/ymcp:{{ .Version }}`.
 
