@@ -48,11 +48,17 @@ func selfUpdate(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	install := func() { err = u.Install(ctx, latest, exe) }
+	// A package manager keeps track of its files; replacing the binary
+	// behind its back would leave it confused.
+	if how := install.UpdateCommand(exe); how != "ymcp update" {
+		fmt.Printf("ymcp %s is available (you have %s). This copy is managed elsewhere; update it with: %s\n", latest.Tag, version, how)
+		return nil
+	}
+	replace := func() { err = u.Install(ctx, latest, exe) }
 	if interactive() {
-		_ = spinner.New().Title(" Downloading ymcp " + latest.Tag + "…").Action(install).Run()
+		_ = spinner.New().Title(" Downloading ymcp " + latest.Tag + "…").Action(replace).Run()
 	} else {
-		install()
+		replace()
 	}
 	if err != nil {
 		return err
@@ -82,10 +88,8 @@ func checkForUpdate(ctx context.Context, logger *slog.Logger) <-chan struct{} {
 		case err != nil:
 			logger.Debug("can't check for updates", "err", err)
 		case update.Newer(tag, version):
-			how := "ymcp update"
-			if install.Docker() {
-				how = "docker pull xlsoftware/ymcp:latest"
-			}
+			exe, _ := os.Executable()
+			how := install.UpdateCommand(exe)
 			logger.Warn("update available", "current", version, "latest", strings.TrimPrefix(tag, "v"), "run", how)
 		default:
 			logger.Debug("ymcp is up to date", "version", version)
