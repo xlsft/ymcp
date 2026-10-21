@@ -59,7 +59,7 @@ homebrew_casks:
     repository:
       owner: xlsft
       name: homebrew-tap
-      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+      token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
     homepage: https://github.com/xlsft/ymcp
     description: YouTrack MCP server with the full YouTrack toolset
     license: MIT
@@ -80,7 +80,7 @@ scoops:
     repository:
       owner: xlsft
       name: scoop-bucket
-      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+      token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
     homepage: https://github.com/xlsft/ymcp
     description: YouTrack MCP server with the full YouTrack toolset
     license: MIT
@@ -110,7 +110,7 @@ winget:
       owner: xlsft
       name: winget-pkgs
       branch: "ymcp-{{ .Version }}"
-      token: '{{ envOrDefault "YMCP_PACKAGES_TOKEN" "" }}'
+      token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
       pull_request:
         enabled: true
         base:
