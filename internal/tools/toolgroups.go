@@ -1,0 +1,105 @@
+package tools
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
+
+// Group is a set of related tools that can be turned on or off together,
+// so a client only spends context on the tools it needs.
+type Group struct {
+	Name, Title string
+	Tools       []string
+}
+
+// Groups lists every tool by group; each tool is in exactly one.
+var Groups = []Group{
+	{"issues", "Issues: search, read, create, edit, link, commands, history", []string{
+		"search_issues", "count_issues", "get_issue", "get_issue_fields_schema", "create_issue", "create_draft_issue",
+		"update_issue", "change_issue_assignee", "delete_issue", "apply_command", "get_issue_activities",
+		"link_issues", "unlink_issues", "get_issue_vcs_changes"}},
+	{"comments", "Comments on issues", []string{
+		"get_issue_comments", "add_issue_comment", "update_issue_comment", "restore_issue_comment", "delete_issue_comment"}},
+	{"attachments", "Files on issues and articles", []string{
+		"get_issue_attachments", "get_attachment", "add_attachment", "delete_attachment"}},
+	{"articles", "Knowledge base articles", []string{
+		"search_articles", "get_article", "create_article", "update_article", "delete_article"}},
+	{"time", "Time tracking and reports", []string{
+		"log_work", "get_issue_work_items", "delete_work_item", "get_time_report"}},
+	{"agile", "Agile boards and sprints", []string{
+		"find_agile_boards", "get_agile_board", "get_sprint", "create_sprint", "update_sprint",
+		"add_issue_to_sprint", "remove_issue_from_sprint", "delete_sprint"}},
+	{"projects", "Projects", []string{"find_projects", "get_project"}},
+	{"people", "Users and groups", []string{"get_current_user", "find_user", "find_user_groups", "get_user_group_members"}},
+	{"tags", "Tags", []string{"manage_issue_tags", "find_tags", "create_tag", "update_tag", "delete_tag"}},
+	{"searches", "Saved searches", []string{
+		"get_saved_issue_searches", "create_saved_search", "update_saved_search", "delete_saved_search"}},
+	{"api", "Raw REST calls (call_api)", []string{"call_api"}},
+}
+
+// GroupNames lists the group names in order.
+func GroupNames() []string {
+	names := make([]string, len(Groups))
+	for i, g := range Groups {
+		names[i] = g.Name
+	}
+	return names
+}
+
+// Select resolves a tool selection into the set of enabled tools; nil
+// means all. Items are group names or tool names; "all" adds everything,
+// and a leading "-" removes a group or tool. A selection of removals only
+// starts from all tools, e.g. "-api,-delete_issue".
+func Select(items []string) (map[string]bool, error) {
+	var clean []string
+	for _, it := range items {
+		if it = strings.TrimSpace(it); it != "" {
+			clean = append(clean, it)
+		}
+	}
+	if len(clean) == 0 {
+		return nil, nil
+	}
+	enabled := map[string]bool{}
+	if !slices.ContainsFunc(clean, func(s string) bool { return !strings.HasPrefix(s, "-") }) {
+		clean = append([]string{"all"}, clean...)
+	}
+	for _, it := range clean {
+		name, remove := strings.CutPrefix(it, "-")
+		tools, err := resolve(name)
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range tools {
+			if remove {
+				delete(enabled, tool)
+			} else {
+				enabled[tool] = true
+			}
+		}
+	}
+	if len(enabled) == 0 {
+		return nil, fmt.Errorf("tool selection %q leaves no tools", strings.Join(items, ","))
+	}
+	return enabled, nil
+}
+
+func resolve(name string) ([]string, error) {
+	if name == "all" {
+		var all []string
+		for _, g := range Groups {
+			all = append(all, g.Tools...)
+		}
+		return all, nil
+	}
+	for _, g := range Groups {
+		if g.Name == name {
+			return g.Tools, nil
+		}
+		if slices.Contains(g.Tools, name) {
+			return []string{name}, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown tool or group %q; groups: %s", name, strings.Join(GroupNames(), ", "))
+}

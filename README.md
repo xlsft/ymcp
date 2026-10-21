@@ -57,7 +57,7 @@ Clients run `ymcp --profile <key>`, so every instance shows up next to the other
 | Command | |
 |---|---|
 | `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http` serves Streamable HTTP, see [HTTP](#http) |
-| `ymcp setup` | Add or edit a profile, sign in and pick MCP clients. `--name`, `--clients cursor,zed`, `--all`, `--reauth` and `--remove` skip the questions |
+| `ymcp setup` | Add or edit a profile, sign in, pick its tools and MCP clients. `--name`, `--tools`, `--clients cursor,zed`, `--all`, `--reauth` and `--remove` skip the questions |
 | `ymcp auth` | Set or replace the URL, login and password of a profile. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
@@ -99,6 +99,29 @@ Every command takes `--profile <key>` (or `YMCP_PROFILE`) to pick the YouTrack i
 
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
+### Choosing tools
+
+All 56 tools take room in the model's context. A profile can serve only some groups of them: pick them in
+`ymcp setup`, or pass `--tools` (or `YMCP_TOOLS`) to `serve`, which wins over the profile.
+
+| Group | Tools |
+|---|---|
+| `issues` | search, count, read, create, edit, drafts, delete, commands, links, history, VCS changes |
+| `comments` | read, add, edit, delete, restore |
+| `attachments` | files on issues and articles |
+| `articles` | knowledge base |
+| `time` | work items and time reports |
+| `agile` | boards and sprints |
+| `projects` | find and describe projects |
+| `people` | users and groups |
+| `tags` | tags and tagging issues |
+| `searches` | saved searches |
+| `api` | `call_api` |
+
+A selection mixes groups and tool names, and `-` removes one: `issues,comments,articles,-delete_issue`. Removals
+alone start from everything, e.g. `-api,-agile`. The start-up log shows what is served, e.g.
+`tools="18 of 56: issues, comments, -delete_issue"`.
+
 ## Configuration
 
 `ymcp setup` and `ymcp auth` store each profile's name, URL, login and proxy in `<config dir>/ymcp/config.json`,
@@ -119,6 +142,7 @@ Environment variables override the stored values of the profile in use. That's h
 | `YOUTRACK_LOGIN`, `YOUTRACK_PASSWORD` | YouTrack or Hub account, LDAP included |
 | `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY` (or direct, when that proxy can't reach YouTrack), `none` to always connect directly, or a proxy URL |
 | `YMCP_PROFILE` | Profile to use, like `--profile` |
+| `YMCP_TOOLS` | Tools to serve, like `serve --tools` |
 | `YMCP_CONFIG` | Path of the config file |
 
 `--env FILE` loads these variables from a dotenv file (see [`.env.example`](.env.example)).

@@ -32,7 +32,7 @@ func TestLogsClientAndToolCalls(t *testing.T) {
 
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()
-	if _, err := newServer(yt, logger).Connect(ctx, st, nil); err != nil {
+	if _, err := newServer(yt, logger, nil).Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "9.9"}, nil).Connect(ctx, ct, nil)
@@ -78,7 +78,7 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 	config.Save(config.Config{Name: "broken", URL: "https://broken.example.com", Login: "x"}, "")
 
 	var logs bytes.Buffer
-	handler, served, err := httpHandler("http://ymcp.test", "s3cret", "", slog.New(slog.NewTextHandler(&logs, nil)))
+	handler, served, err := httpHandler("http://ymcp.test", "s3cret", "", "", slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil || strings.Join(served, ",") != "home,work" {
 		t.Fatalf("served %v, %v", served, err)
 	}
@@ -121,11 +121,11 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 	}
 
 	// --profiles work: only that one, at / as well.
-	_, served, err = httpHandler("http://ymcp.test", "", "work", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, served, err = httpHandler("http://ymcp.test", "", "work", "", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil || strings.Join(served, ",") != "work" {
 		t.Errorf("--profiles work: %v %v", served, err)
 	}
-	if _, _, err := httpHandler("http://ymcp.test", "", "broken", slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
+	if _, _, err := httpHandler("http://ymcp.test", "", "broken", "", slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
 		t.Error("serving only a broken profile succeeded")
 	}
 }
@@ -146,5 +146,23 @@ func TestRedactMasksSecrets(t *testing.T) {
 	}
 	if got := redact([]byte("not json")); got != "not json" {
 		t.Errorf("non-JSON = %q", got)
+	}
+}
+
+func TestToolSelection(t *testing.T) {
+	cfg := config.Config{Tools: []string{"projects"}}
+	enabled, summary, err := toolSelection("", cfg)
+	if err != nil || len(enabled) != 2 || summary != "2 of 56: projects" {
+		t.Errorf("profile tools: %v %q %v", enabled, summary, err)
+	}
+	enabled, summary, err = toolSelection("-api", cfg)
+	if err != nil || enabled["call_api"] || summary != "55 of 56: -api" {
+		t.Errorf("--tools overrides the profile: %d %q %v", len(enabled), summary, err)
+	}
+	if enabled, summary, _ := toolSelection("", config.Config{}); enabled != nil || summary != "all 56" {
+		t.Errorf("default: %v %q", enabled, summary)
+	}
+	if _, _, err := toolSelection("nope", cfg); err == nil {
+		t.Error("unknown group accepted")
 	}
 }

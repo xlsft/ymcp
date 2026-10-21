@@ -34,7 +34,10 @@ type Config struct {
 	URL         string `json:"url"`
 	Login       string `json:"login"`
 	Proxy       string `json:"proxy,omitempty"`
-	Password    string `json:"password,omitempty"` // only when the keychain is unavailable
+	// Tools are the tool groups or tools this profile serves, e.g.
+	// ["issues", "articles", "-delete_issue"]; empty means all.
+	Tools    []string `json:"tools,omitempty"`
+	Password string   `json:"password,omitempty"` // only when the keychain is unavailable
 }
 
 // Complete reports whether the config is enough to log in.

@@ -28,7 +28,7 @@ Usage:
   ymcp [global flags] [command] [arguments]
 
 Commands:
-  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr, --token, --profiles
+  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr, --token, --profiles, --tools
   auth      Set or replace the URL, login and password of a profile
   setup     Add, edit or remove YouTrack profiles and register them in MCP clients
   check     Log in and print the current user
@@ -118,24 +118,25 @@ func run(args []string) error {
 }
 
 // client builds a YouTrack client from the selected profile and the
-// environment, returning the profile key with it.
-func client(logger *slog.Logger) (*youtrack.Client, string, error) {
+// environment, returning the profile with it.
+func client(logger *slog.Logger) (*youtrack.Client, config.Config, error) {
 	cfg, err := config.Load(profile)
 	if err != nil {
-		return nil, "", err
+		return nil, cfg, err
 	}
 	if !cfg.Complete() {
-		return nil, cfg.Name, fmt.Errorf("YouTrack profile %q is not configured; run `ymcp setup` or `ymcp --profile %s auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)", cfg.Name, cfg.Name)
+		return nil, cfg, fmt.Errorf("YouTrack profile %q is not configured; run `ymcp setup` or `ymcp --profile %s auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)", cfg.Name, cfg.Name)
 	}
 	yt, err := youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: logger})
-	return yt, cfg.Name, err
+	return yt, cfg, err
 }
 
 func check(ctx context.Context) error {
-	yt, name, err := client(nil)
+	yt, cfg, err := client(nil)
 	if err != nil {
 		return err
 	}
+	name := cfg.Name
 	me, err := currentUser(ctx, yt)
 	if err != nil {
 		return err

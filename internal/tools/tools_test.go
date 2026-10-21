@@ -85,7 +85,7 @@ func connectHub(t *testing.T, api, hub http.Handler) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
-	Register(server, yt)
+	Register(server, yt, nil)
 
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()

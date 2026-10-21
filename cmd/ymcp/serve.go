@@ -25,7 +25,7 @@ import (
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
-func newServer(yt *youtrack.Client, logger *slog.Logger) *mcp.Server {
+func newServer(yt *youtrack.Client, logger *slog.Logger, enabled map[string]bool) *mcp.Server {
 	// The SDK logs session plumbing at info; keep that for -v only.
 	sdkLogger := logger
 	if !logger.Enabled(context.Background(), slog.LevelDebug) {
@@ -35,7 +35,7 @@ func newServer(yt *youtrack.Client, logger *slog.Logger) *mcp.Server {
 		Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
 		Logger:       sdkLogger,
 	})
-	tools.Register(s, yt)
+	tools.Register(s, yt, enabled)
 	s.AddReceivingMiddleware(logRequests(logger))
 	return s
 }
@@ -161,11 +161,15 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	addr := fs.String("addr", "127.0.0.1:8090", "listen address for --transport=http")
 	token := fs.String("token", "", "bearer token HTTP clients must send (YMCP_HTTP_TOKEN also works)")
 	only := fs.String("profiles", "", "comma-separated profiles to serve over HTTP (default: all, or --profile)")
+	toolsFlag := fs.String("tools", "", `tool groups or tools to serve, e.g. "issues,articles,-delete_issue" (YMCP_TOOLS also works; default: the profile's, or all)`)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *token == "" {
 		*token = os.Getenv("YMCP_HTTP_TOKEN")
+	}
+	if *toolsFlag == "" {
+		*toolsFlag = os.Getenv("YMCP_TOOLS")
 	}
 
 	switch *transport {
@@ -180,15 +184,20 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 		if name, err := config.Resolve(profile); err == nil {
 			logger = logger.With("profile", name)
 		}
-		yt, _, err := client(logger)
+		yt, cfg, err := client(logger)
 		if err != nil {
 			logger.Error("can't start", "err", err)
 			return err
 		}
-		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "log", cmp.Or(logPath, "off"))
+		enabled, summary, err := toolSelection(*toolsFlag, cfg)
+		if err != nil {
+			logger.Error("can't start", "err", err)
+			return err
+		}
+		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "tools", summary, "log", cmp.Or(logPath, "off"))
 		defer logger.Info("ymcp stopped")
 		checkForUpdate(ctx, logger)
-		return newServer(yt, logger).Run(ctx, &mcp.StdioTransport{})
+		return newServer(yt, logger, enabled).Run(ctx, &mcp.StdioTransport{})
 	case "http":
 		ln, err := net.Listen("tcp", *addr)
 		if err != nil {
@@ -199,7 +208,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 		if _, port, _ := net.SplitHostPort(*addr); port == "0" {
 			base = "http://" + ln.Addr().String()
 		}
-		handler, served, err := httpHandler(base, *token, *only, logger)
+		handler, served, err := httpHandler(base, *token, *only, *toolsFlag, logger)
 		if err != nil {
 			ln.Close()
 			logger.Error("can't start", "err", err)
@@ -233,7 +242,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 // httpHandler serves each profile at /<key>, and the default one at / too.
 // Profiles that can't sign in are skipped with a warning; it returns the
 // keys it serves and logs the URL of each.
-func httpHandler(base, token, only string, logger *slog.Logger) (http.Handler, []string, error) {
+func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http.Handler, []string, error) {
 	names, def, err := httpProfiles(only)
 	if err != nil {
 		return nil, nil, err
@@ -250,11 +259,16 @@ func httpHandler(base, token, only string, logger *slog.Logger) (http.Handler, [
 		if err == nil {
 			yt, err = youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: l})
 		}
+		var enabled map[string]bool
+		var summary string
+		if err == nil {
+			enabled, summary, err = toolSelection(toolsSpec, cfg)
+		}
 		if err != nil {
 			l.Warn("profile skipped", "err", err)
 			continue
 		}
-		srv := newServer(yt, l)
+		srv := newServer(yt, l, enabled)
 		h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 		mux.Handle("/"+name, h)
 		mux.Handle("/"+name+"/", h)
@@ -263,7 +277,7 @@ func httpHandler(base, token, only string, logger *slog.Logger) (http.Handler, [
 			mux.Handle("/{$}", h)
 			urls += " and " + base + "/"
 		}
-		l.Info("serving profile", "name", cfg.Title(), "youtrack", yt.BaseURL(), "url", urls)
+		l.Info("serving profile", "name", cfg.Title(), "youtrack", yt.BaseURL(), "tools", summary, "url", urls)
 		served = append(served, name)
 	}
 	if len(served) == 0 {
@@ -276,6 +290,28 @@ func httpHandler(base, token, only string, logger *slog.Logger) (http.Handler, [
 		return mux, served, nil
 	}
 	return requireToken(token, mux, logger), served, nil
+}
+
+// toolSelection picks the tools to serve: spec (from --tools or
+// YMCP_TOOLS) when set, else the profile's. It also describes the choice
+// for the start-up log, e.g. "23 of 56: issues, comments".
+func toolSelection(spec string, cfg config.Config) (map[string]bool, string, error) {
+	items := cfg.Tools
+	if spec != "" {
+		items = strings.Split(spec, ",")
+	}
+	enabled, err := tools.Select(items)
+	if err != nil {
+		return nil, "", err
+	}
+	total := 0
+	for _, g := range tools.Groups {
+		total += len(g.Tools)
+	}
+	if enabled == nil {
+		return nil, fmt.Sprintf("all %d", total), nil
+	}
+	return enabled, fmt.Sprintf("%d of %d: %s", len(enabled), total, strings.Join(items, ", ")), nil
 }
 
 // httpProfiles lists the profiles to serve and the default one (served at
@@ -353,7 +389,7 @@ func call(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 
 	ct, st := mcp.NewInMemoryTransports()
-	if _, err := newServer(yt, logger).Connect(ctx, st, nil); err != nil {
+	if _, err := newServer(yt, logger, nil).Connect(ctx, st, nil); err != nil {
 		return err
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "ymcp-call", Version: version}, nil).Connect(ctx, ct, nil)

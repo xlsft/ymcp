@@ -14,9 +14,24 @@ import (
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
-// Register adds every tool to s, backed by yt.
-func Register(s *mcp.Server, yt *youtrack.Client) {
+// Register adds the tools to s, backed by yt: those in enabled, or all of
+// them when enabled is nil (see Select).
+func Register(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool) {
 	t := &toolset{yt: yt}
+	defer func() {
+		if enabled == nil {
+			return
+		}
+		var off []string
+		for _, g := range Groups {
+			for _, tool := range g.Tools {
+				if !enabled[tool] {
+					off = append(off, tool)
+				}
+			}
+		}
+		s.RemoveTools(off...)
+	}()
 	t.registerIssues(s)
 	t.registerIssueEdit(s)
 	t.registerProjects(s)

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -22,7 +23,7 @@ func setup(t *testing.T) string {
 
 func TestSaveKeepsPasswordInKeychain(t *testing.T) {
 	path := setup(t)
-	in := Config{Name: "youtrack", URL: "https://yt.example.com", Login: "alice", Password: "s3cret", Proxy: "none"}
+	in := Config{Name: "youtrack", URL: "https://yt.example.com", Login: "alice", Password: "s3cret", Proxy: "none", Tools: []string{"issues", "-delete_issue"}}
 	store, err := Save(in, "")
 	if err != nil || store != "keychain" {
 		t.Fatalf("Save = %q, %v", store, err)
@@ -37,7 +38,7 @@ func TestSaveKeepsPasswordInKeychain(t *testing.T) {
 	}
 
 	got, err := Load("")
-	if err != nil || got != in {
+	if err != nil || !reflect.DeepEqual(got, in) {
 		t.Errorf("Load = %+v, %v", got, err)
 	}
 }

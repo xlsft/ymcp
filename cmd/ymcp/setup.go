@@ -15,6 +15,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/clients"
 	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/tools"
 )
 
 // errKeep is a declined removal.
@@ -33,6 +34,7 @@ func setup(ctx context.Context, args []string) error {
 	all := fs.Bool("all", false, "register in every detected client, without asking")
 	name := fs.String("name", "", `profile display name, e.g. "YouTrack (work)"; its key is the MCP server name`)
 	remove := fs.Bool("remove", false, "remove the --profile profile and its client registrations")
+	toolsFlag := fs.String("tools", "", `tool groups or tools the profile serves, e.g. "issues,articles"; "all" for every tool`)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -117,8 +119,73 @@ func setup(ctx context.Context, args []string) error {
 		fmt.Println(styleOK.Render("✓") + " Renamed profile " + oldName + " to " + styleBold.Render(key))
 	}
 
-	// 4. The clients it is registered in.
+	// 4. Its tools.
+	changed, err := pickTools(&cfg, *toolsFlag, ask)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if _, err := config.Save(cfg, ""); err != nil {
+			return err
+		}
+	}
+
+	// 5. The clients it is registered in.
 	return registerProfile(env, cfg, oldName, *only, *all, ask)
+}
+
+// pickTools sets the tool groups the profile serves, from --tools or a
+// checklist, and reports whether they changed. Nil means all tools.
+func pickTools(cfg *config.Config, spec string, ask bool) (bool, error) {
+	var chosen []string
+	switch {
+	case spec == "all":
+	case spec != "":
+		for _, it := range strings.Split(spec, ",") {
+			if it = strings.TrimSpace(it); it != "" {
+				chosen = append(chosen, it)
+			}
+		}
+		if _, err := tools.Select(chosen); err != nil {
+			return false, err
+		}
+	case !ask:
+		return false, nil
+	default:
+		groups := tools.GroupNames()
+		// Single tools and removals don't fit the checklist; keep them.
+		for _, it := range cfg.Tools {
+			if !slices.Contains(groups, it) {
+				fmt.Println(styleDim.Render("Tools: " + strings.Join(cfg.Tools, ", ") + " (change with ymcp setup --tools)"))
+				return false, nil
+			}
+		}
+		opts := make([]huh.Option[string], 0, len(tools.Groups))
+		for _, g := range tools.Groups {
+			on := len(cfg.Tools) == 0 || slices.Contains(cfg.Tools, g.Name)
+			label := fmt.Sprintf("%-12s", g.Name) + styleDim.Render(fmt.Sprintf("%s · %d", g.Title, len(g.Tools)))
+			opts = append(opts, huh.NewOption(label, g.Name).Selected(on))
+		}
+		if err := huh.NewMultiSelect[string]().
+			Title("Tools for " + cfg.Title()).
+			Description("Fewer tools leave the model more room · space to toggle · enter to confirm").
+			Options(opts...).
+			Validate(func(v []string) error {
+				if len(v) == 0 {
+					return errors.New("pick at least one group")
+				}
+				return nil
+			}).
+			Value(&chosen).WithTheme(huh.ThemeBase16()).Run(); err != nil {
+			return false, err
+		}
+		if len(chosen) == len(groups) {
+			chosen = nil
+		}
+	}
+	changed := !slices.Equal(chosen, cfg.Tools)
+	cfg.Tools = chosen
+	return changed, nil
 }
 
 // pickProfile chooses the profile to set up: the --profile one, the only

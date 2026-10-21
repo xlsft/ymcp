@@ -76,6 +76,23 @@ func TestSetupRenamesAddsAndRemovesProfiles(t *testing.T) {
 		t.Errorf("rename onto another profile = %v", err)
 	}
 
+	// Narrow its tools without a terminal, then widen them again.
+	if _, err := captureStdout(t, func() error {
+		return run([]string{"--profile", "youtrack-beget", "setup", "--tools", "issues,comments", "--all"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _ := config.Load("youtrack-beget"); strings.Join(cfg.Tools, ",") != "issues,comments" || !cfg.Complete() {
+		t.Errorf("tools = %v, complete = %v", cfg.Tools, cfg.Complete())
+	}
+	if err := run([]string{"--profile", "youtrack-beget", "setup", "--tools", "issues,nope", "--all"}); err == nil || !strings.Contains(err.Error(), "unknown tool or group") {
+		t.Errorf("bad --tools = %v", err)
+	}
+	captureStdout(t, func() error { return run([]string{"--profile", "youtrack-beget", "setup", "--tools", "all", "--all"}) })
+	if cfg, _ := config.Load("youtrack-beget"); cfg.Tools != nil {
+		t.Errorf("tools after all = %v", cfg.Tools)
+	}
+
 	// Remove it again.
 	if _, err := captureStdout(t, func() error {
 		return run([]string{"--profile", "youtrack-beget", "setup", "--remove"})
