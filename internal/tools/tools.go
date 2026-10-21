@@ -20,6 +20,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerProjects(s)
 	t.registerUsers(s)
 	t.registerTags(s)
+	t.registerLinks(s)
 }
 
 type toolset struct {

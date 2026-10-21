@@ -36,19 +36,8 @@ type apiIssue struct {
 		Name string `json:"name"`
 	} `json:"tags"`
 	CustomFields []customField `json:"customFields"`
-	Links        []struct {
-		Direction string `json:"direction"`
-		LinkType  struct {
-			Name           string `json:"name"`
-			SourceToTarget string `json:"sourceToTarget"`
-			TargetToSource string `json:"targetToSource"`
-			Directed       bool   `json:"directed"`
-		} `json:"linkType"`
-		Issues []struct {
-			IDReadable string `json:"idReadable"`
-		} `json:"issues"`
-	} `json:"links"`
-	Attachments []struct {
+	Links        []apiLink     `json:"links"`
+	Attachments  []struct {
 		Name     string `json:"name"`
 		Size     int64  `json:"size"`
 		MimeType string `json:"mimeType"`
@@ -75,7 +64,7 @@ const (
 	issueFullFields = "idReadable,summary,description,created,updated,resolved,votes,commentsCount," +
 		"project(id,shortName,name),reporter(login,fullName),tags(name)," +
 		"customFields(" + customFieldValueFields + ")," +
-		"links(direction,linkType(name,sourceToTarget,targetToSource,directed),issues(idReadable))," +
+		"links(" + linkFields + ")," +
 		"attachments(name,size,mimeType,url)"
 	commentFields = "id,text,created,updated,author(login,fullName)"
 )
@@ -220,23 +209,6 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 		}
 	}
 
-	links := map[string][]string{}
-	for _, l := range is.Links {
-		if len(l.Issues) == 0 {
-			continue
-		}
-		name := l.LinkType.SourceToTarget
-		if l.Direction == "INWARD" && l.LinkType.TargetToSource != "" {
-			name = l.LinkType.TargetToSource
-		}
-		if name == "" {
-			name = l.LinkType.Name
-		}
-		for _, li := range l.Issues {
-			links[name] = append(links[name], li.IDReadable)
-		}
-	}
-
 	tags := make([]string, 0, len(is.Tags))
 	for _, tg := range is.Tags {
 		tags = append(tags, tg.Name)
@@ -270,7 +242,7 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 		"votes":          is.Votes,
 		"tags":           tags,
 		"customFields":   flattenFields(is.CustomFields),
-		"links":          links,
+		"links":          linkMap(is.Links),
 		"attachments":    attachments,
 		"commentsCount":  is.CommentsCount,
 		"recentComments": comments,

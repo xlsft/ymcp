@@ -310,3 +310,34 @@ func TestManageIssueTags(t *testing.T) {
 		t.Errorf("operation outside enum should be rejected by the schema, got isErr=%v %q", isErr, text)
 	}
 }
+
+func TestLinkIssues(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issueLinkTypes", `[
+		{"name":"Relates","sourceToTarget":"relates to","targetToSource":"","directed":false},
+		{"name":"Subtask","sourceToTarget":"parent for","targetToSource":"subtask of","directed":true}]`)
+	api.json("POST /api/commands", `{}`)
+	api.json("GET /api/issues/DEMO-1/links", `[
+		{"direction":"INWARD","linkType":{"name":"Subtask","sourceToTarget":"parent for","targetToSource":"subtask of"},"issues":[{"idReadable":"DEMO-2"}]},
+		{"direction":"BOTH","linkType":{"name":"Relates","sourceToTarget":"relates to"},"issues":[{"idReadable":"DEMO-3"},{"idReadable":"DEMO-4"}]}]`)
+	cs := connect(t, api)
+
+	var out struct {
+		LinkedIssueCounts map[string]int
+	}
+	if isErr, text := call(t, cs, "link_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "Subtask Of", "issueToLinkId": "DEMO-2"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.LinkedIssueCounts["subtask of"] != 1 || out.LinkedIssueCounts["relates to"] != 2 {
+		t.Errorf("counts = %v", out.LinkedIssueCounts)
+	}
+	cmds := api.bodies("/api/commands")
+	if len(cmds) != 1 || cmds[0]["query"] != "subtask of DEMO-2" {
+		t.Errorf("commands = %v", cmds)
+	}
+
+	isErr, text := call(t, cs, "link_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "blocks", "issueToLinkId": "DEMO-2"}, nil)
+	if !isErr || !strings.Contains(text, "available: parent for, relates to, subtask of") {
+		t.Errorf("isErr=%v %q", isErr, text)
+	}
+}
