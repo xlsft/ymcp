@@ -178,15 +178,22 @@ func (t *toolset) changeIssueAssignee(ctx context.Context, in changeIssueAssigne
 	return map[string]any{"id": in.IssueID, "assignee": flattenFields(updated.CustomFields)["Assignee"]}, nil
 }
 
-// issueCustomFields builds the REST payload against the schema of the issue's project.
-func (t *toolset) issueCustomFields(ctx context.Context, issueID string, values map[string]any) ([]map[string]any, error) {
+// issueProject returns the project an issue belongs to.
+func (t *toolset) issueProject(ctx context.Context, issueID string) (apiProjectRef, error) {
 	var is struct {
 		Project apiProjectRef `json:"project"`
 	}
-	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), url.Values{"fields": {"project(id,shortName)"}}, &is); err != nil {
+	err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), url.Values{"fields": {"project(id,shortName)"}}, &is)
+	return is.Project, err
+}
+
+// issueCustomFields builds the REST payload against the schema of the issue's project.
+func (t *toolset) issueCustomFields(ctx context.Context, issueID string, values map[string]any) ([]map[string]any, error) {
+	project, err := t.issueProject(ctx, issueID)
+	if err != nil {
 		return nil, err
 	}
-	schema, err := t.projectFields(ctx, is.Project.ID)
+	schema, err := t.projectFields(ctx, project.ID)
 	if err != nil {
 		return nil, err
 	}

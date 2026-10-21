@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -339,5 +340,53 @@ func TestLinkIssues(t *testing.T) {
 	isErr, text := call(t, cs, "link_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "blocks", "issueToLinkId": "DEMO-2"}, nil)
 	if !isErr || !strings.Contains(text, "available: parent for, relates to, subtask of") {
 		t.Errorf("isErr=%v %q", isErr, text)
+	}
+}
+
+func TestLogWork(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issues/DEMO-7", `{"project":{"id":"0-1","shortName":"DEMO"}}`)
+	api.json("GET /api/admin/projects/0-1/timeTrackingSettings", `{
+		"workItemTypes":[{"id":"w-1","name":"Development"},{"id":"w-2","name":"Testing"}],
+		"attributes":[{"id":"a-1","name":"Billable","values":[{"id":"v-1","name":"Yes"},{"id":"v-2","name":"No"}]}]}`)
+	api.json("POST /api/issues/DEMO-7/timeTracking/workItems", `{"id":"8-1","date":1767225600000,"text":"fix",
+		"duration":{"minutes":90,"presentation":"1h 30m"},"type":{"name":"Testing"},"author":{"login":"alice"},
+		"attributes":[{"name":"Billable","value":{"name":"No"}}]}`)
+	cs := connect(t, api)
+
+	var out struct {
+		Duration, WorkType, Author string
+		Attributes                 map[string]any
+	}
+	if isErr, text := call(t, cs, "log_work", map[string]any{
+		"issueId": "DEMO-7", "durationMinutes": 90, "description": "fix", "date": "2026-01-01",
+		"workType": "testing", "workItemAttributes": map[string]any{"billable": "no"},
+	}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.Duration != "1h 30m" || out.WorkType != "Testing" || out.Attributes["Billable"] != "No" {
+		t.Errorf("out = %+v", out)
+	}
+
+	bodies := api.bodies("/api/issues/DEMO-7/timeTracking/workItems")
+	if len(bodies) != 1 {
+		t.Fatalf("POSTs = %d", len(bodies))
+	}
+	b := bodies[0]
+	want := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local).UnixMilli()
+	if b["date"] != float64(want) || b["text"] != "fix" {
+		t.Errorf("body = %v", b)
+	}
+	got, _ := json.Marshal([]any{b["duration"], b["type"], b["attributes"]})
+	if string(got) != `[{"minutes":90},{"id":"w-2"},[{"id":"a-1","name":"Billable","value":{"id":"v-2","name":"No"}}]]` {
+		t.Errorf("body parts = %s", got)
+	}
+
+	isErr, text := call(t, cs, "log_work", map[string]any{"issueId": "DEMO-7", "durationMinutes": 5, "workType": "Design"}, nil)
+	if !isErr || !strings.Contains(text, "available: Development, Testing") {
+		t.Errorf("unknown type: isErr=%v %q", isErr, text)
+	}
+	if isErr, _ := call(t, cs, "log_work", map[string]any{"issueId": "DEMO-7", "durationMinutes": 0}, nil); !isErr {
+		t.Error("zero duration should be rejected")
 	}
 }
