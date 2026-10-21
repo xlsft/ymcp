@@ -88,7 +88,7 @@ cp .env.example .env
 
 | Переменная | Описание |
 |---|---|
-| `YOUTRACK_URL` | Адрес инстанса без `/api`, например `https://projectsystem.online` |
+| `YOUTRACK_URL` | Адрес инстанса без `/api`, например `https://youtrack.example.com` |
 | `YOUTRACK_LOGIN` | Логин в YouTrack/Hub; LDAP-учётки тоже работают |
 | `YOUTRACK_PASSWORD` | Пароль |
 | `YOUTRACK_PROXY` | Пусто — брать `HTTP(S)_PROXY` из окружения, `none` — ходить напрямую, иначе URL прокси |
@@ -113,7 +113,7 @@ cp .env.example .env
 ### Сеть: VPN, корпоративный DNS и прокси
 
 YouTrack доступен только из внутренней сети, то есть через VPN или офисный Wi-Fi. Снаружи
-`projectsystem.online` резолвится в публичную заглушку. Если в окружении задан
+его домен может резолвиться в публичную заглушку. Если в окружении задан
 `HTTPS_PROXY`, который ведёт наружу, запросы уйдут мимо внутреннего DNS. В этом случае поставь
 `YOUTRACK_PROXY=none`. Если вместо JSON пришла HTML-страница, сервер так и сообщит:
 `unexpected "text/html" response … (check URL, VPN and proxy settings)`.
