@@ -76,6 +76,9 @@ func run(args []string) error {
 	if len(rest) > 0 {
 		cmd, rest = rest[0], rest[1:]
 	}
+	if (cmd == "auth" || cmd == "setup" || cmd == "update") && interactive() {
+		drainTerminalReplies()
+	}
 	switch cmd {
 	case "serve":
 		return serve(ctx, rest, logger)
