@@ -560,3 +560,27 @@ func TestArticles(t *testing.T) {
 		t.Errorf("found = %+v", found)
 	}
 }
+
+func TestCommentWithLimitedVisibility(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/groups", `[{"id":"3-1","name":"Backend devs","ringId":"r-1"}]`)
+	api.json("POST /api/issues/DEMO-7/comments", `{"id":"4-9","text":"secret"}`)
+	cs := connect(t, api)
+
+	var out struct{ URL string }
+	if isErr, text := call(t, cs, "add_issue_comment", map[string]any{"issueId": "DEMO-7", "text": "secret", "permittedGroups": []string{"Backend devs"}}, &out); isErr {
+		t.Fatal(text)
+	}
+	if !strings.HasSuffix(out.URL, "/issue/DEMO-7#focus=Comments-4-9.0-0") {
+		t.Errorf("url = %q", out.URL)
+	}
+	got, _ := json.Marshal(api.bodies("/api/issues/DEMO-7/comments")[0])
+	if string(got) != `{"text":"secret","visibility":{"$type":"LimitedVisibility","permittedGroups":[{"id":"3-1"}],"permittedUsers":[]}}` {
+		t.Errorf("body = %s", got)
+	}
+
+	isErr, text := call(t, cs, "add_issue_comment", map[string]any{"issueId": "DEMO-7", "text": "x", "permittedGroups": []string{"QA"}}, nil)
+	if !isErr || !strings.Contains(text, `permitted group "QA" not found`) {
+		t.Errorf("isErr=%v %q", isErr, text)
+	}
+}

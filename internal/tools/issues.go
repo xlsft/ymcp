@@ -107,8 +107,10 @@ type getIssueCommentsIn struct {
 }
 
 type addIssueCommentIn struct {
-	IssueID string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
-	Text    string `json:"text" jsonschema:"Comment text, Markdown supported"`
+	IssueID         string   `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	Text            string   `json:"text" jsonschema:"Comment text, Markdown supported"`
+	PermittedUsers  []string `json:"permittedUsers,omitempty" jsonschema:"Limit visibility to these user logins"`
+	PermittedGroups []string `json:"permittedGroups,omitempty" jsonschema:"Limit visibility to these group names"`
 }
 
 func (t *toolset) registerIssues(s *mcp.Server) {
@@ -134,7 +136,7 @@ func (t *toolset) registerIssues(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name:        "add_issue_comment",
-		Description: "Adds a comment to an issue. Markdown is supported. Returns the comment ID and URL.",
+		Description: "Adds a comment to an issue, optionally visible only to given users and groups. Markdown is supported. Returns the comment ID and URL.",
 		Annotations: mutating("Add issue comment", false),
 	}, t.addIssueComment)
 }
@@ -274,9 +276,17 @@ func (t *toolset) addIssueComment(ctx context.Context, in addIssueCommentIn) (an
 	if in.Text == "" {
 		return nil, fmt.Errorf("text must not be empty")
 	}
+	body := map[string]any{"text": in.Text}
+	vis, err := t.limitedVisibility(ctx, in.PermittedUsers, in.PermittedGroups)
+	if err != nil {
+		return nil, err
+	}
+	if vis != nil {
+		body["visibility"] = vis
+	}
 	var c apiComment
-	err := t.yt.Post(ctx, "issues/"+url.PathEscape(in.IssueID)+"/comments",
-		url.Values{"fields": {commentFields}}, map[string]any{"text": in.Text}, &c)
+	err = t.yt.Post(ctx, "issues/"+url.PathEscape(in.IssueID)+"/comments",
+		url.Values{"fields": {commentFields}}, body, &c)
 	if err != nil {
 		return nil, err
 	}

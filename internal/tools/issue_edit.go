@@ -13,11 +13,13 @@ type getIssueFieldsSchemaIn struct {
 }
 
 type createIssueIn struct {
-	Project      string         `json:"project" jsonschema:"Project key, e.g. DEMO. Ask the user if unknown."`
-	Summary      string         `json:"summary" jsonschema:"Issue summary (title)"`
-	Description  string         `json:"description,omitempty" jsonschema:"Issue description, plain text or Markdown"`
-	CustomFields map[string]any `json:"customFields,omitempty" jsonschema:"Custom field values keyed by exact field name from get_issue_fields_schema, e.g. {\"Type\":\"Task\",\"Priority\":\"Minor\"}. Multi-value fields take arrays."`
-	ParentIssue  string         `json:"parentIssue,omitempty" jsonschema:"ID of the parent issue; the new issue becomes its subtask"`
+	Project         string         `json:"project" jsonschema:"Project key, e.g. DEMO. Ask the user if unknown."`
+	Summary         string         `json:"summary" jsonschema:"Issue summary (title)"`
+	Description     string         `json:"description,omitempty" jsonschema:"Issue description, plain text or Markdown"`
+	CustomFields    map[string]any `json:"customFields,omitempty" jsonschema:"Custom field values keyed by exact field name from get_issue_fields_schema, e.g. {\"Type\":\"Task\",\"Priority\":\"Minor\"}. Multi-value fields take arrays."`
+	ParentIssue     string         `json:"parentIssue,omitempty" jsonschema:"ID of the parent issue; the new issue becomes its subtask"`
+	PermittedUsers  []string       `json:"permittedUsers,omitempty" jsonschema:"Limit visibility to these user logins"`
+	PermittedGroups []string       `json:"permittedGroups,omitempty" jsonschema:"Limit visibility to these group names"`
 }
 
 type createDraftIssueIn struct {
@@ -109,6 +111,13 @@ func (t *toolset) createIssue(ctx context.Context, in createIssueIn) (any, error
 			return nil, err
 		}
 		body["customFields"] = fields
+	}
+	vis, err := t.limitedVisibility(ctx, in.PermittedUsers, in.PermittedGroups)
+	if err != nil {
+		return nil, err
+	}
+	if vis != nil {
+		body["visibility"] = vis
 	}
 
 	var created struct {

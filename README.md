@@ -13,9 +13,9 @@
 | `search_issues` | ✅ | Поиск задач на языке запросов YouTrack, до 20 на страницу |
 | `get_issue` | ✅ | Полная карточка задачи, последние комментарии, связи, вложения |
 | `get_issue_comments` | ✅ | Комментарии задачи, до 10 на страницу |
-| `add_issue_comment` | ✅ | Добавить комментарий (Markdown) |
+| `add_issue_comment` | ✅ | Добавить комментарий (Markdown), можно с ограниченной видимостью |
 | `get_issue_fields_schema` | ✅ | JSON Schema кастомных полей проекта с допустимыми значениями |
-| `create_issue` | ✅ | Создать задачу; поля задаются по имени, `parentIssue` делает её подзадачей |
+| `create_issue` | ✅ | Создать задачу; поля задаются по имени, `parentIssue` делает её подзадачей, `permittedUsers`/`permittedGroups` ограничивают видимость |
 | `update_issue` | ✅ | Изменить summary, description, поля, звёздочку и голос |
 | `change_issue_assignee` | ✅ | Сменить исполнителя, `null` снимает исполнителя |
 | `find_projects` | ✅ | Найти проекты по подстроке имени или ключа |
