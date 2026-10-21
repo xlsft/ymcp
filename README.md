@@ -206,6 +206,13 @@ or in a JSON config:
   "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
+### Retries
+
+A busy or restarting YouTrack doesn't fail a tool call right away. ymcp retries up to three times, waiting 0.5,
+1 and 2 seconds or as long as `Retry-After` asks (up to 10 s): on 429 and 503 for any request, and on 502, 504 and
+dropped connections only for requests that are safe to repeat. A POST that may already have created an issue or
+comment is never sent twice. Each retry is logged.
+
 ### Logs
 
 The server logs its start, every client that connects and every tool call. At start it also checks GitHub in the

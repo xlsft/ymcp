@@ -293,3 +293,54 @@ func TestNormalizeURL(t *testing.T) {
 		t.Errorf("host-only URL rejected: %v", err)
 	}
 }
+
+func TestRetriesOnlyWhatIsSafeToRepeat(t *testing.T) {
+	var calls atomic.Int32
+	var script []int // status per call; 0 drops the connection
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		n := int(calls.Add(1)) - 1
+		status := http.StatusOK
+		if n < len(script) {
+			status = script[n]
+		}
+		switch status {
+		case 0:
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close()
+		case http.StatusOK:
+			meHandler(w, r)
+		default:
+			if status == http.StatusTooManyRequests {
+				w.Header().Set("Retry-After", "0")
+			}
+			w.WriteHeader(status)
+		}
+	})
+	c.retryDelays = []time.Duration{0, 0, 0}
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name, method string
+		script       []int
+		calls        int32
+		ok           bool
+	}{
+		{"GET through two 503s", http.MethodGet, []int{503, 503}, 3, true},
+		{"GET after a dropped connection", http.MethodGet, []int{0}, 2, true},
+		{"GET 504 then 502", http.MethodGet, []int{504, 502}, 3, true},
+		{"GET gives up", http.MethodGet, []int{503, 503, 503, 503}, 4, false},
+		{"GET 500 is final", http.MethodGet, []int{500}, 1, false},
+		{"POST 429 is retried", http.MethodPost, []int{429}, 2, true},
+		{"POST 503 is retried", http.MethodPost, []int{503}, 2, true},
+		{"POST 502 may have created something", http.MethodPost, []int{502}, 1, false},
+		{"POST dropped connection is not repeated", http.MethodPost, []int{0}, 1, false},
+	} {
+		calls.Store(0)
+		script = tc.script
+		var me struct{ Login string }
+		err := c.Do(ctx, tc.method, "users/me", nil, nil, &me)
+		if got := calls.Load(); got != tc.calls || (err == nil) != tc.ok {
+			t.Errorf("%s: %d calls, err %v; want %d calls, ok=%v", tc.name, got, err, tc.calls, tc.ok)
+		}
+	}
+}

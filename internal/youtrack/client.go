@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -23,7 +25,15 @@ type Client struct {
 	auth    *hubAuth
 	http    *http.Client
 	log     *slog.Logger
+	// retryDelays are the waits before each retry; see retryable.
+	retryDelays []time.Duration
 }
+
+// defaultRetryDelays give a busy or restarting YouTrack about 3.5 s.
+var defaultRetryDelays = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}
+
+// maxRetryAfter caps how long a Retry-After header can make a call wait.
+const maxRetryAfter = 10 * time.Second
 
 // Options configures a Client.
 type Options struct {
@@ -100,6 +110,8 @@ func New(opts Options) (*Client, error) {
 		auth:    auth,
 		http:    &http.Client{Transport: transport, Timeout: timeout},
 		log:     logger,
+
+		retryDelays: defaultRetryDelays,
 	}, nil
 }
 
@@ -254,15 +266,30 @@ func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body,
 // exchange sends a request, logs in again once on 401, and turns non-2xx
 // answers into *Error.
 func (c *Client) exchange(ctx context.Context, scope, method string, u *url.URL, contentType string, payload []byte) (*http.Response, []byte, error) {
-	start := time.Now()
-	resp, data, err := c.send(ctx, scope, method, u, contentType, payload)
-	if resp != nil {
-		c.log.Debug("youtrack request", "method", method, "path", u.Path, "status", resp.StatusCode,
-			"bytes", len(data), "took", time.Since(start).Round(time.Millisecond))
-	}
-	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-		// The token may have been revoked before its expiry; log in again once.
-		resp, data, err = c.send(ctx, scope, method, u, contentType, payload)
+	var resp *http.Response
+	var data []byte
+	var err error
+	for attempt := 0; ; attempt++ {
+		resp, data, err = c.attempt(ctx, scope, method, u, contentType, payload)
+		if attempt >= len(c.retryDelays) || !retryable(method, resp, err) || ctx.Err() != nil {
+			break
+		}
+		wait := c.retryDelays[attempt]
+		if resp != nil {
+			if secs, perr := strconv.Atoi(resp.Header.Get("Retry-After")); perr == nil && secs >= 0 {
+				wait = min(time.Duration(secs)*time.Second, maxRetryAfter)
+			}
+		}
+		why := any(err)
+		if resp != nil {
+			why = resp.Status
+		}
+		c.log.Info("retrying youtrack request", "method", method, "path", u.Path, "after", why, "wait", wait, "retry", attempt+1)
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(wait):
+		}
 	}
 	if err != nil {
 		return nil, nil, err
@@ -273,6 +300,49 @@ func (c *Client) exchange(ctx context.Context, scope, method string, u *url.URL,
 		return nil, nil, e
 	}
 	return resp, data, nil
+}
+
+// attempt is one request, logged, with a fresh login if the token was
+// revoked before its expiry.
+func (c *Client) attempt(ctx context.Context, scope, method string, u *url.URL, contentType string, payload []byte) (*http.Response, []byte, error) {
+	start := time.Now()
+	resp, data, err := c.send(ctx, scope, method, u, contentType, payload)
+	if resp != nil {
+		c.log.Debug("youtrack request", "method", method, "path", u.Path, "status", resp.StatusCode,
+			"bytes", len(data), "took", time.Since(start).Round(time.Millisecond))
+	}
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		resp, data, err = c.send(ctx, scope, method, u, contentType, payload)
+	}
+	return resp, data, err
+}
+
+// retryable reports whether a failed request may be sent again. 429 and
+// 503 mean YouTrack didn't take it, so any method retries; 502, 504 and
+// network failures may have happened after YouTrack acted, so only
+// requests that are safe to repeat retry, plus any whose connection never
+// opened. A POST that may have created an issue is never sent twice.
+func retryable(method string, resp *http.Response, err error) bool {
+	idempotent := method == http.MethodGet || method == http.MethodHead || method == http.MethodPut ||
+		method == http.MethodDelete || method == http.MethodOptions
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false
+		}
+		var opErr *net.OpError
+		if errors.As(err, &opErr) && opErr.Op == "dial" {
+			return true
+		}
+		var netErr net.Error
+		return idempotent && (errors.As(err, &netErr) || errors.Is(err, io.ErrUnexpectedEOF))
+	}
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return true
+	case http.StatusBadGateway, http.StatusGatewayTimeout:
+		return idempotent
+	}
+	return false
 }
 
 // decode reads a JSON answer into out.
