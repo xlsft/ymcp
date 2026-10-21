@@ -976,3 +976,58 @@ func TestAgileBoardsAndSprints(t *testing.T) {
 		t.Errorf("unknown sprint: isErr=%v %q", isErr, text)
 	}
 }
+
+func TestSprintWrites(t *testing.T) {
+	api := newAgileAPI(t)
+	api.json("GET /api/agiles/195-17", `{"id":"195-17","name":"ops","sprintsSettings":{"disableSprints":true}}`)
+	api.json("POST /api/agiles/195-13/sprints", `{"id":"209-3","name":"S3"}`)
+	api.json("POST /api/agiles/195-13/sprints/209-2", `{"id":"209-2","name":"S2","archived":true}`)
+	api.json("GET /api/issues/DEMO-7", `{"id":"3-77"}`)
+	api.json("POST /api/agiles/195-13/sprints/209-2/issues", `{"id":"3-77"}`)
+	var mu sync.Mutex
+	var deleted []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		deleted = append(deleted, r.URL.Path)
+		mu.Unlock()
+	}
+	api.handle("DELETE /api/agiles/195-13/sprints/209-2/issues/3-77", record)
+	api.handle("DELETE /api/agiles/195-13/sprints/209-1", record)
+	cs := connect(t, api)
+
+	steps := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"create_sprint", map[string]any{"board": "dev", "name": "S3", "goal": "g", "start": "2026-01-01", "finish": "2026-01-14"}},
+		{"update_sprint", map[string]any{"board": "dev", "sprint": "current", "archived": true, "goal": ""}},
+		{"add_issue_to_sprint", map[string]any{"board": "dev", "issueId": "DEMO-7"}},
+		{"remove_issue_from_sprint", map[string]any{"board": "dev", "sprint": "S2", "issueId": "DEMO-7"}},
+		{"delete_sprint", map[string]any{"board": "195-13", "sprint": "209-1"}},
+	}
+	for _, st := range steps {
+		if isErr, text := call(t, cs, st.tool, st.args, nil); isErr {
+			t.Fatalf("%s: %s", st.tool, text)
+		}
+	}
+
+	got, _ := json.Marshal(api.bodies("/api/agiles/195-13/sprints"))
+	if string(got) != `[{"finish":1768435199999,"goal":"g","name":"S3","start":1767225600000}]` {
+		t.Errorf("create body = %s", got)
+	}
+	got, _ = json.Marshal(api.bodies("/api/agiles/195-13/sprints/209-2"))
+	if string(got) != `[{"archived":true,"goal":""}]` {
+		t.Errorf("update body = %s", got)
+	}
+	if b := api.bodies("/api/agiles/195-13/sprints/209-2/issues"); len(b) != 1 || b[0]["id"] != "3-77" {
+		t.Errorf("add body = %v", b)
+	}
+	if strings.Join(deleted, ",") != "/api/agiles/195-13/sprints/209-2/issues/3-77,/api/agiles/195-13/sprints/209-1" {
+		t.Errorf("deleted = %v", deleted)
+	}
+
+	isErr, text := call(t, cs, "create_sprint", map[string]any{"board": "195-17", "name": "x"}, nil)
+	if !isErr || !strings.Contains(text, "doesn't use sprints") {
+		t.Errorf("sprints disabled: isErr=%v %q", isErr, text)
+	}
+}

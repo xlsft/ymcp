@@ -28,6 +28,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerArticles(s)
 	t.registerDeletes(s)
 	t.registerAgiles(s)
+	t.registerSprints(s)
 }
 
 type toolset struct {
