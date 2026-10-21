@@ -107,9 +107,21 @@ type getIssueIn struct {
 }
 
 type getIssueCommentsIn struct {
-	IssueID string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
-	Offset  int    `json:"offset,omitempty" jsonschema:"Number of comments to skip. Default 0."`
-	Limit   int    `json:"limit,omitempty" jsonschema:"Max comments to return. Default 10, max 10."`
+	IssueID        string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	Offset         int    `json:"offset,omitempty" jsonschema:"Number of comments to skip. Default 0."`
+	Limit          int    `json:"limit,omitempty" jsonschema:"Max comments to return. Default 10, max 10."`
+	IncludeDeleted bool   `json:"includeDeleted,omitempty" jsonschema:"Also list deleted comments (marked deleted, without text), e.g. to restore one. Default false."`
+}
+
+type updateIssueCommentIn struct {
+	IssueID   string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	CommentID string `json:"commentId" jsonschema:"Comment ID from get_issue_comments, e.g. 4-17"`
+	Text      string `json:"text" jsonschema:"New comment text, Markdown supported"`
+}
+
+type restoreIssueCommentIn struct {
+	IssueID   string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	CommentID string `json:"commentId" jsonschema:"ID of a deleted comment, from get_issue_comments with includeDeleted"`
 }
 
 type addIssueCommentIn struct {
@@ -151,6 +163,18 @@ func (t *toolset) registerIssues(s *mcp.Server) {
 		Description: "Adds a comment to an issue, optionally visible only to given users and groups. Markdown is supported. Returns the comment ID and URL.",
 		Annotations: mutating("Add issue comment", false),
 	}, t.addIssueComment)
+
+	add(s, &mcp.Tool{
+		Name:        "update_issue_comment",
+		Description: "Replaces the text of an issue comment. Markdown is supported.",
+		Annotations: mutating("Update issue comment", false),
+	}, t.updateIssueComment)
+
+	add(s, &mcp.Tool{
+		Name:        "restore_issue_comment",
+		Description: "Restores a comment that was deleted (not permanently) with delete_issue_comment or in the UI.",
+		Annotations: mutating("Restore issue comment", false),
+	}, t.restoreIssueComment)
 }
 
 func (t *toolset) searchIssues(ctx context.Context, in searchIssuesIn) (any, error) {
@@ -293,11 +317,56 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 
 func (t *toolset) getIssueComments(ctx context.Context, in getIssueCommentsIn) (any, error) {
 	offset, limit := page(in.Offset, in.Limit, 10, 10)
+	if in.IncludeDeleted {
+		return t.allComments(ctx, in.IssueID, offset, limit)
+	}
 	comments, total, err := t.comments(ctx, in.IssueID, offset, limit)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"comments": comments, "offset": offset, "total": total, "hasMore": offset+len(comments) < total}, nil
+}
+
+// allComments pages over every comment, deleted ones included and flagged.
+func (t *toolset) allComments(ctx context.Context, issueID string, offset, limit int) (any, error) {
+	var raw []struct {
+		apiComment
+		Deleted bool `json:"deleted,omitempty"`
+	}
+	q := url.Values{
+		"fields": {commentFields + ",deleted"},
+		"$skip":  {strconv.Itoa(offset)},
+		"$top":   {strconv.Itoa(limit + 1)},
+	}
+	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID)+"/comments", q, &raw); err != nil {
+		return nil, err
+	}
+	hasMore := len(raw) > limit
+	if hasMore {
+		raw = raw[:limit]
+	}
+	return map[string]any{"comments": raw, "offset": offset, "hasMore": hasMore}, nil
+}
+
+func (t *toolset) updateIssueComment(ctx context.Context, in updateIssueCommentIn) (any, error) {
+	if in.Text == "" {
+		return nil, fmt.Errorf("text must not be empty")
+	}
+	var c apiComment
+	path := "issues/" + url.PathEscape(in.IssueID) + "/comments/" + url.PathEscape(in.CommentID)
+	if err := t.yt.Post(ctx, path, url.Values{"fields": {commentFields}}, map[string]any{"text": in.Text}, &c); err != nil {
+		return nil, err
+	}
+	return map[string]any{"issueId": in.IssueID, "comment": c}, nil
+}
+
+func (t *toolset) restoreIssueComment(ctx context.Context, in restoreIssueCommentIn) (any, error) {
+	var c apiComment
+	path := "issues/" + url.PathEscape(in.IssueID) + "/comments/" + url.PathEscape(in.CommentID)
+	if err := t.yt.Post(ctx, path, url.Values{"fields": {commentFields}}, map[string]any{"deleted": false}, &c); err != nil {
+		return nil, err
+	}
+	return map[string]any{"issueId": in.IssueID, "restored": c}, nil
 }
 
 // comments returns a page of the issue's comments that are not deleted,

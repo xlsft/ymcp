@@ -1248,3 +1248,31 @@ func TestAttachments(t *testing.T) {
 		t.Errorf("delete: isErr=%v %q", isErr, text)
 	}
 }
+
+func TestCommentEditAndRestore(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/issues/DEMO-7/comments/4-1", `{"id":"4-1","text":"fixed"}`)
+	api.handle("GET /api/issues/DEMO-7/comments", fakeComments(t, 3, 1))
+	cs := connect(t, api)
+
+	if isErr, text := call(t, cs, "update_issue_comment", map[string]any{"issueId": "DEMO-7", "commentId": "4-1", "text": "fixed"}, nil); isErr {
+		t.Fatal(text)
+	}
+	if isErr, text := call(t, cs, "restore_issue_comment", map[string]any{"issueId": "DEMO-7", "commentId": "4-1"}, nil); isErr {
+		t.Fatal(text)
+	}
+	got, _ := json.Marshal(api.bodies("/api/issues/DEMO-7/comments/4-1"))
+	if string(got) != `[{"text":"fixed"},{"deleted":false}]` {
+		t.Errorf("bodies = %s", got)
+	}
+
+	var all struct {
+		Comments []map[string]any
+	}
+	if isErr, text := call(t, cs, "get_issue_comments", map[string]any{"issueId": "DEMO-7", "includeDeleted": true}, &all); isErr {
+		t.Fatal(text)
+	}
+	if len(all.Comments) != 3 || all.Comments[1]["deleted"] != true || all.Comments[0]["deleted"] != nil {
+		t.Errorf("all comments = %v", all.Comments)
+	}
+}
