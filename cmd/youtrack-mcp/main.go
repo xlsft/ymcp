@@ -30,10 +30,23 @@ func main() {
 func run() error {
 	transport := flag.String("transport", "stdio", "MCP transport: stdio or http")
 	addr := flag.String("addr", "127.0.0.1:8090", "listen address for -transport=http")
+	envFile := flag.String("env", "", "load YOUTRACK_* variables from this file (existing env wins)")
+	check := flag.Bool("check", false, "log in, print the current user and exit")
+	verbose := flag.Bool("v", false, "verbose logging")
 	flag.Parse()
 
+	if *envFile != "" {
+		if err := loadEnvFile(*envFile); err != nil {
+			return err
+		}
+	}
+
 	// stdout belongs to the stdio transport, so logs go to stderr.
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	level := slog.LevelWarn
+	if *verbose {
+		level = slog.LevelInfo
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	yt, err := youtrack.New(youtrack.Options{
 		BaseURL:  os.Getenv("YOUTRACK_URL"),
@@ -45,6 +58,18 @@ func run() error {
 		return err
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if *check {
+		var me struct{ Login, FullName string }
+		if err := yt.Get(ctx, "users/me", youtrack.Fields("login,fullName"), &me); err != nil {
+			return err
+		}
+		fmt.Printf("ok: logged in to %s as %s (%s)\n", yt.BaseURL(), me.Login, me.FullName)
+		return nil
+	}
+
 	newServer := func() *mcp.Server {
 		s := mcp.NewServer(&mcp.Implementation{Name: "youtrack-mcp", Version: version}, &mcp.ServerOptions{
 			Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
@@ -53,9 +78,6 @@ func run() error {
 		tools.Register(s, yt)
 		return s
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	switch *transport {
 	case "stdio":
@@ -68,7 +90,7 @@ func run() error {
 			<-ctx.Done()
 			httpSrv.Shutdown(context.Background())
 		}()
-		logger.Info("listening", "addr", "http://"+*addr, "youtrack", yt.BaseURL())
+		logger.Warn("listening", "addr", "http://"+*addr, "youtrack", yt.BaseURL())
 		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
