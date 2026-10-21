@@ -50,3 +50,11 @@ func TestPage(t *testing.T) {
 		}
 	}
 }
+
+func TestFreeTextTerms(t *testing.T) {
+	got := freeTextTerms(`project: HELP tag:faq created: {This month} "Reset Password" vpn #Unresolved -draft or Setup,`)
+	want := []string{"reset password", "vpn", "setup"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("terms = %q, want %q", got, want)
+	}
+}

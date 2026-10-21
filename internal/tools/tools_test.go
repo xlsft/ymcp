@@ -479,3 +479,84 @@ func TestGroups(t *testing.T) {
 		t.Errorf("team members = %+v", members)
 	}
 }
+
+func TestArticles(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/users", `[{"id":"1-5","login":"bob"},{"id":"1-6","login":"bobby"}]`)
+	api.json("GET /api/groups", `[{"id":"3-1","name":"Backend devs","ringId":"r-1"}]`)
+	api.handle("GET /api/articles/HELP-A-1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("fields") {
+		case "id":
+			io.WriteString(w, `{"id":"137-1"}`)
+		case "content":
+			io.WriteString(w, `{"content":"line one\n"}`)
+		default:
+			io.WriteString(w, `{"idReadable":"HELP-A-1","summary":"VPN","content":"a\nb\nc\nd","project":{"shortName":"HELP"},
+				"childArticles":[{"idReadable":"HELP-A-2","summary":"macOS"}],"tags":[{"name":"faq"}],
+				"visibility":{"$type":"LimitedVisibility","permittedUsers":[{"login":"bob"}],"permittedGroups":[]}}`)
+		}
+	})
+	api.json("POST /api/articles", `{"idReadable":"HELP-A-3"}`)
+	api.json("POST /api/articles/HELP-A-1", `{"idReadable":"HELP-A-1"}`)
+	api.handle("GET /api/articles", func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query(); q.Get("query") != "project: HELP vpn" || q.Get("$top") != "11" {
+			t.Errorf("search query = %v", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `[{"idReadable":"HELP-A-1","summary":"VPN","content":"intro\nConnect to VPN first\nend","project":{"shortName":"HELP"}}]`)
+	})
+	cs := connect(t, api)
+
+	var created struct{ ID, URL string }
+	if isErr, text := call(t, cs, "create_article", map[string]any{
+		"project": "DEMO", "summary": "How to", "content": "# Steps", "parentArticle": "HELP-A-1",
+		"permittedUsers": []string{"bob"}, "permittedGroups": []string{"backend devs"},
+	}, &created); isErr {
+		t.Fatal(text)
+	}
+	if created.ID != "HELP-A-3" || !strings.HasSuffix(created.URL, "/articles/HELP-A-3") {
+		t.Errorf("created = %+v", created)
+	}
+	got, _ := json.Marshal(api.bodies("/api/articles")[0])
+	want := `{"content":"# Steps","parentArticle":{"id":"137-1"},"project":{"id":"0-1"},"summary":"How to",` +
+		`"visibility":{"$type":"LimitedVisibility","permittedGroups":[{"id":"3-1"}],"permittedUsers":[{"id":"1-5"}]}}`
+	if string(got) != want {
+		t.Errorf("create body =\n%s\nwant\n%s", got, want)
+	}
+
+	if isErr, text := call(t, cs, "update_article", map[string]any{"articleId": "HELP-A-1", "content": "line two", "append": true}, nil); isErr {
+		t.Fatal(text)
+	}
+	if b := api.bodies("/api/articles/HELP-A-1"); len(b) != 1 || b[0]["content"] != "line one\n\nline two" {
+		t.Errorf("update body = %v", b)
+	}
+
+	var art struct {
+		Content       string
+		TotalLines    int
+		HasMoreLines  bool
+		ChildArticles []articleRef
+		Visibility    map[string][]string
+	}
+	if isErr, text := call(t, cs, "get_article", map[string]any{"articleId": "HELP-A-1", "linesOffset": 1, "linesCount": 2}, &art); isErr {
+		t.Fatal(text)
+	}
+	if art.Content != "b\nc" || art.TotalLines != 4 || !art.HasMoreLines || art.ChildArticles[0].ID != "HELP-A-2" ||
+		art.Visibility["permittedUsers"][0] != "bob" {
+		t.Errorf("article = %+v", art)
+	}
+
+	var found struct {
+		Articles []struct {
+			ID            string
+			MatchingLines []string
+		}
+	}
+	if isErr, text := call(t, cs, "search_articles", map[string]any{"query": "project: HELP vpn"}, &found); isErr {
+		t.Fatal(text)
+	}
+	if len(found.Articles) != 1 || strings.Join(found.Articles[0].MatchingLines, "|") != "Connect to VPN first" {
+		t.Errorf("found = %+v", found)
+	}
+}
