@@ -79,7 +79,7 @@ wrong value comes back with the list of valid ones.
 | Agile boards and sprints | `find_agile_boards`, `get_agile_board`, `get_sprint`, `create_sprint`, `update_sprint`, `add_issue_to_sprint`, `remove_issue_from_sprint`, `delete_sprint` |
 | History and reports | `get_issue_activities`, `count_issues`, `get_time_report`, `get_issue_work_items` |
 | Bulk changes | `apply_command`: any command from the YouTrack command dialog, on issues or a query (up to 100), validated first, with `dryRun` |
-| Attachments | `get_issue_attachments`, `get_attachment` (text inline, images as images, other files saved locally), `add_attachment`, `delete_attachment` |
+| Attachments | Of issues and knowledge base articles: `get_issue_attachments`, `get_attachment` (text inline, images as images, other files saved locally), `add_attachment` (several files at once), `delete_attachment` |
 | Comments | `update_issue_comment` |
 | VCS | `get_issue_vcs_changes`: commits and pull requests from GitHub, GitLab, Bitbucket, Gitea or TeamCity integrations |
 | Tags and saved searches | `find_tags`, `create_tag`, `update_tag`, `delete_tag`, `create_saved_search`, `update_saved_search`, `delete_saved_search` |

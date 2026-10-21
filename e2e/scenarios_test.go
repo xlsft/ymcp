@@ -381,6 +381,43 @@ func TestScenarios(t *testing.T) {
 		if len(found.Articles) != 2 {
 			t.Errorf("search_articles = %+v", found)
 		}
+		// Images for the article, uploaded in one call and referenced by name.
+		png, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==")
+		dir := t.TempDir()
+		var paths []string
+		for _, name := range []string{"diagram-1.png", "diagram-2.png"} {
+			p := filepath.Join(dir, name)
+			os.WriteFile(p, png, 0o644)
+			paths = append(paths, p)
+		}
+		var uploaded struct {
+			Attachments []struct{ ID, Name string }
+		}
+		must(t, "add_attachment", map[string]any{"articleId": parentArticle.ID, "filePaths": paths}, &uploaded)
+		if len(uploaded.Attachments) != 2 {
+			t.Fatalf("article upload = %+v", uploaded)
+		}
+		var withFiles struct {
+			Attachments []struct{ Name string }
+		}
+		must(t, "get_article", map[string]any{"articleId": parentArticle.ID}, &withFiles)
+		if len(withFiles.Attachments) != 2 {
+			t.Errorf("get_article attachments = %+v", withFiles.Attachments)
+		}
+		var saved struct{ SavedTo string }
+		must(t, "get_attachment", map[string]any{"articleId": parentArticle.ID, "attachment": "diagram-2.png", "saveTo": t.TempDir()}, &saved)
+		if data, _ := os.ReadFile(saved.SavedTo); string(data) != string(png) {
+			t.Error("article image differs from the upload")
+		}
+		must(t, "delete_attachment", map[string]any{"articleId": parentArticle.ID, "attachment": "diagram-1.png"}, nil)
+		var left struct {
+			Attachments []struct{ Name string }
+		}
+		must(t, "get_issue_attachments", map[string]any{"articleId": parentArticle.ID}, &left)
+		if len(left.Attachments) != 1 || left.Attachments[0].Name != "diagram-2.png" {
+			t.Errorf("after delete = %+v", left)
+		}
+
 		must(t, "delete_article", map[string]any{"articleId": childArticle.ID}, nil)
 		must(t, "delete_article", map[string]any{"articleId": parentArticle.ID}, nil)
 	})
