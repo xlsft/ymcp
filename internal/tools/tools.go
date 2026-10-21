@@ -1,0 +1,67 @@
+// Package tools exposes YouTrack operations as MCP tools.
+package tools
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/xlsft/youtrack-mcp/internal/youtrack"
+)
+
+// Register adds every tool to s, backed by yt.
+func Register(s *mcp.Server, yt *youtrack.Client) {
+	t := &toolset{yt: yt}
+	t.registerUsers(s)
+}
+
+type toolset struct {
+	yt *youtrack.Client
+}
+
+// handler is the shape every tool implements: decode In, return a JSON payload.
+type handler[In any] func(ctx context.Context, in In) (any, error)
+
+// add registers h as a tool whose result is rendered as indented JSON text.
+func add[In any](s *mcp.Server, tool *mcp.Tool, h handler[In]) {
+	mcp.AddTool(s, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
+		out, err := h(ctx, in)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(out), nil, nil
+	})
+}
+
+func textResult(v any) *mcp.CallToolResult {
+	var text string
+	switch v := v.(type) {
+	case string:
+		text = v
+	case json.RawMessage:
+		var buf bytes.Buffer
+		if json.Indent(&buf, v, "", "  ") == nil {
+			text = buf.String()
+		} else {
+			text = string(v)
+		}
+	default:
+		b, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			text = err.Error()
+		} else {
+			text = string(b)
+		}
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
+func readOnly(title string) *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, IdempotentHint: true}
+}
+
+func mutating(title string, destructive bool) *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{Title: title, DestructiveHint: &destructive}
+}
