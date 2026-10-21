@@ -96,7 +96,7 @@ cp .env.example .env
 `.env` есть в `.gitignore`. Перед подключением к клиенту проверь, что вход работает:
 
 ```bash
-./bin/ymcp -env .env -check
+./bin/ymcp --env .env check
 ```
 
 Если вход прошёл, команда выведет `ok: logged in to … as …`.
@@ -105,9 +105,9 @@ cp .env.example .env
 Результат печатается в stdout, а если инструмент вернул ошибку, код выхода будет 1:
 
 ```bash
-./bin/ymcp -env .env -call find_projects -args '{"nameContains":""}'
-./bin/ymcp -env .env -call search_issues -args '{"query":"for: me #Unresolved","limit":5}'
-./bin/ymcp -env .env -call get_user_group_members -args '{"group":"All Users","limit":3}'
+./bin/ymcp --env .env call find_projects '{"nameContains":""}'
+./bin/ymcp --env .env call search_issues '{"query":"for: me #Unresolved","limit":5}'
+./bin/ymcp --env .env call get_user_group_members '{"group":"All Users","limit":3}'
 ```
 
 ### Сеть: VPN, корпоративный DNS и прокси
@@ -123,7 +123,7 @@ YouTrack доступен только из внутренней сети, то 
 **Claude Code:**
 
 ```bash
-claude mcp add youtrack -- /abs/path/bin/ymcp -env /abs/path/.env
+claude mcp add youtrack -- /abs/path/bin/ymcp --env /abs/path/.env
 ```
 
 **Claude Desktop, Cursor и другие клиенты с JSON-конфигом:**
@@ -133,7 +133,7 @@ claude mcp add youtrack -- /abs/path/bin/ymcp -env /abs/path/.env
   "mcpServers": {
     "youtrack": {
       "command": "/abs/path/bin/ymcp",
-      "args": ["-env", "/abs/path/.env"]
+      "args": ["--env", "/abs/path/.env"]
     }
   }
 }
@@ -142,10 +142,10 @@ claude mcp add youtrack -- /abs/path/bin/ymcp -env /abs/path/.env
 **Streamable HTTP** (сервер слушает только localhost):
 
 ```bash
-./bin/ymcp -env .env -transport http -addr 127.0.0.1:8090
+./bin/ymcp --env .env serve --transport http --addr 127.0.0.1:8090
 ```
 
-Флаг `-v` включает подробные логи. Логи всегда пишутся в stderr, потому что stdout занят stdio-транспортом.
+Глобальный флаг `-v` включает подробные логи. Логи всегда пишутся в stderr, потому что stdout занят stdio-транспортом.
 
 ## Как устроена аутентификация
 

@@ -1,43 +1,61 @@
-// Command ymcp is an MCP server for a self-hosted YouTrack instance.
+// Command ymcp is an MCP server for YouTrack.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/xlsft/ymcp/internal/tools"
+	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
+// version is set at build time by the release pipeline.
 var version = "dev"
 
+const usage = `ymcp — YouTrack MCP server
+
+Usage:
+  ymcp [global flags] [command] [arguments]
+
+Commands:
+  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr
+  auth      Set or replace the YouTrack URL, login and password
+  setup     Configure credentials and register ymcp in MCP clients
+  check     Log in and print the current user
+  call      Call one tool: ymcp call <tool> ['{"json":"args"}']
+  update    Update ymcp to the latest release
+  version   Print the version
+
+Global flags:
+  --env FILE   Load YOUTRACK_* variables from a dotenv file
+  -v           Verbose logging (to stderr)
+`
+
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "ymcp:", err)
+	if err := run(os.Args[1:]); err != nil {
+		if !errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(os.Stderr, "ymcp:", err)
+		}
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	transport := flag.String("transport", "stdio", "MCP transport: stdio or http")
-	addr := flag.String("addr", "127.0.0.1:8090", "listen address for -transport=http")
-	envFile := flag.String("env", "", "load YOUTRACK_* variables from this file (existing env wins)")
-	check := flag.Bool("check", false, "log in, print the current user and exit")
-	callTool := flag.String("call", "", "call one tool, print its result and exit")
-	callArgs := flag.String("args", "{}", "JSON arguments for -call")
-	verbose := flag.Bool("v", false, "verbose logging")
-	flag.Parse()
-
+func run(args []string) error {
+	global := flag.NewFlagSet("ymcp", flag.ContinueOnError)
+	global.SetOutput(io.Discard)
+	envFile := global.String("env", "", "")
+	verbose := global.Bool("v", false, "")
+	if err := global.Parse(args); err != nil {
+		fmt.Fprint(os.Stderr, usage)
+		return err
+	}
 	if *envFile != "" {
 		if err := loadEnvFile(*envFile); err != nil {
 			return err
@@ -51,90 +69,61 @@ func run() error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	yt, err := youtrack.New(youtrack.Options{
-		BaseURL:  os.Getenv("YOUTRACK_URL"),
-		Login:    os.Getenv("YOUTRACK_LOGIN"),
-		Password: os.Getenv("YOUTRACK_PASSWORD"),
-		Proxy:    os.Getenv("YOUTRACK_PROXY"),
-	})
-	if err != nil {
-		return err
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *check {
-		var me struct{ Login, FullName string }
-		if err := yt.Get(ctx, "users/me", youtrack.Fields("login,fullName"), &me); err != nil {
-			return err
-		}
-		fmt.Printf("ok: logged in to %s as %s (%s)\n", yt.BaseURL(), me.Login, me.FullName)
+	cmd, rest := "serve", global.Args()
+	if len(rest) > 0 {
+		cmd, rest = rest[0], rest[1:]
+	}
+	switch cmd {
+	case "serve":
+		return serve(ctx, rest, logger)
+	case "check":
+		return check(ctx)
+	case "call":
+		return call(ctx, rest, logger)
+	case "version", "--version":
+		fmt.Println("ymcp", version)
 		return nil
-	}
-
-	newServer := func() *mcp.Server {
-		s := mcp.NewServer(&mcp.Implementation{Name: "ymcp", Version: version}, &mcp.ServerOptions{
-			Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
-			Logger:       logger,
-		})
-		tools.Register(s, yt)
-		return s
-	}
-
-	if *callTool != "" {
-		return callOnce(ctx, newServer(), *callTool, *callArgs)
-	}
-
-	switch *transport {
-	case "stdio":
-		return newServer().Run(ctx, &mcp.StdioTransport{})
-	case "http":
-		srv := newServer()
-		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
-		httpSrv := &http.Server{Addr: *addr, Handler: handler}
-		go func() {
-			<-ctx.Done()
-			httpSrv.Shutdown(context.Background())
-		}()
-		logger.Warn("listening", "addr", "http://"+*addr, "youtrack", yt.BaseURL())
-		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
+	case "help", "-h", "--help":
+		fmt.Print(usage)
 		return nil
 	default:
-		return fmt.Errorf("unknown transport %q", *transport)
+		fmt.Fprint(os.Stderr, usage)
+		return fmt.Errorf("unknown command %q", cmd)
 	}
 }
 
-// callOnce runs a single tool call through an in-memory MCP session, so the
-// result is exactly what a client would get.
-func callOnce(ctx context.Context, server *mcp.Server, name, rawArgs string) error {
-	var args map[string]any
-	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
-		return fmt.Errorf("-args: %w", err)
-	}
-	ct, st := mcp.NewInMemoryTransports()
-	if _, err := server.Connect(ctx, st, nil); err != nil {
-		return err
-	}
-	cs, err := mcp.NewClient(&mcp.Implementation{Name: "ymcp-call", Version: version}, nil).Connect(ctx, ct, nil)
+// client builds a YouTrack client from the stored config and environment.
+func client() (*youtrack.Client, error) {
+	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer cs.Close()
+	if !cfg.Complete() {
+		return nil, errors.New("YouTrack connection is not configured; run `ymcp auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)")
+	}
+	return youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy})
+}
 
-	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+func check(ctx context.Context) error {
+	yt, err := client()
 	if err != nil {
 		return err
 	}
-	for _, c := range res.Content {
-		if text, ok := c.(*mcp.TextContent); ok {
-			fmt.Println(text.Text)
-		}
+	me, err := currentUser(ctx, yt)
+	if err != nil {
+		return err
 	}
-	if res.IsError {
-		return fmt.Errorf("tool %s failed", name)
-	}
+	fmt.Printf("ok: logged in to %s as %s (%s)\n", yt.BaseURL(), me.Login, me.FullName)
 	return nil
+}
+
+type user struct{ Login, FullName string }
+
+func currentUser(ctx context.Context, yt *youtrack.Client) (user, error) {
+	var me user
+	err := yt.Get(ctx, "users/me", youtrack.Fields("login,fullName"), &me)
+	return me, err
 }
