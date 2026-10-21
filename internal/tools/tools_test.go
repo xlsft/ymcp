@@ -65,7 +65,13 @@ func (a *fakeAPI) bodies(path string) []map[string]any {
 
 func connect(t *testing.T, api http.Handler) *mcp.ClientSession {
 	t.Helper()
+	return connectHub(t, api, nil)
+}
+
+func connectHub(t *testing.T, api, hub http.Handler) *mcp.ClientSession {
+	t.Helper()
 	f := youtracktest.New(t, api)
+	f.HubAPI = hub
 	yt, err := youtrack.New(youtrack.Options{BaseURL: f.URL, Login: youtracktest.Login, Password: youtracktest.Password, Proxy: "none"})
 	if err != nil {
 		t.Fatal(err)
@@ -417,5 +423,59 @@ func TestDraftIssue(t *testing.T) {
 	}
 	if isErr, _ := call(t, cs, "update_issue", map[string]any{"issueId": "3-22", "vote": true}, nil); !isErr {
 		t.Error("voting for a draft should fail")
+	}
+}
+
+func TestGroups(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/groups", `[
+		{"id":"3-0","name":"All Users","ringId":"r-all","usersCount":40},
+		{"id":"3-1","name":"Backend devs","ringId":"r-1","usersCount":2},
+		{"id":"3-2","name":"DEMO Team","ringId":"r-2","usersCount":1,"teamForProject":{"shortName":"DEMO","name":"Demo"}}]`)
+	hub := http.NewServeMux()
+	hub.HandleFunc("GET /hub/api/rest/usergroups/r-1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"users":[{"login":"bob","name":"Bob","profile":{"email":{"email":"bob@x"}}},{"login":"eve","name":"Eve"}]}`)
+	})
+	hub.HandleFunc("GET /hub/api/rest/usergroups/r-2", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		io.WriteString(w, `{"error":"Not Found"}`)
+	})
+	hub.HandleFunc("GET /hub/api/rest/projectteams/r-2", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"users":[{"login":"alice","name":"Alice"}]}`)
+	})
+	cs := connectHub(t, api, hub)
+
+	var found struct {
+		Groups []struct {
+			Name, ProjectTeam string
+		}
+		Total int
+	}
+	if isErr, text := call(t, cs, "find_user_groups", map[string]any{"nameContains": "team"}, &found); isErr {
+		t.Fatal(text)
+	}
+	if found.Total != 1 || found.Groups[0].ProjectTeam != "DEMO" {
+		t.Errorf("found = %+v", found)
+	}
+
+	var members struct {
+		Members []user
+		Total   int
+	}
+	if isErr, text := call(t, cs, "get_user_group_members", map[string]any{"group": "backend devs", "limit": 1}, &members); isErr {
+		t.Fatal(text)
+	}
+	if members.Total != 2 || len(members.Members) != 1 || members.Members[0] != (user{Login: "bob", FullName: "Bob", Email: "bob@x"}) {
+		t.Errorf("members = %+v", members)
+	}
+
+	if isErr, text := call(t, cs, "get_user_group_members", map[string]any{"group": "DEMO Team"}, &members); isErr {
+		t.Fatal(text)
+	}
+	if members.Total != 1 || members.Members[0].Login != "alice" {
+		t.Errorf("team members = %+v", members)
 	}
 }
