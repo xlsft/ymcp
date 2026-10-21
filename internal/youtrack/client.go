@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -59,6 +60,7 @@ func New(opts Options) (*Client, error) {
 	u.Path = strings.TrimSuffix(u.Path, "/api")
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = dialIPv4First
 	switch opts.Proxy {
 	case "":
 		transport.Proxy = http.ProxyFromEnvironment
@@ -88,6 +90,23 @@ func New(opts Options) (*Client, error) {
 		http:    &http.Client{Transport: transport, Timeout: timeout},
 		log:     logger,
 	}, nil
+}
+
+// dialIPv4First connects over IPv4 first and falls back to dual stack.
+//
+// A dual-stack dial asks the system resolver for A and AAAA records; corporate
+// DNS servers that don't answer AAAA (common behind VPNs) stall every first
+// connection for the 5 s resolver timeout. An IPv4-only lookup still goes
+// through the system resolver, so VPN split-DNS keeps working; IPv6-only
+// hosts are reached through the fallback.
+func dialIPv4First(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	if network == "tcp" {
+		if conn, err := d.DialContext(ctx, "tcp4", addr); err == nil {
+			return conn, nil
+		}
+	}
+	return d.DialContext(ctx, network, addr)
 }
 
 // BaseURL returns the instance root without a trailing slash.
