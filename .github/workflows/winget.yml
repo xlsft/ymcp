@@ -31,18 +31,25 @@ jobs:
             Invoke-WebRequest $url -OutFile "$dir/$f"
           }
           Get-ChildItem $dir
-      - name: Make sure winget is there
+      # The runner's winget can be too old for the manifest schema winget-pkgs
+      # wants, which shows up as schema header warnings.
+      - name: Latest winget
         shell: pwsh
         run: |
-          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Install-PackageProvider -Name NuGet -Force | Out-Null
-            Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
-            Repair-WinGetPackageManager -AllUsers -Latest
-          }
+          Install-PackageProvider -Name NuGet -Force | Out-Null
+          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
+          Repair-WinGetPackageManager -AllUsers -Latest
           winget --version
       - name: winget validate
         shell: pwsh
-        run: winget validate --manifest manifest --disable-interactivity
+        run: |
+          $out = winget validate --manifest manifest --disable-interactivity | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          Write-Output "exit code: $code"
+          # Valid with warnings exits non-zero too; the warnings are above.
+          if ($out -notmatch "Manifest validation succeeded") { exit 1 }
+          exit 0
       - name: winget install
         shell: pwsh
         run: |
