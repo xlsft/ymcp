@@ -51,13 +51,14 @@ func auth(ctx context.Context, args []string) error {
 		}
 		cfg.Password = strings.TrimRight(line, "\r\n")
 	}
-	_, err = authenticate(ctx, cfg, !*passwordStdin)
+	_, err = authenticate(ctx, cfg, !*passwordStdin, "")
 	return err
 }
 
 // authenticate asks for whatever is missing (or everything, when ask is
-// set and the terminal is interactive), verifies the login and saves it.
-func authenticate(ctx context.Context, cfg config.Config, ask bool) (config.Config, error) {
+// set and the terminal is interactive), verifies the login and saves it
+// as profile cfg.Name, moving it from oldName when that differs.
+func authenticate(ctx context.Context, cfg config.Config, ask bool, oldName string) (config.Config, error) {
 	if ask && interactive() {
 		if err := credentialsForm(&cfg).Run(); err != nil {
 			return cfg, err
@@ -86,7 +87,7 @@ func authenticate(ctx context.Context, cfg config.Config, ask bool) (config.Conf
 		return cfg, fmt.Errorf("login failed, nothing saved: %w", verifyErr)
 	}
 
-	store, err := config.Save(cfg, "")
+	store, err := config.Save(cfg, oldName)
 	if err != nil {
 		return cfg, err
 	}
