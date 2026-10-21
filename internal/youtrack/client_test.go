@@ -114,6 +114,9 @@ func TestDoParsesError(t *testing.T) {
 	if ytErr.Status != 404 || ytErr.Description != "Entity with id X-1 not found" {
 		t.Errorf("err = %+v", ytErr)
 	}
+	if want := "youtrack: GET /api/issues/X-1: 404 Not Found: Entity with id X-1 not found"; err.Error() != want {
+		t.Errorf("message = %q, want %q", err.Error(), want)
+	}
 }
 
 func TestDoRejectsNonJSON(t *testing.T) {

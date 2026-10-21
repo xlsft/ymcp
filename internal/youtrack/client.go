@@ -80,22 +80,25 @@ func New(opts Options) (*Client, error) {
 // BaseURL returns the instance root without a trailing slash.
 func (c *Client) BaseURL() string { return c.baseURL.String() }
 
-// Error is a non-2xx response from YouTrack.
+// Error is a non-2xx response from YouTrack or Hub.
 type Error struct {
-	Status      int
+	Method      string `json:"-"`
+	Path        string `json:"-"`
+	Status      int    `json:"-"`
 	Code        string `json:"error"`
 	Description string `json:"error_description"`
 	Body        string `json:"-"`
 }
 
 func (e *Error) Error() string {
+	prefix := fmt.Sprintf("youtrack: %s %s: %d", e.Method, e.Path, e.Status)
 	switch {
 	case e.Description != "":
-		return fmt.Sprintf("youtrack: %d %s: %s", e.Status, e.Code, e.Description)
+		return fmt.Sprintf("%s %s: %s", prefix, e.Code, e.Description)
 	case e.Code != "":
-		return fmt.Sprintf("youtrack: %d %s", e.Status, e.Code)
+		return fmt.Sprintf("%s %s", prefix, e.Code)
 	default:
-		return fmt.Sprintf("youtrack: %d %s", e.Status, strings.TrimSpace(e.Body))
+		return fmt.Sprintf("%s %s", prefix, strings.TrimSpace(e.Body))
 	}
 }
 
@@ -138,7 +141,7 @@ func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body,
 		return err
 	}
 	if resp.StatusCode/100 != 2 {
-		e := &Error{Status: resp.StatusCode, Body: string(data)}
+		e := &Error{Method: method, Path: u.Path, Status: resp.StatusCode, Body: string(data)}
 		_ = json.Unmarshal(data, e)
 		return e
 	}
