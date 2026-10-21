@@ -6,6 +6,7 @@
   <a href="https://github.com/xlsft/ymcp/actions/workflows/ci.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
 </p>
 
 **ymcp** is a local [MCP](https://modelcontextprotocol.io) server for [YouTrack](https://www.jetbrains.com/youtrack/),
@@ -147,3 +148,7 @@ and Hub, including the login form, the OAuth redirects and token revocation. The
 in-memory MCP client and assert on the REST requests it sends.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow.
+
+## License
+
+[MIT](LICENSE). Not affiliated with JetBrains; YouTrack is a trademark of JetBrains s.r.o.
