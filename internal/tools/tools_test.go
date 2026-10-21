@@ -1031,3 +1031,38 @@ func TestSprintWrites(t *testing.T) {
 		t.Errorf("sprints disabled: isErr=%v %q", isErr, text)
 	}
 }
+
+func TestIssueActivities(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/issues/DEMO-7/activitiesPage", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("categories") != "CommentsCategory,CustomFieldCategory" || q.Get("reverse") != "true" || q.Get("cursor") != "c+1" {
+			t.Errorf("query = %v", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"hasBefore":true,"beforeCursor":"c+2","activities":[
+			{"timestamp":1767225600000,"author":{"login":"bob"},"category":{"id":"CustomFieldCategory"},"field":{"name":"State"},
+			 "added":[{"name":"Fixed"}],"removed":[{"name":"Open"}]},
+			{"timestamp":1767225600000,"author":{"login":"bob"},"category":{"id":"CommentsCategory"},"field":{"name":"comments"},
+			 "added":[{"text":"done"}],"removed":[]}]}`)
+	})
+	cs := connect(t, api)
+
+	var out struct {
+		Activities []map[string]any
+		NextCursor string
+	}
+	if isErr, text := call(t, cs, "get_issue_activities", map[string]any{"issueId": "DEMO-7", "categories": []string{"comments", "fields"}, "cursor": "c+1"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.NextCursor != "c+2" || len(out.Activities) != 2 {
+		t.Fatalf("out = %+v", out)
+	}
+	a := out.Activities[0]
+	if a["kind"] != "fields" || a["added"] != "Fixed" || a["removed"] != "Open" || a["time"] != "2026-01-01T00:00:00Z" {
+		t.Errorf("field change = %v", a)
+	}
+	if c := out.Activities[1]; c["added"] != "done" || c["removed"] != nil {
+		t.Errorf("comment = %v", c)
+	}
+}
