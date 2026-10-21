@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -80,6 +81,33 @@ func (u Updater) Latest(ctx context.Context) (Release, error) {
 		return r, fmt.Errorf("GitHub: %s", resp.Status)
 	}
 	return r, json.NewDecoder(resp.Body).Decode(&r)
+}
+
+// LatestTag returns the tag of the newest release from the web site's
+// releases/latest redirect, which unlike the API has no hourly limit, so
+// it suits a check on every start. web is e.g. https://github.com.
+func (u Updater) LatestTag(ctx context.Context, web string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, web+"/"+u.Repo+"/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	client := *u.HTTP
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	loc := resp.Header.Get("Location")
+	i := strings.LastIndex(loc, "/releases/tag/")
+	if i < 0 {
+		return "", fmt.Errorf("GitHub: %s, no release tag in the redirect", resp.Status)
+	}
+	tag, err := url.PathUnescape(loc[i+len("/releases/tag/"):])
+	if err != nil || tag == "" {
+		return "", fmt.Errorf("GitHub: bad release redirect %q", loc)
+	}
+	return tag, nil
 }
 
 // Newer reports whether release tag is newer than the current version.

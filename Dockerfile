@@ -18,7 +18,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ymcp /usr/local/bin/ymcp
 COPY --from=build --chown=nonroot:nonroot /out/config /config
 ENV YMCP_CONFIG=/config/config.json \
-    YMCP_LOG_FILE=off
+    YMCP_LOG_FILE=off \
+    YMCP_INSTALL=docker
 VOLUME /config
 EXPOSE 8090
 ENTRYPOINT ["ymcp"]

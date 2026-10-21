@@ -129,3 +129,25 @@ func TestExtractZipAndReplaceOnWindows(t *testing.T) {
 		t.Errorf("old exe = %q", data)
 	}
 }
+
+func TestLatestTagFollowsNoRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/xlsft/ymcp/releases/latest":
+			http.Redirect(w, r, "/xlsft/ymcp/releases/tag/v0.5.0", http.StatusFound)
+		case "/none/ymcp/releases/latest":
+			http.Redirect(w, r, "/none/ymcp/releases", http.StatusFound)
+		default:
+			t.Errorf("followed the redirect to %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	u := Updater{Repo: "xlsft/ymcp", HTTP: srv.Client()}
+	if tag, err := u.LatestTag(context.Background(), srv.URL); err != nil || tag != "v0.5.0" {
+		t.Errorf("LatestTag = %q, %v", tag, err)
+	}
+	u.Repo = "none/ymcp"
+	if _, err := u.LatestTag(context.Background(), srv.URL); err == nil {
+		t.Error("no tag in the redirect, but no error")
+	}
+}

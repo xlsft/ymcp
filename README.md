@@ -184,7 +184,8 @@ or in a JSON config:
 
 ### Logs
 
-The server logs its start, every client that connects and every tool call. Each line has the arguments, how long the
+The server logs its start, every client that connects and every tool call. At start it also checks GitHub in the
+background and, when a newer release is out, logs `update available current=0.4.0 latest=0.5.0 run="ymcp update"`. Each line has the arguments, how long the
 call took and any error. Sign-ins are logged too. The log goes to stderr, which clients like Claude Desktop keep in
 their own MCP logs. It is also appended to a file, so you can watch it while a client runs ymcp:
 
@@ -200,6 +201,7 @@ The file is `~/Library/Logs/ymcp/ymcp.log` on macOS, `~/.local/state/ymcp/ymcp.l
 | `ymcp -v serve` or `YMCP_LOG_LEVEL=debug` | Also log every YouTrack and Hub request with status and timing |
 | `YMCP_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
 | `YMCP_LOG_FILE` | Another path for the file, or `off` |
+| `YMCP_UPDATE_CHECK=off` | Don't look for a newer release at start |
 
 To log at debug level from a client, add `"env": {"YMCP_LOG_LEVEL": "debug"}` to its ymcp entry.
 

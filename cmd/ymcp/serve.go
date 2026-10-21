@@ -185,8 +185,9 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 			logger.Error("can't start", "err", err)
 			return err
 		}
-		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "log", logPath)
+		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "log", cmp.Or(logPath, "off"))
 		defer logger.Info("ymcp stopped")
+		checkForUpdate(ctx, logger)
 		return newServer(yt, logger).Run(ctx, &mcp.StdioTransport{})
 	case "http":
 		ln, err := net.Listen("tcp", *addr)
@@ -213,6 +214,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 		logger.Info("ymcp started", "version", version, "transport", "http", "addr", base, "auth", auth,
 			"profiles", strings.Join(served, ", "), "log", cmp.Or(logPath, "off"))
 		defer logger.Info("ymcp stopped")
+		checkForUpdate(ctx, logger)
 
 		httpSrv := &http.Server{Handler: handler}
 		go func() {
