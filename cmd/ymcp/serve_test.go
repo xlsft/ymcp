@@ -129,3 +129,22 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 		t.Error("serving only a broken profile succeeded")
 	}
 }
+
+func TestRedactMasksSecrets(t *testing.T) {
+	in := `{"method":"POST","path":"users","api":"hub","body":{"login":"bob","details":[{"type":"LoginuserdetailsJSON","login":"bob",` +
+		`"password":{"type":"PlainpasswordJSON","value":"hunter2"}}]},"query":{"token":"abc"},"headers":{"Authorization":"Bearer xyz"}}`
+	out := redact([]byte(in))
+	for _, secret := range []string{"hunter2", "abc", "xyz"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("%q leaked: %s", secret, out)
+		}
+	}
+	for _, kept := range []string{`"login":"bob"`, `"path":"users"`, `"type":"PlainpasswordJSON"`} {
+		if !strings.Contains(out, kept) {
+			t.Errorf("lost %s: %s", kept, out)
+		}
+	}
+	if got := redact([]byte("not json")); got != "not json" {
+		t.Errorf("non-JSON = %q", got)
+	}
+}

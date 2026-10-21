@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -58,7 +59,7 @@ func logRequests(logger *slog.Logger) mcp.Middleware {
 
 			switch p := req.GetParams().(type) {
 			case *mcp.CallToolParamsRaw:
-				args := shorten(string(p.Arguments), 300)
+				args := shorten(redact(p.Arguments), 300)
 				switch r, _ := res.(*mcp.CallToolResult); {
 				case err != nil:
 					logger.Error("tool failed", "tool", p.Name, "args", args, "took", took, "err", err)
@@ -105,6 +106,45 @@ func toolText(r *mcp.CallToolResult) string {
 		}
 	}
 	return ""
+}
+
+// secretKey matches argument names whose values never go to the log.
+var secretKey = regexp.MustCompile(`(?i)pass|secret|token|authorization|api[-_]?key|credential|cookie`)
+
+// redact renders tool arguments for the log with secrets masked: values
+// of secret-looking keys, and the value of objects typed as passwords,
+// like Hub's {"type":"PlainpasswordJSON","value":…}.
+func redact(raw json.RawMessage) string {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return string(raw)
+	}
+	var walk func(any) any
+	walk = func(v any) any {
+		switch x := v.(type) {
+		case map[string]any:
+			typ, _ := x["type"].(string)
+			for k, val := range x {
+				if secretKey.MatchString(k) || (k == "value" && secretKey.MatchString(typ)) {
+					if _, nested := val.(map[string]any); !nested {
+						x[k] = "***"
+						continue
+					}
+				}
+				x[k] = walk(val)
+			}
+		case []any:
+			for i := range x {
+				x[i] = walk(x[i])
+			}
+		}
+		return v
+	}
+	out, err := json.Marshal(walk(v))
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
 }
 
 func shorten(s string, n int) string {
