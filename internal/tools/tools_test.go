@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -900,5 +901,78 @@ func TestUnlinkIssues(t *testing.T) {
 	isErr, text := call(t, cs, "unlink_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "depends on", "issueToLinkId": "DEMO-2"}, nil)
 	if !isErr || !strings.Contains(text, `has no link "depends on" to DEMO-2`) {
 		t.Errorf("second unlink: isErr=%v %q", isErr, text)
+	}
+}
+
+const fakeBoardJSON = `{"id":"195-13","name":"dev","projects":[{"shortName":"DEMO"}],
+	"currentSprint":{"id":"209-2","name":"S2"},"sprintsSettings":{"disableSprints":false,"isExplicit":true},
+	"columnSettings":{"field":{"name":"State"},"columns":[{"presentation":"Open"},{"presentation":"Fixed","isResolved":true}]},
+	"estimationField":{"name":"Story points"},
+	"sprints":[{"id":"209-1","name":"S1","start":1767225600000,"archived":true},{"id":"209-2","name":"S2","start":1768435200000}]}`
+
+func newAgileAPI(t *testing.T) *fakeAPI {
+	api := newFakeAPI(t)
+	api.json("GET /api/agiles", `[{"id":"195-13","name":"dev","projects":[{"shortName":"DEMO"}],"sprintsSettings":{}},
+		{"id":"195-16","name":"ops","projects":[{"shortName":"OPS"}],"sprintsSettings":{}},
+		{"id":"195-17","name":"ops","projects":[{"shortName":"DEMO"}],"sprintsSettings":{"disableSprints":true}}]`)
+	api.json("GET /api/agiles/195-13", fakeBoardJSON)
+	return api
+}
+
+func TestAgileBoardsAndSprints(t *testing.T) {
+	api := newAgileAPI(t)
+	api.json("GET /api/agiles/195-13/sprints/209-2", `{"id":"209-2","name":"S2","goal":"ship","unresolvedIssuesCount":1}`)
+	api.json("GET /api/agiles/195-13/sprints/209-2/issues", `[{"idReadable":"DEMO-1","summary":"a","customFields":[
+		{"name":"State","$type":"StateIssueCustomField","value":{"name":"Open"}},
+		{"name":"Assignee","$type":"SingleUserIssueCustomField","value":{"login":"bob"}},
+		{"name":"Story points","$type":"SimpleIssueCustomField","value":3},
+		{"name":"Priority","$type":"SingleEnumIssueCustomField","value":{"name":"Major"}}]}]`)
+	cs := connect(t, api)
+
+	var found struct {
+		Boards []struct{ ID string }
+		Total  int
+	}
+	if isErr, text := call(t, cs, "find_agile_boards", map[string]any{"nameContains": "demo"}, &found); isErr {
+		t.Fatal(text)
+	}
+	if found.Total != 2 {
+		t.Errorf("boards matching project DEMO = %+v", found)
+	}
+
+	var board struct {
+		Sprints         []struct{ Name string }
+		SprintsArchived int
+		ColumnField     string
+		Columns         []string
+	}
+	if isErr, text := call(t, cs, "get_agile_board", map[string]any{"board": "DEV", "includeArchived": true}, &board); isErr {
+		t.Fatal(text)
+	}
+	if len(board.Sprints) != 2 || board.Sprints[0].Name != "S2" || board.SprintsArchived != 1 || board.ColumnField != "State" {
+		t.Errorf("board = %+v", board)
+	}
+
+	isErr, text := call(t, cs, "get_agile_board", map[string]any{"board": "ops"}, nil)
+	if !isErr || !strings.Contains(text, "pass an ID: 195-16 (OPS), 195-17 (DEMO)") {
+		t.Errorf("ambiguous board: isErr=%v %q", isErr, text)
+	}
+
+	var sprint struct {
+		Sprint struct{ Name, Goal string }
+		Issues []struct {
+			ID           string
+			CustomFields map[string]any
+		}
+	}
+	if isErr, text := call(t, cs, "get_sprint", map[string]any{"board": "195-13"}, &sprint); isErr {
+		t.Fatal(text)
+	}
+	want := map[string]any{"State": "Open", "Assignee": "bob", "Story points": float64(3)}
+	if sprint.Sprint.Goal != "ship" || len(sprint.Issues) != 1 || !reflect.DeepEqual(sprint.Issues[0].CustomFields, want) {
+		t.Errorf("sprint = %+v", sprint)
+	}
+	if isErr, text := call(t, cs, "get_sprint", map[string]any{"board": "195-13", "sprint": "S9"}, nil); !isErr || !strings.Contains(text, `sprint "S9" not found`) {
+		t.Errorf("unknown sprint: isErr=%v %q", isErr, text)
 	}
 }
