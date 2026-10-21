@@ -31,15 +31,12 @@ jobs:
             Invoke-WebRequest $url -OutFile "$dir/$f"
           }
           Get-ChildItem $dir
-      # The runner's winget can be too old for the manifest schema winget-pkgs
-      # wants, which shows up as schema header warnings.
-      - name: Latest winget
+      # The runner's winget may predate the manifest schema winget-pkgs asks
+      # for; it then only warns about the schema header. Updating winget on
+      # Windows Server fails, so the check runs with what is there.
+      - name: winget version
         shell: pwsh
-        run: |
-          Set-PSRepository PSGallery -InstallationPolicy Trusted
-          Install-Module Microsoft.WinGet.Client -Force -Scope AllUsers | Out-Null
-          Repair-WinGetPackageManager -AllUsers -Latest
-          winget --version
+        run: winget --version
       - name: winget validate
         shell: pwsh
         run: |
