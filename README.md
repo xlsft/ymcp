@@ -1,4 +1,4 @@
-# youtrack-mcp
+# ymcp
 
 Внешний MCP-сервер для self-hosted YouTrack на Go. Запускается локально, ходит в YouTrack
 по REST API от имени пользователя (логин + пароль) и повторяет набор инструментов
@@ -77,7 +77,7 @@
 Нужен Go 1.26+.
 
 ```bash
-go build -o bin/youtrack-mcp ./cmd/youtrack-mcp
+go build -o bin/ymcp ./cmd/ymcp
 ```
 
 ## Настройка
@@ -96,7 +96,7 @@ cp .env.example .env
 `.env` есть в `.gitignore`. Перед подключением к клиенту проверь, что вход работает:
 
 ```bash
-./bin/youtrack-mcp -env .env -check
+./bin/ymcp -env .env -check
 ```
 
 Если вход прошёл, команда выведет `ok: logged in to … as …`.
@@ -105,9 +105,9 @@ cp .env.example .env
 Результат печатается в stdout, а если инструмент вернул ошибку, код выхода будет 1:
 
 ```bash
-./bin/youtrack-mcp -env .env -call find_projects -args '{"nameContains":""}'
-./bin/youtrack-mcp -env .env -call search_issues -args '{"query":"for: me #Unresolved","limit":5}'
-./bin/youtrack-mcp -env .env -call get_user_group_members -args '{"group":"All Users","limit":3}'
+./bin/ymcp -env .env -call find_projects -args '{"nameContains":""}'
+./bin/ymcp -env .env -call search_issues -args '{"query":"for: me #Unresolved","limit":5}'
+./bin/ymcp -env .env -call get_user_group_members -args '{"group":"All Users","limit":3}'
 ```
 
 ### Сеть: VPN, корпоративный DNS и прокси
@@ -123,7 +123,7 @@ YouTrack доступен только из внутренней сети, то 
 **Claude Code:**
 
 ```bash
-claude mcp add youtrack -- /abs/path/bin/youtrack-mcp -env /abs/path/.env
+claude mcp add youtrack -- /abs/path/bin/ymcp -env /abs/path/.env
 ```
 
 **Claude Desktop, Cursor и другие клиенты с JSON-конфигом:**
@@ -132,7 +132,7 @@ claude mcp add youtrack -- /abs/path/bin/youtrack-mcp -env /abs/path/.env
 {
   "mcpServers": {
     "youtrack": {
-      "command": "/abs/path/bin/youtrack-mcp",
+      "command": "/abs/path/bin/ymcp",
       "args": ["-env", "/abs/path/.env"]
     }
   }
@@ -142,7 +142,7 @@ claude mcp add youtrack -- /abs/path/bin/youtrack-mcp -env /abs/path/.env
 **Streamable HTTP** (сервер слушает только localhost):
 
 ```bash
-./bin/youtrack-mcp -env .env -transport http -addr 127.0.0.1:8090
+./bin/ymcp -env .env -transport http -addr 127.0.0.1:8090
 ```
 
 Флаг `-v` включает подробные логи. Логи всегда пишутся в stderr, потому что stdout занят stdio-транспортом.
@@ -175,7 +175,7 @@ go test -race ./...
 in-memory MCP-клиент и проверяют, какие REST-запросы в итоге уходят в YouTrack.
 
 ```
-cmd/youtrack-mcp/          точка входа, флаги, загрузка .env
+cmd/ymcp/          точка входа, флаги, загрузка .env
 internal/youtrack/         REST-клиент и вход через Hub
 internal/youtrack/youtracktest/  фейковый YouTrack + Hub для тестов
 internal/tools/            MCP-инструменты

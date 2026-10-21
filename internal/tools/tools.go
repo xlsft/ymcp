@@ -11,7 +11,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/xlsft/youtrack-mcp/internal/youtrack"
+	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 // Register adds every tool to s, backed by yt.

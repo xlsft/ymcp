@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/xlsft/youtrack-mcp/internal/youtrack"
+	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 type apiGroup struct {

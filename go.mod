@@ -1,4 +1,4 @@
-module github.com/xlsft/youtrack-mcp
+module github.com/xlsft/ymcp
 
 go 1.26.3
 

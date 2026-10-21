@@ -1,4 +1,4 @@
-// Command youtrack-mcp is an MCP server for a self-hosted YouTrack instance.
+// Command ymcp is an MCP server for a self-hosted YouTrack instance.
 package main
 
 import (
@@ -15,15 +15,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/xlsft/youtrack-mcp/internal/tools"
-	"github.com/xlsft/youtrack-mcp/internal/youtrack"
+	"github.com/xlsft/ymcp/internal/tools"
+	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 var version = "dev"
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "youtrack-mcp:", err)
+		fmt.Fprintln(os.Stderr, "ymcp:", err)
 		os.Exit(1)
 	}
 }
@@ -74,7 +74,7 @@ func run() error {
 	}
 
 	newServer := func() *mcp.Server {
-		s := mcp.NewServer(&mcp.Implementation{Name: "youtrack-mcp", Version: version}, &mcp.ServerOptions{
+		s := mcp.NewServer(&mcp.Implementation{Name: "ymcp", Version: version}, &mcp.ServerOptions{
 			Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
 			Logger:       logger,
 		})
@@ -118,7 +118,7 @@ func callOnce(ctx context.Context, server *mcp.Server, name, rawArgs string) err
 	if _, err := server.Connect(ctx, st, nil); err != nil {
 		return err
 	}
-	cs, err := mcp.NewClient(&mcp.Implementation{Name: "youtrack-mcp-call", Version: version}, nil).Connect(ctx, ct, nil)
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "ymcp-call", Version: version}, nil).Connect(ctx, ct, nil)
 	if err != nil {
 		return err
 	}

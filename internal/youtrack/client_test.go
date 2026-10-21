@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xlsft/youtrack-mcp/internal/youtrack/youtracktest"
+	"github.com/xlsft/ymcp/internal/youtrack/youtracktest"
 )
 
 func newTestClient(t *testing.T, api http.HandlerFunc) (*Client, *youtracktest.Server) {
