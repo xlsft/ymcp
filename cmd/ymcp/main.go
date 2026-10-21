@@ -79,6 +79,8 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return serve(ctx, rest, logger)
+	case "auth":
+		return auth(ctx, rest)
 	case "check":
 		return check(ctx)
 	case "call":
