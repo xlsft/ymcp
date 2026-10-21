@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/xlsft/ymcp/internal/install"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
@@ -47,7 +48,8 @@ func statusHint(e *youtrack.Error) string {
 			"call_api with api=hub may work."
 	case e.Status == http.StatusUnauthorized:
 		return "YouTrack refused the sign-in even after logging in again: the password may have changed or the " +
-			"account may be banned. The user can check with `ymcp check` and fix it with `ymcp auth`."
+			"account may be banned. The user can check with `" + install.Command("check") + "` and fix it with `" +
+			install.Command("auth") + "`."
 	case e.Status == http.StatusForbidden:
 		return "This account lacks the YouTrack permission for this action. Ask a YouTrack admin to grant it, or " +
 			"leave the action to someone who has it; retrying won't help."

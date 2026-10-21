@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/install"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
@@ -125,7 +126,7 @@ func client(logger *slog.Logger) (*youtrack.Client, config.Config, error) {
 		return nil, cfg, err
 	}
 	if !cfg.Complete() {
-		return nil, cfg, fmt.Errorf("YouTrack profile %q is not configured; run `ymcp setup` or `ymcp --profile %s auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)", cfg.Name, cfg.Name)
+		return nil, cfg, fmt.Errorf("YouTrack profile %q is not configured; run `%s` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)", cfg.Name, install.AddProfile(nonDefault(cfg.Name)))
 	}
 	yt, err := youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: logger})
 	return yt, cfg, err
@@ -151,4 +152,13 @@ func currentUser(ctx context.Context, yt *youtrack.Client) (user, error) {
 	var me user
 	err := yt.Get(ctx, "users/me", youtrack.Fields("login,fullName"), &me)
 	return me, err
+}
+
+// nonDefault is key, or "" for the default profile, which commands pick
+// without --profile.
+func nonDefault(key string) string {
+	if key == config.DefaultProfile {
+		return ""
+	}
+	return key
 }

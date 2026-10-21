@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/huh/spinner"
 
+	"github.com/xlsft/ymcp/internal/install"
 	"github.com/xlsft/ymcp/internal/update"
 )
 
@@ -82,7 +83,7 @@ func checkForUpdate(ctx context.Context, logger *slog.Logger) <-chan struct{} {
 			logger.Debug("can't check for updates", "err", err)
 		case update.Newer(tag, version):
 			how := "ymcp update"
-			if os.Getenv("YMCP_INSTALL") == "docker" {
+			if install.Docker() {
 				how = "docker pull xlsoftware/ymcp:latest"
 			}
 			logger.Warn("update available", "current", version, "latest", strings.TrimPrefix(tag, "v"), "run", how)

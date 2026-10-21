@@ -21,6 +21,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/install"
 	"github.com/xlsft/ymcp/internal/tools"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
@@ -253,7 +254,7 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 		l := logger.With("profile", name)
 		cfg, err := config.Load(name)
 		if err == nil && !cfg.Complete() {
-			err = errors.New("not configured; run ymcp setup")
+			err = fmt.Errorf("not configured; run `%s`", install.AddProfile(nonDefault(name)))
 		}
 		var yt *youtrack.Client
 		if err == nil {
@@ -281,7 +282,7 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 		served = append(served, name)
 	}
 	if len(served) == 0 {
-		return nil, nil, errors.New("no profile to serve; run ymcp setup")
+		return nil, nil, fmt.Errorf("no profile to serve; add one with `%s`", install.AddProfile(""))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such profile; served: /"+strings.Join(served, ", /"), http.StatusNotFound)
