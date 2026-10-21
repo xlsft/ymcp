@@ -1,0 +1,65 @@
+version: 2
+
+project_name: ymcp
+
+builds:
+  - id: ymcp
+    main: ./cmd/ymcp
+    binary: ymcp
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: ymcp
+    # No version in the name, so releases/latest/download/<name> always works.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE*
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^.*?(docs|test|chore|ci|build)(\(.+\))??!?:.+$'
+
+release:
+  github:
+    owner: xlsft
+    name: ymcp
+  footer: |
+    ## Install
+
+    macOS / Linux:
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh
+    ```
+
+    Windows (PowerShell):
+    ```powershell
+    irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
+    ```
+
+    Already installed: `ymcp update`.

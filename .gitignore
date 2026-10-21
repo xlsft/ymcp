@@ -13,3 +13,6 @@
 .vscode/
 .DS_Store
 coverage.out
+
+# Release builds
+/dist/
