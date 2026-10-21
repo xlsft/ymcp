@@ -52,6 +52,7 @@ func Register(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool) {
 	t.registerVcs(s)
 	t.registerTagAdmin(s)
 	t.registerRawAPI(s)
+	t.registerPrompts(s, enabled)
 }
 
 type toolset struct {

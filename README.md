@@ -125,6 +125,20 @@ Critical, Major, …`), and errors from YouTrack get a hint by status: which too
 that a 403 needs a permission rather than a retry, that a 401 needs `ymcp auth`. HTML error pages from proxies are
 cut down to their title.
 
+### Prompts
+
+Clients that support MCP prompts list these as slash commands. Each one tells the model which tools to use and in
+what order, and they never change YouTrack without asking:
+
+| Prompt | |
+|---|---|
+| `standup` | What I did since the last working day (Friday on a Monday), what's next, what blocks me. `days` looks further back |
+| `triage` | Untriaged issues of a `project` with proposed type, priority, assignee and duplicates; applies only what you approve |
+| `sprint_report` | A sprint of a `board`: done and open work, who has what, scope changes, time logged, risks |
+| `issue_brief` | Catch up on an `issue`: TL;DR, state, decisions, open questions, next steps |
+
+A prompt is offered only when the tools it needs are served (see below).
+
 ### Choosing tools
 
 All 56 tools take room in the model's context. A profile can serve only some groups of them: pick them in

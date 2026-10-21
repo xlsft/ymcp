@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -31,6 +32,11 @@ func TestInstance(t *testing.T) {
 
 	r := call(t, "call_api", map[string]any{"method": "GET", "path": "groups", "query": map[string]any{"fields": "name", "$top": 5}})
 	t.Logf("can read /api/groups: %v", !r.isError)
+
+	prompts, err := admin.session.ListPrompts(context.Background(), nil)
+	if err != nil || len(prompts.Prompts) != 4 {
+		t.Errorf("prompts: %v, %v", prompts, err)
+	}
 
 	// The license limits users, so record how many there are.
 	var users []struct {
