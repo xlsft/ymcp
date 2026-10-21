@@ -1276,3 +1276,21 @@ func TestCommentEditAndRestore(t *testing.T) {
 		t.Errorf("all comments = %v", all.Comments)
 	}
 }
+
+func TestVcsChanges(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issues/DEMO-7/vcsChanges", `[
+		{"$type":"VcsChange","version":"abc123","text":"DEMO-7 fix","date":1767225600000,"files":3,"author":{"login":"bob"},"urls":["https://git/c/abc123"]},
+		{"$type":"PullRequest","title":"Fix login","url":"https://git/pr/5","state":{"id":"MERGED"},"userName":"eve","date":1767225600000}]`)
+	cs := connect(t, api)
+	var out struct{ Changes []map[string]any }
+	if isErr, text := call(t, cs, "get_issue_vcs_changes", map[string]any{"issueId": "DEMO-7"}, &out); isErr {
+		t.Fatal(text)
+	}
+	got, _ := json.Marshal(out.Changes)
+	want := `[{"author":"bob","date":"2026-01-01T00:00:00Z","files":3,"kind":"commit","message":"DEMO-7 fix","urls":["https://git/c/abc123"],"version":"abc123"},` +
+		`{"author":"eve","date":"2026-01-01T00:00:00Z","kind":"pullRequest","state":"MERGED","title":"Fix login","urls":["https://git/pr/5"]}]`
+	if string(got) != want {
+		t.Errorf("changes =\n%s\nwant\n%s", got, want)
+	}
+}
