@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/url"
+	"sync"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -28,6 +30,24 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 
 type toolset struct {
 	yt *youtrack.Client
+
+	meMu sync.Mutex
+	me   *apiUser
+}
+
+// currentUser returns the authenticated user, cached after the first call.
+func (t *toolset) currentUser(ctx context.Context) (apiUser, error) {
+	t.meMu.Lock()
+	defer t.meMu.Unlock()
+	if t.me != nil {
+		return *t.me, nil
+	}
+	var u apiUser
+	if err := t.yt.Get(ctx, "users/me", url.Values{"fields": {userFields}}, &u); err != nil {
+		return apiUser{}, err
+	}
+	t.me = &u
+	return u, nil
 }
 
 // handler is the shape every tool implements: decode In, return a JSON payload.

@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +57,22 @@ func TestFreeTextTerms(t *testing.T) {
 	want := []string{"reset password", "vpn", "setup"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("terms = %q, want %q", got, want)
+	}
+}
+
+func TestMatchTagPrefersOwnTag(t *testing.T) {
+	tags := []apiTag{
+		{ID: "6-1", Name: "Star", Owner: &userRef{Login: "bob"}},
+		{ID: "6-2", Name: "Star", Owner: &userRef{Login: "alice"}},
+		{ID: "6-3", Name: "backend"},
+	}
+	if tg, err := matchTag(tags, "star", "alice"); err != nil || tg.ID != "6-2" {
+		t.Errorf("star = %+v, %v", tg, err)
+	}
+	if tg, err := matchTag(tags, "6-1", "alice"); err != nil || tg.ID != "6-1" {
+		t.Errorf("by id = %+v, %v", tg, err)
+	}
+	if _, err := matchTag(tags, "zzz", "alice"); err == nil || !strings.Contains(err.Error(), "available tags: Star (6-1), Star (6-2), backend (6-3)") {
+		t.Errorf("not found = %v", err)
 	}
 }

@@ -29,6 +29,7 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 	a := &fakeAPI{t: t, mux: http.NewServeMux(), posted: map[string][]map[string]any{}}
 	a.json("GET /api/admin/projects", `[{"id":"0-1","shortName":"DEMO","name":"Demo project"},{"id":"0-2","shortName":"OPS","name":"Operations"}]`)
 	a.json("GET /api/admin/projects/0-1/customFields", projectFieldsJSON)
+	a.json("GET /api/users/me", `{"id":"1-1","login":"alice","fullName":"Alice"}`)
 	return a
 }
 

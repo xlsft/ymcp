@@ -15,9 +15,12 @@ import (
 var dbID = regexp.MustCompile(`^\d+-\d+$`)
 
 type apiTag struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Owner *userRef `json:"owner,omitempty"`
 }
+
+func (tg apiTag) ownedBy(login string) bool { return tg.Owner != nil && tg.Owner.Login == login }
 
 type manageIssueTagsIn struct {
 	IssueID   string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
@@ -54,7 +57,11 @@ func (t *toolset) manageIssueTags(ctx context.Context, in manageIssueTagsIn) (an
 			return nil, err
 		}
 	}
-	tag, err := matchTag(candidates, in.Tag)
+	me, err := t.currentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tag, err := matchTag(candidates, in.Tag, me.Login)
 	if err != nil {
 		if op == "remove" {
 			return nil, fmt.Errorf("issue %s has no tag %q; its tags: %s", in.IssueID, in.Tag, tagNames(issueTags))
@@ -87,18 +94,20 @@ func (t *toolset) issueTags(ctx context.Context, issueID string) ([]apiTag, erro
 	var is struct {
 		Tags []apiTag `json:"tags"`
 	}
-	err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), url.Values{"fields": {"tags(id,name)"}}, &is)
+	err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), url.Values{"fields": {"tags(id,name,owner(login))"}}, &is)
 	return is.Tags, err
 }
 
 func (t *toolset) visibleTags(ctx context.Context) ([]apiTag, error) {
 	var tags []apiTag
-	err := t.yt.Get(ctx, "tags", url.Values{"fields": {"id,name"}, "$top": {"-1"}}, &tags)
+	err := t.yt.Get(ctx, "tags", url.Values{"fields": {"id,name,owner(login)"}, "$top": {"-1"}}, &tags)
 	return tags, err
 }
 
 // matchTag finds a tag by ID, then by exact name, then case-insensitively.
-func matchTag(tags []apiTag, ref string) (apiTag, error) {
+// Several users may have tags with the same name (everyone has a Star), so
+// among equal names the one owned by me wins.
+func matchTag(tags []apiTag, ref, me string) (apiTag, error) {
 	ref = strings.TrimSpace(ref)
 	if dbID.MatchString(ref) {
 		for _, tg := range tags {
@@ -107,14 +116,24 @@ func matchTag(tags []apiTag, ref string) (apiTag, error) {
 			}
 		}
 	}
-	for _, tg := range tags {
-		if tg.Name == ref {
-			return tg, nil
+	for _, same := range []func(string) bool{
+		func(name string) bool { return name == ref },
+		func(name string) bool { return strings.EqualFold(name, ref) },
+	} {
+		var found *apiTag
+		for i, tg := range tags {
+			if !same(tg.Name) {
+				continue
+			}
+			if tg.ownedBy(me) {
+				return tg, nil
+			}
+			if found == nil {
+				found = &tags[i]
+			}
 		}
-	}
-	for _, tg := range tags {
-		if strings.EqualFold(tg.Name, ref) {
-			return tg, nil
+		if found != nil {
+			return *found, nil
 		}
 	}
 	var similar []apiTag
@@ -125,7 +144,7 @@ func matchTag(tags []apiTag, ref string) (apiTag, error) {
 		}
 	}
 	if len(similar) == 0 {
-		return apiTag{}, fmt.Errorf("tag %q not found", ref)
+		return apiTag{}, fmt.Errorf("tag %q not found; available tags: %s", ref, tagNames(tags[:min(len(tags), 20)]))
 	}
 	return apiTag{}, fmt.Errorf("tag %q not found; similar tags: %s", ref, tagNames(similar))
 }
