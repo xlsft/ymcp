@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,7 +68,7 @@ func (t *toolset) registerUsers(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name:        "get_saved_issue_searches",
-		Description: "Returns saved issue searches visible to the current user. Their queries can be passed to search_issues.",
+		Description: "Returns the current user's favorite saved issue searches. Their queries can be passed to search_issues.",
 		Annotations: readOnly("Get saved issue searches"),
 	}, t.getSavedIssueSearches)
 }
@@ -107,23 +106,28 @@ func (t *toolset) findUser(ctx context.Context, in findUserIn) (any, error) {
 
 func (t *toolset) getSavedIssueSearches(ctx context.Context, in getSavedIssueSearchesIn) (any, error) {
 	offset, limit := page(in.Offset, in.Limit, 20, 20)
-	var searches []struct {
-		ID    string   `json:"id"`
-		Name  string   `json:"name"`
-		Query string   `json:"query"`
-		Owner *userRef `json:"owner,omitempty"`
+	// The sidebar favorites mix saved searches with tags and projects.
+	var folders []struct {
+		Type  string `json:"$type"`
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Query string `json:"query"`
 	}
-	q := url.Values{
-		"fields": {"id,name,query,owner(login,fullName)"},
-		"$skip":  {strconv.Itoa(offset)},
-		"$top":   {strconv.Itoa(limit + 1)},
-	}
-	if err := t.yt.Get(ctx, "savedQueries", q, &searches); err != nil {
+	q := url.Values{"fields": {"$type,id,name,query"}, "$top": {"-1"}}
+	if err := t.yt.Get(ctx, "userIssueFolders", q, &folders); err != nil {
 		return nil, err
 	}
-	hasMore := len(searches) > limit
-	if hasMore {
-		searches = searches[:limit]
+	type search struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Query string `json:"query"`
 	}
-	return map[string]any{"searches": searches, "offset": offset, "hasMore": hasMore}, nil
+	searches := []search{}
+	for _, f := range folders {
+		if f.Type == "SavedQuery" {
+			searches = append(searches, search{f.ID, f.Name, f.Query})
+		}
+	}
+	total := len(searches)
+	return map[string]any{"searches": searches[min(offset, total):min(offset+limit, total)], "offset": offset, "total": total}, nil
 }

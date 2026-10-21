@@ -678,3 +678,24 @@ func TestFieldSchemaFromIssuesForNonAdmin(t *testing.T) {
 		t.Errorf("customFields =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestSavedSearchesAreFavorites(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/userIssueFolders", `[
+		{"$type":"Tag","id":"10-32","name":"Star","query":"tag: Star"},
+		{"$type":"SavedQuery","id":"11-0","name":"Assigned to me","query":"for: me"},
+		{"$type":"Project","id":"0-0","name":"Demo","query":"project: Demo"},
+		{"$type":"SavedQuery","id":"11-1","name":"Commented by me","query":"commenter: me"}]`)
+	cs := connect(t, api)
+
+	var out struct {
+		Searches []struct{ Name, Query string }
+		Total    int
+	}
+	if isErr, text := call(t, cs, "get_saved_issue_searches", map[string]any{"offset": 1}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.Total != 2 || len(out.Searches) != 1 || out.Searches[0].Query != "commenter: me" {
+		t.Errorf("out = %+v", out)
+	}
+}
