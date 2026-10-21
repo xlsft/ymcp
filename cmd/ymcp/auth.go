@@ -31,7 +31,7 @@ func auth(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, err := config.Load()
+	cfg, err := config.Load("")
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func authenticate(ctx context.Context, cfg config.Config, ask bool) (config.Conf
 		return cfg, fmt.Errorf("login failed, nothing saved: %w", verifyErr)
 	}
 
-	store, err := config.Save(cfg)
+	store, err := config.Save(cfg, "")
 	if err != nil {
 		return cfg, err
 	}

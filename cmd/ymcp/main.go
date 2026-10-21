@@ -114,7 +114,7 @@ func run(args []string) error {
 
 // client builds a YouTrack client from the stored config and environment.
 func client(logger *slog.Logger) (*youtrack.Client, error) {
-	cfg, err := config.Load()
+	cfg, err := config.Load("")
 	if err != nil {
 		return nil, err
 	}

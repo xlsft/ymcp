@@ -39,7 +39,7 @@ func TestAuthenticateSavesOnlyAfterLogin(t *testing.T) {
 	if _, err := authenticate(context.Background(), good, false); err != nil {
 		t.Fatal(err)
 	}
-	got, err := config.Load()
+	got, err := config.Load("")
 	if err != nil || got.URL != f.URL || got.Password != youtracktest.Password {
 		t.Errorf("stored = %+v, %v", got, err)
 	}
