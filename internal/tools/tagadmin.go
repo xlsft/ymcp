@@ -72,7 +72,7 @@ func (t *toolset) registerTagAdmin(s *mcp.Server) {
 
 	add(s, &mcp.Tool{
 		Name:        "create_saved_search",
-		Description: "Saves a search query under a name for the current user. It can then be found with get_saved_issue_searches.",
+		Description: "Saves a search query under a name. It is not added to favorites; pin it in the UI to see it in get_saved_issue_searches.",
 		Annotations: mutating("Create saved search", false),
 	}, t.createSavedSearch)
 	add(s, &mcp.Tool{
