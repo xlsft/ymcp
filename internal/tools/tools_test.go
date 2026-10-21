@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -208,13 +210,7 @@ func TestGetIssueFetchesRecentComments(t *testing.T) {
 		"links":[{"direction":"INWARD","linkType":{"name":"Subtask","sourceToTarget":"parent for","targetToSource":"subtask of"},"issues":[{"idReadable":"DEMO-1"}]},
 		         {"direction":"OUTWARD","linkType":{"name":"Relates","sourceToTarget":"relates to"},"issues":[]}],
 		"customFields":[]}`)
-	api.handle("GET /api/issues/DEMO-7/comments", func(w http.ResponseWriter, r *http.Request) {
-		if q := r.URL.Query(); q.Get("$skip") != "2" || q.Get("$top") != "5" {
-			t.Errorf("comments query = %v", q)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `[{"id":"4-1","text":"hi","author":{"login":"bob"}}]`)
-	})
+	api.handle("GET /api/issues/DEMO-7/comments", fakeComments(t, 8, 3))
 	cs := connect(t, api)
 
 	var out struct {
@@ -224,8 +220,24 @@ func TestGetIssueFetchesRecentComments(t *testing.T) {
 	if isErr, text := call(t, cs, "get_issue", map[string]any{"issueId": "DEMO-7"}, &out); isErr {
 		t.Fatal(text)
 	}
-	if len(out.RecentComments) != 1 || out.RecentComments[0].Text != "hi" {
-		t.Errorf("comments = %+v", out.RecentComments)
+	var texts []string
+	for _, c := range out.RecentComments {
+		texts = append(texts, c.Text)
+	}
+	if strings.Join(texts, ",") != "c2,c4,c5,c6,c7" {
+		t.Errorf("recent comments = %v", texts)
+	}
+
+	var page struct {
+		Comments []struct{ Text string }
+		Total    int
+		HasMore  bool
+	}
+	if isErr, text := call(t, cs, "get_issue_comments", map[string]any{"issueId": "DEMO-7", "offset": 2, "limit": 2}, &page); isErr {
+		t.Fatal(text)
+	}
+	if page.Total != 7 || !page.HasMore || len(page.Comments) != 2 || page.Comments[0].Text != "c2" || page.Comments[1].Text != "c4" {
+		t.Errorf("page = %+v", page)
 	}
 	if got := out.Links["subtask of"]; len(got) != 1 || got[0] != "DEMO-1" || len(out.Links) != 1 {
 		t.Errorf("links = %v", out.Links)
@@ -744,5 +756,82 @@ func TestStarTagGoesThroughWatchers(t *testing.T) {
 	bodies := api.bodies("/api/issues/DEMO-7/watchers/issueWatchers")
 	if len(bodies) != 2 || bodies[0]["isStarred"] != true || bodies[1]["isStarred"] != false {
 		t.Errorf("watcher bodies = %v", bodies)
+	}
+}
+
+func TestDeletes(t *testing.T) {
+	api := newFakeAPI(t)
+	var mu sync.Mutex
+	var deleted []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		deleted = append(deleted, r.URL.Path)
+		mu.Unlock()
+	}
+	api.handle("DELETE /api/issues/DEMO-7", record)
+	api.handle("DELETE /api/users/me/drafts/3-22", record)
+	api.handle("DELETE /api/issues/DEMO-7/comments/4-9", record)
+	api.json("POST /api/issues/DEMO-7/comments/4-8", `{"id":"4-8"}`)
+	api.handle("DELETE /api/articles/HELP-A-1", record)
+	cs := connect(t, api)
+
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"delete_issue", map[string]any{"issueId": "DEMO-7"}},
+		{"delete_issue", map[string]any{"issueId": "3-22"}},
+		{"delete_issue_comment", map[string]any{"issueId": "DEMO-7", "commentId": "4-8"}},
+		{"delete_issue_comment", map[string]any{"issueId": "DEMO-7", "commentId": "4-9", "permanent": true}},
+		{"delete_article", map[string]any{"articleId": "HELP-A-1"}},
+	} {
+		if isErr, text := call(t, cs, c.tool, c.args, nil); isErr {
+			t.Fatalf("%s: %s", c.tool, text)
+		}
+	}
+	want := "/api/issues/DEMO-7,/api/users/me/drafts/3-22,/api/issues/DEMO-7/comments/4-9,/api/articles/HELP-A-1"
+	if got := strings.Join(deleted, ","); got != want {
+		t.Errorf("deleted = %s", got)
+	}
+
+	if b := api.bodies("/api/issues/DEMO-7/comments/4-8"); len(b) != 1 || b[0]["deleted"] != true {
+		t.Errorf("soft delete body = %v", b)
+	}
+
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if strings.HasPrefix(tool.Name, "delete_") && (tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint) {
+			t.Errorf("%s is not marked destructive", tool.Name)
+		}
+	}
+}
+
+// fakeComments serves n comments c0..c{n-1} where the one at deleted is
+// marked deleted, honoring $skip and $top like YouTrack.
+func fakeComments(t *testing.T, n, deleted int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		skip, _ := strconv.Atoi(q.Get("$skip"))
+		top, _ := strconv.Atoi(q.Get("$top"))
+		if top < 0 || top == 0 && q.Get("$top") == "" {
+			top = n
+		}
+		var out []map[string]any
+		for i := skip; i < min(skip+top, n); i++ {
+			c := map[string]any{"deleted": i == deleted}
+			if q.Get("fields") != "deleted" {
+				c["id"] = fmt.Sprintf("4-%d", i)
+				c["text"] = fmt.Sprintf("c%d", i)
+				if i == deleted {
+					c["text"] = nil
+				}
+			}
+			out = append(out, c)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
 	}
 }

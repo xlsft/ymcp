@@ -208,12 +208,8 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 	}
 	comments := []apiComment{}
 	if recent > 0 && is.CommentsCount > 0 {
-		q := url.Values{
-			"fields": {commentFields},
-			"$skip":  {strconv.Itoa(max(is.CommentsCount-recent, 0))},
-			"$top":   {strconv.Itoa(recent)},
-		}
-		if err := t.yt.Get(ctx, "issues/"+url.PathEscape(in.IssueID)+"/comments", q, &comments); err != nil {
+		var err error
+		if comments, _, err = t.comments(ctx, in.IssueID, -recent, recent); err != nil {
 			return nil, err
 		}
 	}
@@ -260,20 +256,60 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 
 func (t *toolset) getIssueComments(ctx context.Context, in getIssueCommentsIn) (any, error) {
 	offset, limit := page(in.Offset, in.Limit, 10, 10)
-	q := url.Values{
-		"fields": {commentFields},
-		"$skip":  {strconv.Itoa(offset)},
-		"$top":   {strconv.Itoa(limit + 1)},
-	}
-	var comments []apiComment
-	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(in.IssueID)+"/comments", q, &comments); err != nil {
+	comments, total, err := t.comments(ctx, in.IssueID, offset, limit)
+	if err != nil {
 		return nil, err
 	}
-	hasMore := len(comments) > limit
-	if hasMore {
-		comments = comments[:limit]
+	return map[string]any{"comments": comments, "offset": offset, "total": total, "hasMore": offset+len(comments) < total}, nil
+}
+
+// comments returns a page of the issue's comments that are not deleted,
+// oldest first; a negative offset counts from the end. Deleted comments
+// stay in the REST list (with no text), so the page is located on a cheap
+// id-only listing first and then fetched in full.
+func (t *toolset) comments(ctx context.Context, issueID string, offset, limit int) ([]apiComment, int, error) {
+	path := "issues/" + url.PathEscape(issueID) + "/comments"
+	var index []struct {
+		Deleted bool `json:"deleted"`
 	}
-	return map[string]any{"comments": comments, "offset": offset, "hasMore": hasMore}, nil
+	if err := t.yt.Get(ctx, path, url.Values{"fields": {"deleted"}, "$top": {"-1"}}, &index); err != nil {
+		return nil, 0, err
+	}
+	var live []int // positions of comments that are not deleted
+	for i, c := range index {
+		if !c.Deleted {
+			live = append(live, i)
+		}
+	}
+	total := len(live)
+	if offset < 0 {
+		offset = max(total+offset, 0)
+	}
+	if offset >= total || limit <= 0 {
+		return []apiComment{}, total, nil
+	}
+	want := live[offset:min(offset+limit, total)]
+	first, last := want[0], want[len(want)-1]
+
+	var raw []struct {
+		apiComment
+		Deleted bool `json:"deleted"`
+	}
+	q := url.Values{
+		"fields": {commentFields + ",deleted"},
+		"$skip":  {strconv.Itoa(first)},
+		"$top":   {strconv.Itoa(last - first + 1)},
+	}
+	if err := t.yt.Get(ctx, path, q, &raw); err != nil {
+		return nil, 0, err
+	}
+	out := make([]apiComment, 0, len(want))
+	for _, c := range raw {
+		if !c.Deleted {
+			out = append(out, c.apiComment)
+		}
+	}
+	return out, total, nil
 }
 
 func (t *toolset) addIssueComment(ctx context.Context, in addIssueCommentIn) (any, error) {
