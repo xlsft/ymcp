@@ -152,6 +152,9 @@ To log at debug level from a client, add `"env": {"YMCP_LOG_LEVEL": "debug"}` to
 Claude Code · Claude Desktop · Cursor · VS Code (Copilot) · Windsurf · Devin Desktop · Zed · Codex · Gemini CLI ·
 Antigravity · JetBrains Junie · Cline · LM Studio · opencode
 
+Claude Desktop writes its config back from memory while it runs, which drops edits made meanwhile, so `ymcp setup`
+offers to quit it during the change and reopens it afterwards.
+
 ymcp edits each client's config in place and keeps your other servers, keys and comments. It leaves a
 `.ymcp.bak` copy next to the original. For any other client, register a stdio server per profile that runs the
 `ymcp` binary with `--profile <key>`:

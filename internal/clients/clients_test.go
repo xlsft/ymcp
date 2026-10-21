@@ -269,3 +269,39 @@ func TestSystemEnv(t *testing.T) {
 		t.Errorf("clients = %d, want 14", len(All()))
 	}
 }
+
+func TestClaudeDesktopQuitsAndReopens(t *testing.T) {
+	pollInterval = 0
+	e := newEnv(t)
+	running := true
+	e.Run = func(name string, args ...string) error {
+		e.ran = append(e.ran, name+" "+strings.Join(args, " "))
+		switch name {
+		case "pgrep":
+			if running {
+				return nil
+			}
+			return errors.New("exit status 1")
+		case "osascript":
+			running = false
+		}
+		return nil
+	}
+	c := byID(t, "claude-desktop")
+	if c.App() != "Claude" || !c.Running(e.Env) {
+		t.Fatal("Claude Desktop should be running")
+	}
+	if err := c.Quit(e.Env); err != nil || c.Running(e.Env) {
+		t.Fatalf("Quit = %v, running = %v", err, c.Running(e.Env))
+	}
+	if err := c.Open(e.Env); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"pgrep -x Claude", "osascript -e quit app \"Claude\"", "pgrep -x Claude", "pgrep -x Claude", "open -a Claude"}
+	if strings.Join(e.ran, "\n") != strings.Join(want, "\n") {
+		t.Errorf("ran:\n%s", strings.Join(e.ran, "\n"))
+	}
+	if byID(t, "cursor").App() != "" || byID(t, "cursor").Running(e.Env) {
+		t.Error("Cursor has no app to close")
+	}
+}

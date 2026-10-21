@@ -274,6 +274,8 @@ func registerProfile(env clients.Env, cfg config.Config, oldName, only string, a
 	}
 
 	fmt.Println()
+	reopen := closeApps(env, detected, func(c clients.Client) bool { return slices.Contains(chosen, c.ID) || installed(c) }, ask)
+	defer reopenApps(env, reopen)
 	var failed int
 	for _, c := range detected {
 		want := slices.Contains(chosen, c.ID)
@@ -321,6 +323,8 @@ func registerProfile(env clients.Env, cfg config.Config, oldName, only string, a
 // removeProfile unregisters a profile from every client and deletes it.
 func removeProfile(env clients.Env, p config.Config) error {
 	detected, _ := detectClients(env)
+	reopen := closeApps(env, detected, func(c clients.Client) bool { return c.Installed(env, p.Name) }, interactive())
+	defer reopenApps(env, reopen)
 	var failed int
 	for _, c := range detected {
 		if !c.Installed(env, p.Name) {
@@ -341,6 +345,53 @@ func removeProfile(env clients.Env, p config.Config) error {
 		return fmt.Errorf("%d client(s) failed", failed)
 	}
 	return nil
+}
+
+// closeApps handles clients that write their config back from memory
+// while running, which would drop ymcp's edit: it offers to quit those
+// about to be edited and returns the ones to reopen afterwards.
+func closeApps(env clients.Env, list []clients.Client, edited func(clients.Client) bool, ask bool) []clients.Client {
+	var reopen []clients.Client
+	for _, c := range list {
+		if c.App() == "" || !edited(c) || !c.Running(env) {
+			continue
+		}
+		why := c.Name + " is running and writes its config back from memory, which drops ymcp's change"
+		if insideApp(c.App()) {
+			fmt.Println(styleWarn.Render("!") + " " + why + ". Quit it and run ymcp setup from another terminal.")
+			continue
+		}
+		quit := ask
+		if ask {
+			if err := huh.NewConfirm().
+				Title("Quit " + c.Name + " while ymcp updates its config?").
+				Description(why + ".\nIt reopens afterwards. Its windows close, Claude Code sessions in it included.").
+				Affirmative("Quit and reopen").Negative("Leave it running").
+				Value(&quit).WithTheme(huh.ThemeBase16()).Run(); err != nil {
+				quit = false
+			}
+		}
+		if !quit {
+			fmt.Println(styleWarn.Render("!") + " " + why + ". Quit it, then run ymcp setup again.")
+			continue
+		}
+		if err := c.Quit(env); err != nil {
+			fmt.Printf("%s %s: %v\n", styleWarn.Render("!"), why, err)
+			continue
+		}
+		reopen = append(reopen, c)
+	}
+	return reopen
+}
+
+func reopenApps(env clients.Env, list []clients.Client) {
+	for _, c := range list {
+		if err := c.Open(env); err != nil {
+			fmt.Printf("%s %s: %v\n", styleWarn.Render("!"), c.Name, err)
+			continue
+		}
+		fmt.Printf("%s %s %s\n", styleOK.Render("✓"), c.Name, styleDim.Render("reopened"))
+	}
 }
 
 func detectClients(env clients.Env) (detected, missing []clients.Client) {

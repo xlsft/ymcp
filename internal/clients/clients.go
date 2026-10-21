@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Server is a ymcp registration: the name it appears under in a client
@@ -90,6 +91,10 @@ type Client struct {
 	// Note is shown after registering, e.g. a restart hint.
 	Note string
 
+	// app is the process of a desktop app that keeps its config in memory
+	// and writes it back, dropping edits made while it runs.
+	app string
+
 	detect    func(Env) bool
 	installed func(Env, string) bool
 	install   func(Env, Server) error
@@ -106,6 +111,57 @@ func (c Client) Install(e Env, s Server) error { return c.install(e, s) }
 
 // Uninstall removes the registration named name.
 func (c Client) Uninstall(e Env, name string) error { return c.uninstall(e, name) }
+
+// App is the name of the client's app process when the client overwrites
+// its config while running, so it must be closed during edits; else "".
+func (c Client) App() string { return c.app }
+
+// pollInterval is how often Quit checks that the app has exited.
+var pollInterval = 500 * time.Millisecond
+
+// Running reports whether the client's app is running.
+func (c Client) Running(e Env) bool {
+	switch {
+	case c.app == "":
+		return false
+	case e.OS == "darwin":
+		return e.Run("pgrep", "-x", c.app) == nil
+	case e.OS == "windows":
+		return e.Run("powershell", "-NoProfile", "-Command", "Get-Process -Name "+c.app+" -ErrorAction Stop") == nil
+	}
+	return false
+}
+
+// Quit asks the client's app to quit and waits until it has.
+func (c Client) Quit(e Env) error {
+	var err error
+	switch e.OS {
+	case "darwin":
+		err = e.Run("osascript", "-e", `quit app "`+c.app+`"`)
+	case "windows":
+		err = e.Run("taskkill", "/IM", c.app+".exe")
+	default:
+		return fmt.Errorf("can't quit %s on %s", c.Name, e.OS)
+	}
+	if err != nil {
+		return err
+	}
+	for range 40 {
+		if !c.Running(e) {
+			return nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return fmt.Errorf("%s is still running", c.Name)
+}
+
+// Open starts the client's app again; only macOS knows how.
+func (c Client) Open(e Env) error {
+	if e.OS != "darwin" {
+		return fmt.Errorf("start %s again yourself", c.Name)
+	}
+	return e.Run("open", "-a", c.app)
+}
 
 // jsonClient is a client configured by a JSON or JSONC file.
 func jsonClient(id, name, note string, path func(Env) string, detect func(Env) bool, keyPath []string, entry func(Server) any) Client {
@@ -136,12 +192,7 @@ func All() []Client {
 	restart := "restart the app to load the server"
 	return []Client{
 		claudeCode(),
-		jsonClient("claude-desktop", "Claude Desktop", restart,
-			func(e Env) string { return filepath.Join(e.appData(), "Claude", "claude_desktop_config.json") },
-			func(e Env) bool {
-				return e.exists(filepath.Join(e.appData(), "Claude")) || e.exists("/Applications/Claude.app")
-			},
-			[]string{"mcpServers"}, stdioEntry),
+		claudeDesktop(restart),
 		jsonClient("cursor", "Cursor", restart,
 			func(e Env) string { return filepath.Join(e.Home, ".cursor", "mcp.json") },
 			func(e Env) bool { return e.exists(filepath.Join(e.Home, ".cursor")) },
@@ -196,6 +247,19 @@ func All() []Client {
 				return map[string]any{"type": "local", "command": append([]string{s.Command}, s.Args...), "enabled": true}
 			}),
 	}
+}
+
+// claudeDesktop writes its config back from memory, e.g. when a session
+// starts, so ymcp's entry only sticks while the app is closed.
+func claudeDesktop(note string) Client {
+	c := jsonClient("claude-desktop", "Claude Desktop", note,
+		func(e Env) string { return filepath.Join(e.appData(), "Claude", "claude_desktop_config.json") },
+		func(e Env) bool {
+			return e.exists(filepath.Join(e.appData(), "Claude")) || e.exists("/Applications/Claude.app")
+		},
+		[]string{"mcpServers"}, stdioEntry)
+	c.app = "Claude"
+	return c
 }
 
 func devinDir(e Env) string {
