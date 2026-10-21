@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -168,8 +169,33 @@ func (e *Error) Error() string {
 	case e.Code != "":
 		return fmt.Sprintf("%s %s", prefix, e.Code)
 	default:
-		return fmt.Sprintf("%s %s", prefix, strings.TrimSpace(e.Body))
+		return fmt.Sprintf("%s %s", prefix, bodySummary(e.Body))
 	}
+}
+
+var (
+	htmlTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlTag   = regexp.MustCompile(`(?s)<[^>]*>`)
+	spaces    = regexp.MustCompile(`\s+`)
+)
+
+// bodySummary keeps an error body readable: an HTML page, as a proxy or a
+// gateway answers, becomes its title or text, and long bodies are cut.
+func bodySummary(body string) string {
+	body = strings.TrimSpace(body)
+	if lower := strings.ToLower(body); strings.HasPrefix(lower, "<!doctype html") || strings.Contains(lower, "<html") {
+		text := ""
+		if m := htmlTitle.FindStringSubmatch(body); m != nil {
+			text = m[1]
+		} else {
+			text = htmlTag.ReplaceAllString(body, " ")
+		}
+		body = "(HTML page) " + strings.TrimSpace(spaces.ReplaceAllString(text, " "))
+	}
+	if r := []rune(body); len(r) > 300 {
+		body = string(r[:300]) + "…"
+	}
+	return body
 }
 
 // Do performs a request against /api/<path>. body is JSON-encoded when

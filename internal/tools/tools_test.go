@@ -1631,3 +1631,53 @@ func TestFieldSchemaIsCachedAndRefreshedForNewValues(t *testing.T) {
 		t.Errorf("bad value: isErr=%v %s", isErr, text)
 	}
 }
+
+func TestErrorsCarryHints(t *testing.T) {
+	api := newFakeAPI(t)
+	fail := func(status int, body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(body, "{") {
+				w.Header().Set("Content-Type", "application/json")
+			} else {
+				w.Header().Set("Content-Type", "text/html")
+			}
+			w.WriteHeader(status)
+			io.WriteString(w, body)
+		}
+	}
+	api.handle("GET /api/issues/DEMO-404", fail(404, `{"error":"Not Found","error_description":"Entity with id DEMO-404 not found"}`))
+	api.handle("GET /api/issues/DEMO-403", fail(403, `{"error":"Forbidden","error_description":"You have no access"}`))
+	api.handle("GET /api/articles/DEMO-A-9", fail(404, `{"error":"Not Found","error_description":"Entity not found"}`))
+	api.handle("GET /api/issues/DEMO-500", fail(500, "<!DOCTYPE html><html><head><title>500 Internal Server Error</title></head><body><h1>Oops</h1>"+strings.Repeat("x", 2000)+"</body></html>"))
+	cs := connect(t, api)
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		want []string
+		not  string
+	}{
+		{"get_issue", map[string]any{"issueId": "DEMO-404"}, []string{"Entity with id DEMO-404 not found", "Hint: It doesn't exist", "search_issues finds"}, ""},
+		{"get_issue", map[string]any{"issueId": "DEMO-403"}, []string{"Hint: This account lacks the YouTrack permission"}, ""},
+		{"get_article", map[string]any{"articleId": "DEMO-A-9"}, []string{"search_articles finds"}, ""},
+		{"get_issue", map[string]any{"issueId": "DEMO-500"}, []string{"(HTML page) 500 Internal Server Error", "Hint: YouTrack failed on its side"}, "<html"},
+		{"get_issue_fields_schema", map[string]any{"projectKey": "NOPE"}, []string{"not found"}, "Hint:"},
+	} {
+		isErr, text := call(t, cs, tc.tool, tc.args, nil)
+		if !isErr {
+			t.Errorf("%s %v succeeded", tc.tool, tc.args)
+			continue
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(text, w) {
+				t.Errorf("%s %v: no %q in %q", tc.tool, tc.args, w, text)
+			}
+		}
+		if tc.not != "" && strings.Contains(text, tc.not) {
+			t.Errorf("%s %v: %q in %q", tc.tool, tc.args, tc.not, text)
+		}
+		if len(text) > 900 {
+			t.Errorf("%s %v: %d characters", tc.tool, tc.args, len(text))
+		}
+	}
+}

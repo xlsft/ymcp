@@ -95,7 +95,7 @@ func add[In any](s *mcp.Server, tool *mcp.Tool, h handler[In]) {
 	mcp.AddTool(s, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		out, err := h(ctx, in)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, withHint(err)
 		}
 		return textResult(out), nil, nil
 	})

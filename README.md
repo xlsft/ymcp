@@ -119,6 +119,11 @@ Every command takes `--profile <key>` (or `YMCP_PROFILE`) to pick the YouTrack i
 
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
+Errors tell the model what to do next. ymcp's own checks list what is allowed (`value "X" is not allowed; allowed:
+Critical, Major, …`), and errors from YouTrack get a hint by status: which tool finds the right ID after a 404,
+that a 403 needs a permission rather than a retry, that a 401 needs `ymcp auth`. HTML error pages from proxies are
+cut down to their title.
+
 ### Choosing tools
 
 All 56 tools take room in the model's context. A profile can serve only some groups of them: pick them in
