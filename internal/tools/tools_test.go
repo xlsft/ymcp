@@ -1138,3 +1138,44 @@ func TestTimeReport(t *testing.T) {
 		t.Errorf("by day = %+v", out.Groups)
 	}
 }
+
+func TestApplyCommand(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("POST /api/commands/assist", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		bodies := api.bodies("/api/commands/assist")
+		if bodies[len(bodies)-1]["query"] == "State Nope" {
+			io.WriteString(w, `{"commands":[{"description":"State expected: Nope","error":true}],"suggestions":[{"option":"Open"}]}`)
+			return
+		}
+		io.WriteString(w, `{"commands":[{"description":"State: Fixed"}],"suggestions":[]}`)
+	})
+	api.json("POST /api/commands", `{}`)
+	api.json("GET /api/issues", `[{"idReadable":"DEMO-1"},{"idReadable":"DEMO-2"}]`)
+	cs := connect(t, api)
+
+	var dry struct {
+		Valid       bool
+		Suggestions []map[string]any
+	}
+	if isErr, text := call(t, cs, "apply_command", map[string]any{"command": "State Nope", "issueIds": []string{"DEMO-1"}, "dryRun": true}, &dry); isErr {
+		t.Fatal(text)
+	}
+	if dry.Valid || len(dry.Suggestions) != 1 {
+		t.Errorf("dry run = %+v", dry)
+	}
+	if isErr, text := call(t, cs, "apply_command", map[string]any{"command": "State Nope", "issueIds": []string{"DEMO-1"}}, nil); !isErr || !strings.Contains(text, "nothing applied") {
+		t.Errorf("invalid apply: isErr=%v %q", isErr, text)
+	}
+	if n := len(api.bodies("/api/commands")); n != 0 {
+		t.Fatalf("invalid command was applied %d times", n)
+	}
+
+	if isErr, text := call(t, cs, "apply_command", map[string]any{"command": "State Fixed", "query": "#Unresolved", "comment": "done", "silent": true}, nil); isErr {
+		t.Fatal(text)
+	}
+	got, _ := json.Marshal(api.bodies("/api/commands"))
+	if string(got) != `[{"comment":"done","issues":[{"idReadable":"DEMO-1"},{"idReadable":"DEMO-2"}],"query":"State Fixed","silent":true}]` {
+		t.Errorf("applied = %s", got)
+	}
+}

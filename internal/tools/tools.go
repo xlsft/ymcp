@@ -31,6 +31,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerSprints(s)
 	t.registerActivities(s)
 	t.registerReports(s)
+	t.registerCommands(s)
 }
 
 type toolset struct {
