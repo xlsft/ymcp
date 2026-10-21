@@ -584,3 +584,53 @@ func TestCommentWithLimitedVisibility(t *testing.T) {
 		t.Errorf("isErr=%v %q", isErr, text)
 	}
 }
+
+func TestGroupsFallBackToHubWhenForbidden(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/groups", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":"Forbidden","error_description":"HTTP 403 Forbidden"}`)
+	})
+	hub := http.NewServeMux()
+	hub.HandleFunc("GET /hub/api/rest/usergroups", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"type":"UserGroupsPage","usergroups":[{"id":"h-all","name":"All Users"},{"id":"h-1","name":"Backend devs"}]}`)
+	})
+	hub.HandleFunc("GET /hub/api/rest/projectteams", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"type":"ProjectTeamsPage","projectteams":[{"id":"h-t","name":"DEMO Team","project":{"key":"DEMO","name":"Demo"}}]}`)
+	})
+	hub.HandleFunc("GET /hub/api/rest/usergroups/h-all", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"users":[{"login":"a"},{"login":"b"},{"login":"c"},{"login":"d"}]}`)
+	})
+	cs := connectHub(t, api, hub)
+
+	var found struct {
+		Groups []struct{ Name, ID, ProjectTeam string }
+		Total  int
+	}
+	if isErr, text := call(t, cs, "find_user_groups", map[string]any{"nameContains": ""}, &found); isErr {
+		t.Fatal(text)
+	}
+	if found.Total != 3 || found.Groups[0].ID != "h-all" || found.Groups[2].ProjectTeam != "DEMO" {
+		t.Errorf("found = %+v", found)
+	}
+
+	var members struct {
+		Members []user
+		Total   int
+	}
+	if isErr, text := call(t, cs, "get_user_group_members", map[string]any{"group": "All Users", "limit": 3}, &members); isErr {
+		t.Fatal(text)
+	}
+	if members.Total != 4 || len(members.Members) != 3 {
+		t.Errorf("members = %+v", members)
+	}
+
+	isErr, text := call(t, cs, "add_issue_comment", map[string]any{"issueId": "DEMO-7", "text": "x", "permittedGroups": []string{"Backend devs"}}, nil)
+	if !isErr || !strings.Contains(text, "needs permission to read user groups") {
+		t.Errorf("visibility without group IDs: isErr=%v %q", isErr, text)
+	}
+}

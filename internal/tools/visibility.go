@@ -73,6 +73,9 @@ func (t *toolset) limitedVisibility(ctx context.Context, logins, groupNames []st
 		for _, name := range groupNames {
 			for _, g := range all {
 				if strings.EqualFold(g.Name, name) {
+					if g.ID == "" {
+						return nil, fmt.Errorf("permitted group %q: reading YouTrack group IDs needs permission to read user groups", name)
+					}
 					groups = append(groups, map[string]string{"id": g.ID})
 					continue names
 				}

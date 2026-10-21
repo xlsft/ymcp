@@ -58,11 +58,63 @@ func (t *toolset) registerGroups(s *mcp.Server) {
 	}, t.getUserGroupMembers)
 }
 
+// listGroups returns groups and project teams. Reading /api/groups takes
+// admin rights, so for other users it falls back to Hub, where groups have
+// no YouTrack ID (ID is empty) but keep their Hub ID in RingID.
 func (t *toolset) listGroups(ctx context.Context) ([]apiGroup, error) {
 	var groups []apiGroup
 	q := url.Values{"fields": {"id,name,ringId,usersCount,teamForProject(shortName,name)"}, "$top": {"-1"}}
 	err := t.yt.Get(ctx, "groups", q, &groups)
-	return groups, err
+	if !isForbidden(err) {
+		return groups, err
+	}
+	hubGroups, hubErr := t.hubGroups(ctx)
+	if hubErr != nil {
+		return nil, fmt.Errorf("%w; Hub fallback: %v", err, hubErr)
+	}
+	return hubGroups, nil
+}
+
+func (t *toolset) hubGroups(ctx context.Context) ([]apiGroup, error) {
+	var groups struct {
+		UserGroups []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"usergroups"`
+	}
+	if err := t.yt.HubGet(ctx, "usergroups", url.Values{"fields": {"id,name"}, "$top": {"10000"}}, &groups); err != nil {
+		return nil, err
+	}
+	out := make([]apiGroup, 0, len(groups.UserGroups))
+	for _, g := range groups.UserGroups {
+		out = append(out, apiGroup{Name: g.Name, RingID: g.ID})
+	}
+
+	var teams struct {
+		ProjectTeams []struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Project struct {
+				Key  string `json:"key"`
+				Name string `json:"name"`
+			} `json:"project"`
+		} `json:"projectteams"`
+	}
+	q := url.Values{"fields": {"id,name,project(key,name)"}, "$top": {"10000"}}
+	if err := t.yt.HubGet(ctx, "projectteams", q, &teams); err != nil {
+		// Teams are a bonus; plain groups are still useful without them.
+		return out, nil
+	}
+	for _, tm := range teams.ProjectTeams {
+		out = append(out, apiGroup{Name: tm.Name, RingID: tm.ID,
+			TeamForProject: &apiProjectRef{ShortName: tm.Project.Key, Name: tm.Project.Name}})
+	}
+	return out, nil
+}
+
+func isForbidden(err error) bool {
+	var ytErr *youtrack.Error
+	return errors.As(err, &ytErr) && ytErr.Status == http.StatusForbidden
 }
 
 func (t *toolset) findUserGroups(ctx context.Context, in findUserGroupsIn) (any, error) {
@@ -73,8 +125,8 @@ func (t *toolset) findUserGroups(ctx context.Context, in findUserGroupsIn) (any,
 	}
 	type group struct {
 		Name        string `json:"name"`
-		ID          string `json:"id"`
-		UsersCount  int    `json:"usersCount"`
+		ID          string `json:"id,omitempty"`
+		UsersCount  int    `json:"usersCount,omitempty"`
 		ProjectTeam string `json:"projectTeam,omitempty"`
 	}
 	needle := strings.ToLower(in.NameContains)
@@ -84,6 +136,9 @@ func (t *toolset) findUserGroups(ctx context.Context, in findUserGroupsIn) (any,
 			continue
 		}
 		out := group{Name: g.Name, ID: g.ID, UsersCount: g.UsersCount}
+		if out.ID == "" {
+			out.ID = g.RingID
+		}
 		if g.TeamForProject != nil {
 			out.ProjectTeam = g.TeamForProject.ShortName
 		}
