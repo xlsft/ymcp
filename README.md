@@ -14,7 +14,7 @@ including self-hosted instances behind a VPN. It speaks for you with your **logi
 YouTrack’s built-in MCP server under the same names, and adds the ones it lacks: deleting things, sprints, attachments,
 history, time reports, commands and more.
 
-- **55 tools**: the 23 built-in ones, same names, arguments and limits, plus 32 extras
+- **56 tools**: the 23 built-in ones, same names, arguments and limits, plus 33 extras
 - **Signs in like the web UI**, so there is no admin-issued token or OAuth client; the password lives in your system keychain
 - **Works without admin rights**: field schemas, groups and comments fall back to what a regular user can read
 - **One-command install** that registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and 8 more clients
@@ -82,6 +82,7 @@ wrong value comes back with the list of valid ones.
 | Comments | `update_issue_comment` |
 | VCS | `get_issue_vcs_changes`: commits and pull requests from GitHub, GitLab, Bitbucket, Gitea or TeamCity integrations |
 | Tags and saved searches | `find_tags`, `create_tag`, `update_tag`, `delete_tag`, `create_saved_search`, `update_saved_search`, `delete_saved_search` |
+| Escape hatch | `call_api`: any YouTrack or Hub REST endpoint as you, for whatever the other tools don't cover |
 
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
