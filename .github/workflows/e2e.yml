@@ -1,8 +1,7 @@
 name: E2E
 
+# Pushes to main run this through the Release workflow.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:

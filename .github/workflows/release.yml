@@ -1,29 +1,59 @@
 name: Release
 
+# Every push to main is checked by CI and E2E. When both pass and the
+# conventional commits since the last tag call for it (feat, fix, perf or a
+# breaking change), the next version is tagged and published. Nobody tags by
+# hand.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   e2e:
     uses: ./.github/workflows/e2e.yml
     secrets: inherit
 
   release:
-    needs: e2e
+    needs: [ci, e2e]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Next version
+        id: version
+        run: |
+          version=$(.github/scripts/next-version.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$version" ]; then
+            echo "Releasing $version" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: no feat, fix, perf or breaking commits since the last tag" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Tag
+        if: steps.version.outputs.version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.version }}" -m "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
       - uses: actions/setup-go@v7
+        if: steps.version.outputs.version != ''
         with:
           go-version-file: go.mod
-      - run: go test -count=1 ./...
       - uses: goreleaser/goreleaser-action@v7
+        if: steps.version.outputs.version != ''
         with:
           version: "~> v2"
           args: release --clean

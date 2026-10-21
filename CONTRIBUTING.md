@@ -66,13 +66,17 @@ Keep test data recognisable (e.g. a `[ymcp test]` prefix) and delete it afterwar
 
 ## Releasing
 
-Versions follow [SemVer](https://semver.org). To release, tag `main` and push the tag:
+Releases are automatic; nobody tags by hand. Every push to `main` runs the Release workflow: CI and the E2E suite
+first, then [`.github/scripts/next-version.sh`](.github/scripts/next-version.sh) picks the next
+[SemVer](https://semver.org) version from the commit messages since the last tag:
 
-```sh
-git tag -a v0.2.0 -m v0.2.0
-git push origin v0.2.0
-```
+| Commits | Release |
+|---|---|
+| `feat` | minor |
+| `fix`, `perf` | patch |
+| `type!:` or `BREAKING CHANGE` | major (minor while on 0.x) |
+| only `docs`, `test`, `ci`, `build`, `chore`, `refactor` | none |
 
-The Release workflow runs the tests and builds macOS, Linux and Windows binaries for amd64 and arm64 with
-GoReleaser. It then publishes them with checksums and a changelog. `install.sh`, `install.ps1` and `ymcp update`
+The workflow then tags the version and uses GoReleaser to build macOS, Linux and Windows binaries for amd64 and
+arm64. It publishes them with checksums and a changelog. `install.sh`, `install.ps1` and `ymcp update`
 pick up the new release automatically.

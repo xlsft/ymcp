@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/xlsft/ymcp/actions/workflows/ci.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/xlsft/ymcp/actions/workflows/release.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/release.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml/badge.svg" alt="E2E"></a>
   <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
