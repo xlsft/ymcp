@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in ymcp doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead. Include the tool call if it's about a tool.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error or output
+      description: Paste the error (`ymcp call <tool> '<json>'` reproduces tool calls outside the client). Remove anything private.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: ymcp version
+      placeholder: output of `ymcp version`
+    validations:
+      required: true
+  - type: input
+    id: youtrack
+    attributes:
+      label: YouTrack version
+      placeholder: e.g. 2026.1 (Help → About)
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and OS
+      placeholder: e.g. Claude Desktop on macOS 26

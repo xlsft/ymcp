@@ -1,0 +1,16 @@
+name: Feature request
+description: A tool or behaviour you'd like ymcp to have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you want to do
+      description: The task you'd ask the assistant to do in YouTrack, and what's missing today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed tool or change
+      description: Optional. Name, arguments, the YouTrack REST endpoint if you know it.
