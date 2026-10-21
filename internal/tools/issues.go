@@ -197,6 +197,10 @@ func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 	if err := t.yt.Get(ctx, issuePath(in.IssueID), url.Values{"fields": {issueFullFields}}, &is); err != nil {
 		return nil, err
 	}
+	if isDraft(in.IssueID) {
+		// Drafts have no readable ID yet; YouTrack reports a placeholder.
+		is.IDReadable = in.IssueID
+	}
 
 	recent := 5
 	if in.RecentCommentsCount != nil {

@@ -401,9 +401,9 @@ func TestLogWork(t *testing.T) {
 
 func TestDraftIssue(t *testing.T) {
 	api := newFakeAPI(t)
-	api.json("POST /api/admin/users/me/drafts", `{"id":"3-22"}`)
-	api.json("GET /api/admin/users/me/drafts/3-22", `{"project":{"id":"0-1","shortName":"DEMO"}}`)
-	api.json("POST /api/admin/users/me/drafts/3-22", `{"id":"3-22"}`)
+	api.json("POST /api/users/me/drafts", `{"id":"3-22"}`)
+	api.json("GET /api/users/me/drafts/3-22", `{"idReadable":"Issue.Draft","project":{"id":"0-1","shortName":"DEMO"}}`)
+	api.json("POST /api/users/me/drafts/3-22", `{"id":"3-22"}`)
 	cs := connect(t, api)
 
 	var draft struct{ DraftID, URL string }
@@ -413,15 +413,22 @@ func TestDraftIssue(t *testing.T) {
 	if draft.DraftID != "3-22" || !strings.HasSuffix(draft.URL, "/newIssue?draftId=3-22") {
 		t.Errorf("draft = %+v", draft)
 	}
-	if b := api.bodies("/api/admin/users/me/drafts"); len(b) != 1 || b[0]["summary"] != "idea" {
+	if b := api.bodies("/api/users/me/drafts"); len(b) != 1 || b[0]["summary"] != "idea" {
 		t.Errorf("create body = %v", b)
 	}
 
 	if isErr, text := call(t, cs, "update_issue", map[string]any{"issueId": "3-22", "description": "more", "customFields": map[string]any{"State": "Open"}}, nil); isErr {
 		t.Fatal(text)
 	}
-	if b := api.bodies("/api/admin/users/me/drafts/3-22"); len(b) != 1 || b[0]["description"] != "more" {
+	if b := api.bodies("/api/users/me/drafts/3-22"); len(b) != 1 || b[0]["description"] != "more" {
 		t.Errorf("update body = %v", b)
+	}
+	var got struct{ ID, URL string }
+	if isErr, text := call(t, cs, "get_issue", map[string]any{"issueId": "3-22"}, &got); isErr {
+		t.Fatal(text)
+	}
+	if got.ID != "3-22" || !strings.HasSuffix(got.URL, "/newIssue?draftId=3-22") {
+		t.Errorf("draft issue = %+v", got)
 	}
 	if isErr, _ := call(t, cs, "update_issue", map[string]any{"issueId": "3-22", "vote": true}, nil); !isErr {
 		t.Error("voting for a draft should fail")

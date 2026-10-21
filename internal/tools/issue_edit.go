@@ -145,7 +145,7 @@ func (t *toolset) createDraftIssue(ctx context.Context, in createDraftIssueIn) (
 		ID string `json:"id"`
 	}
 	body := map[string]any{"project": map[string]any{"id": p.ID}, "summary": in.Summary}
-	if err := t.yt.Post(ctx, "admin/users/me/drafts", url.Values{"fields": {"id"}}, body, &draft); err != nil {
+	if err := t.yt.Post(ctx, "users/me/drafts", url.Values{"fields": {"id"}}, body, &draft); err != nil {
 		return nil, err
 	}
 	return map[string]any{"draftId": draft.ID, "url": t.issueURL(draft.ID)}, nil
@@ -223,7 +223,7 @@ func isDraft(id string) bool { return dbID.MatchString(id) }
 // issuePath is the REST path of an issue or, for draft IDs, of the current user's draft.
 func issuePath(id string) string {
 	if isDraft(id) {
-		return "admin/users/me/drafts/" + url.PathEscape(id)
+		return "users/me/drafts/" + url.PathEscape(id)
 	}
 	return "issues/" + url.PathEscape(id)
 }
