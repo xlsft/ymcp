@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -44,7 +45,7 @@ func TestRegularUser(t *testing.T) {
 	if me.Login != login {
 		t.Fatalf("signed in as %q", me.Login)
 	}
-	joinTeam(t, f, hubUser.ID)
+	joinTeam(t, f, login)
 
 	// No issues yet: the schema can't be read without admin rights.
 	r := user.call(t, "get_issue_fields_schema", map[string]any{"projectKey": f.key})
@@ -113,22 +114,49 @@ func TestRegularUser(t *testing.T) {
 	}
 }
 
-// joinTeam adds a Hub user to the team of the fixture project's Hub
-// project; YouTrack's own project team API doesn't take new members.
-func joinTeam(t *testing.T, f *fixture, hubID string) {
+// joinTeam adds a user to the fixture project's team. Projects left Hub
+// in YouTrack 2026, so this goes through YouTrack's API; it tries the
+// group endpoint, then setting the team's users, and checks the result.
+func joinTeam(t *testing.T, f *fixture, login string) {
 	t.Helper()
-	var hub struct {
-		Projects []struct {
-			ID, Key, Name string
-			Team          struct{ ID string }
-		}
+	var ytUsers []struct{ ID, Login string }
+	api(t, "GET", "users", map[string]any{"fields": "id,login", "query": login}, nil, &ytUsers)
+	if len(ytUsers) != 1 {
+		t.Fatalf("YouTrack users for %s = %+v", login, ytUsers)
 	}
-	api(t, "GET", "projects", map[string]any{"fields": "id,key,name,team(id)", "$top": 1000}, nil, &hub, "hub")
-	for _, p := range hub.Projects {
-		if p.Key == f.key || p.Name == marker+" "+f.key {
-			api(t, "POST", "projectteams/"+p.Team.ID+"/users", nil, map[string]any{"id": hubID}, nil, "hub")
+	userID := ytUsers[0].ID
+	var team struct {
+		ID    string
+		Users []struct{ ID, Login string }
+	}
+	teamPath := "admin/projects/" + f.projectID + "/team"
+	readTeam := func() bool {
+		api(t, "GET", teamPath, map[string]any{"fields": "id,users(id,login)"}, nil, &team)
+		for _, u := range team.Users {
+			if u.ID == userID {
+				return true
+			}
+		}
+		return false
+	}
+	readTeam()
+
+	users := []any{map[string]any{"id": userID}}
+	for _, u := range team.Users {
+		users = append(users, map[string]any{"id": u.ID})
+	}
+	attempts := []map[string]any{
+		{"method": "POST", "path": "groups/" + team.ID + "/users", "query": map[string]any{"fields": "id"}, "body": map[string]any{"id": userID}},
+		{"method": "POST", "path": teamPath, "query": map[string]any{"fields": "id"}, "body": map[string]any{"users": users}},
+	}
+	var tried []string
+	for _, args := range attempts {
+		r := call(t, "call_api", args)
+		if !r.isError && readTeam() {
+			t.Logf("joined the team with %s %s", args["method"], args["path"])
 			return
 		}
+		tried = append(tried, fmt.Sprintf("%s %s: error=%v %s", args["method"], args["path"], r.isError, r.text))
 	}
-	t.Fatalf("no Hub project for %s among %+v", f.key, hub.Projects)
+	t.Fatalf("can't add %s to the %s team:\n%s", login, f.key, strings.Join(tried, "\n"))
 }
