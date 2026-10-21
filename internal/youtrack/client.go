@@ -105,7 +105,22 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	u := *c.baseURL
 	u.Path = u.Path + "/api/" + strings.TrimLeft(path, "/")
 	u.RawQuery = query.Encode()
+	return c.do(ctx, "", method, &u, body, out)
+}
 
+// HubGet performs a GET against the Hub REST API, <hub>/api/rest/<path>,
+// with a Hub-scoped token.
+func (c *Client) HubGet(ctx context.Context, path string, query url.Values, out any) error {
+	u, err := c.auth.HubURL(ctx)
+	if err != nil {
+		return err
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + "/api/rest/" + strings.TrimLeft(path, "/")
+	u.RawQuery = query.Encode()
+	return c.do(ctx, HubScope, http.MethodGet, u, nil, out)
+}
+
+func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body, out any) error {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -114,10 +129,10 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		}
 	}
 
-	resp, data, err := c.send(ctx, method, &u, payload)
+	resp, data, err := c.send(ctx, scope, method, u, payload)
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		// The token may have been revoked before its expiry; log in again once.
-		resp, data, err = c.send(ctx, method, &u, payload)
+		resp, data, err = c.send(ctx, scope, method, u, payload)
 	}
 	if err != nil {
 		return err
@@ -145,8 +160,8 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 }
 
 // send makes one authenticated attempt and returns the full response body.
-func (c *Client) send(ctx context.Context, method string, u *url.URL, payload []byte) (*http.Response, []byte, error) {
-	token, err := c.auth.Token(ctx)
+func (c *Client) send(ctx context.Context, scope, method string, u *url.URL, payload []byte) (*http.Response, []byte, error) {
+	token, err := c.auth.Token(ctx, scope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -174,7 +189,7 @@ func (c *Client) send(ctx context.Context, method string, u *url.URL, payload []
 		return nil, nil, fmt.Errorf("youtrack: read response: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		c.auth.Invalidate(token)
+		c.auth.Invalidate(scope, token)
 	}
 	return resp, data, nil
 }

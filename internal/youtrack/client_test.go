@@ -125,3 +125,32 @@ func TestDoRejectsNonJSON(t *testing.T) {
 		t.Fatal("expected error for HTML response")
 	}
 }
+
+func TestHubGetUsesHubScopedToken(t *testing.T) {
+	c, f := newTestClient(t, meHandler)
+	f.HubAPI = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/hub/api/rest/usergroups/g-1" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"name":"devs"}`))
+	})
+
+	if err := c.Get(context.Background(), "users/me", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var g struct{ Name string }
+	if err := c.HubGet(context.Background(), "usergroups/g-1", nil, &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Name != "devs" {
+		t.Errorf("group = %+v", g)
+	}
+	// Both scopes come from one login; each is cached and reused.
+	if err := c.HubGet(context.Background(), "usergroups/g-1", nil, &g); err != nil {
+		t.Fatal(err)
+	}
+	if logins, issued := f.Counts(); logins != 1 || issued != 2 {
+		t.Errorf("logins=%d issued=%d, want 1 login and one token per scope", logins, issued)
+	}
+}
