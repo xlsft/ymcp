@@ -151,18 +151,16 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString("\033[1;36mDEBUG" + ansiReset)
 	}
 	b.WriteString(" " + ansiBold + r.Message + ansiReset)
-	write := func(a slog.Attr) bool {
-		key := a.Key
-		if h.group != "" {
-			key = h.group + "." + key
-		}
-		b.WriteString(" " + ansiDim + key + "=" + ansiReset + fmt.Sprint(a.Value.Resolve().Any()))
-		return true
+	write := func(key string, v slog.Value) {
+		b.WriteString(" " + ansiDim + key + "=" + ansiReset + fmt.Sprint(v.Resolve().Any()))
 	}
 	for _, a := range h.attrs {
-		write(a)
+		write(a.Key, a.Value) // already qualified by WithAttrs
 	}
-	r.Attrs(write)
+	r.Attrs(func(a slog.Attr) bool {
+		write(h.qualify(a.Key), a.Value)
+		return true
+	})
 	b.WriteString("\n")
 	if h.mu == nil {
 		h.mu = &sync.Mutex{}
@@ -173,15 +171,26 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 	return err
 }
 
+// qualify prefixes key with the open groups, as slog's text handler does.
+func (h *prettyHandler) qualify(key string) string {
+	if h.group == "" {
+		return key
+	}
+	return h.group + "." + key
+}
+
 func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	c := *h
-	c.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
+	c.attrs = append([]slog.Attr{}, h.attrs...)
+	for _, a := range attrs {
+		c.attrs = append(c.attrs, slog.Attr{Key: h.qualify(a.Key), Value: a.Value})
+	}
 	return &c
 }
 
 func (h *prettyHandler) WithGroup(name string) slog.Handler {
 	c := *h
-	c.group = name
+	c.group = h.qualify(name)
 	return &c
 }
 
