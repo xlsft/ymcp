@@ -1096,3 +1096,45 @@ func TestCountIssuesWaitsForResult(t *testing.T) {
 		t.Errorf("body = %v", b[0])
 	}
 }
+
+func TestTimeReport(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/workItems", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("author") != "alice" || q.Get("startDate") != "2026-01-01" || q.Get("query") != "project: DEMO" {
+			t.Errorf("query = %v", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `[
+			{"id":"8-1","date":1767225600000,"duration":{"minutes":90},"type":{"name":"Testing"},"author":{"login":"alice"},"issue":{"idReadable":"DEMO-1","project":{"shortName":"DEMO"}}},
+			{"id":"8-2","date":1767312000000,"duration":{"minutes":30},"author":{"login":"alice"},"issue":{"idReadable":"DEMO-2","project":{"shortName":"DEMO"}}},
+			{"id":"8-3","date":1767312000000,"duration":{"minutes":60},"type":{"name":"Testing"},"author":{"login":"alice"},"issue":{"idReadable":"DEMO-1","project":{"shortName":"DEMO"}}}]`)
+	})
+	cs := connect(t, api)
+
+	var out struct {
+		Total  string
+		Groups []struct {
+			Key      string
+			Duration string
+			Items    int
+		}
+		Items []map[string]any
+	}
+	if isErr, text := call(t, cs, "get_time_report", map[string]any{
+		"query": "project: DEMO", "author": "me", "from": "2026-01-01", "groupBy": "workType", "includeItems": true, "itemsLimit": 1,
+	}, &out); isErr {
+		t.Fatal(text)
+	}
+	got, _ := json.Marshal(out.Groups)
+	if out.Total != "3h" || string(got) != `[{"Key":"Testing","Duration":"2h 30m","Items":2},{"Key":"(no type)","Duration":"30m","Items":1}]` || len(out.Items) != 1 {
+		t.Errorf("total=%s groups=%s items=%d", out.Total, got, len(out.Items))
+	}
+
+	if isErr, text := call(t, cs, "get_time_report", map[string]any{"groupBy": "day", "author": "alice", "from": "2026-01-01", "query": "project: DEMO"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if len(out.Groups) != 2 || out.Groups[0].Key != "2026-01-01" || out.Groups[1].Duration != "1h 30m" {
+		t.Errorf("by day = %+v", out.Groups)
+	}
+}
