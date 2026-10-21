@@ -72,8 +72,16 @@ func (t *toolset) listGroups(ctx context.Context) ([]apiGroup, error) {
 	if hubErr != nil {
 		return nil, fmt.Errorf("%w; Hub fallback: %v", err, hubErr)
 	}
+	if len(hubGroups) == 0 {
+		// YouTrack 2026 keeps groups out of Hub, so a member sees none.
+		return nil, errGroupsHidden
+	}
 	return hubGroups, nil
 }
+
+var errGroupsHidden = errors.New("this account can't list user groups: on this YouTrack only admins can " +
+	"(/api/groups needs admin rights and Hub shows it no groups). Ask an admin for the group's name or ID, " +
+	"or use users and project members instead")
 
 func (t *toolset) hubGroups(ctx context.Context) ([]apiGroup, error) {
 	var groups struct {

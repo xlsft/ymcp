@@ -5,6 +5,7 @@ package e2e
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -108,13 +109,21 @@ func TestRegularUser(t *testing.T) {
 		t.Errorf("member get_project has no custom fields")
 	}
 
-	var groups struct {
-		Groups []struct{ Name string }
+	// /api/groups is admin-only, and YouTrack 2026 shows members no groups
+	// in Hub either; the error has to say so instead of an empty list.
+	if r := user.call(t, "find_user_groups", map[string]any{"nameContains": "All Users"}); r.isError {
+		if !strings.Contains(r.text, "only admins can") {
+			t.Errorf("member groups error: %s", r.text)
+		}
+	} else {
+		var groups struct {
+			Groups []struct{ Name string }
+		}
+		json.Unmarshal([]byte(r.text), &groups)
+		if len(groups.Groups) == 0 {
+			t.Errorf("member got an empty group list instead of an explanation: %s", r.text)
+		}
 	}
-	// /api/groups is admin-only; Hub may show the member no groups at all,
-	// as on YouTrack 2026, but the call must not fail.
-	user.must(t, "find_user_groups", map[string]any{"nameContains": "All Users"}, &groups)
-	t.Logf("member sees %d groups named All Users", len(groups.Groups))
 
 	// Members can't erase comments; they are marked deleted and come back.
 	var c struct {

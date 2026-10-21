@@ -661,6 +661,30 @@ func TestGroupsFallBackToHubWhenForbidden(t *testing.T) {
 	}
 }
 
+func TestGroupsHiddenFromMembersSayWhy(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/groups", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":"Forbidden","error_description":"HTTP 403 Forbidden"}`)
+	})
+	hub := http.NewServeMux()
+	hub.HandleFunc("GET /hub/api/rest/usergroups", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"usergroups":[]}`)
+	})
+	cs := connectHub(t, api, hub)
+	for tool, args := range map[string]map[string]any{
+		"find_user_groups":       {"nameContains": "All"},
+		"get_user_group_members": {"group": "All Users"},
+	} {
+		isErr, text := call(t, cs, tool, args, nil)
+		if !isErr || !strings.Contains(text, "only admins can") {
+			t.Errorf("%s: isErr=%v %q", tool, isErr, text)
+		}
+	}
+}
+
 func TestFieldSchemaFromIssuesForNonAdmin(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/admin/projects/0-2/customFields", `[]`)
