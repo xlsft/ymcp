@@ -14,6 +14,7 @@ import (
 // Register adds every tool to s, backed by yt.
 func Register(s *mcp.Server, yt *youtrack.Client) {
 	t := &toolset{yt: yt}
+	t.registerIssues(s)
 	t.registerUsers(s)
 }
 
