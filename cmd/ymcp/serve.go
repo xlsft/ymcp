@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -17,15 +19,75 @@ import (
 )
 
 func newServer(yt *youtrack.Client, logger *slog.Logger) *mcp.Server {
+	// The SDK logs session plumbing at info; keep that for -v only.
+	sdkLogger := logger
+	if !logger.Enabled(context.Background(), slog.LevelDebug) {
+		sdkLogger = slog.New(atLeast{logger.Handler(), slog.LevelWarn})
+	}
 	s := mcp.NewServer(&mcp.Implementation{Name: "ymcp", Version: version}, &mcp.ServerOptions{
 		Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
-		Logger:       logger,
+		Logger:       sdkLogger,
 	})
 	tools.Register(s, yt)
+	s.AddReceivingMiddleware(logRequests(logger))
 	return s
 }
 
-func serve(ctx context.Context, args []string, logger *slog.Logger) error {
+// logRequests logs connecting clients and every tool call with its
+// arguments, duration and outcome; other methods are logged at debug level.
+func logRequests(logger *slog.Logger) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			start := time.Now()
+			res, err := next(ctx, method, req)
+			took := time.Since(start).Round(time.Millisecond)
+
+			switch p := req.GetParams().(type) {
+			case *mcp.InitializeParams:
+				client := "unknown"
+				if p.ClientInfo != nil {
+					client = strings.TrimSpace(p.ClientInfo.Name + " " + p.ClientInfo.Version)
+				}
+				logger.Info("client connected", "client", client, "protocol", p.ProtocolVersion)
+			case *mcp.CallToolParamsRaw:
+				args := shorten(string(p.Arguments), 300)
+				switch r, _ := res.(*mcp.CallToolResult); {
+				case err != nil:
+					logger.Error("tool failed", "tool", p.Name, "args", args, "took", took, "err", err)
+				case r != nil && r.IsError:
+					logger.Warn("tool returned an error", "tool", p.Name, "args", args, "took", took, "err", toolText(r))
+				default:
+					logger.Info("tool", "tool", p.Name, "args", args, "took", took)
+				}
+			default:
+				if err != nil {
+					logger.Warn("request failed", "method", method, "took", took, "err", err)
+				} else {
+					logger.Debug("request", "method", method, "took", took)
+				}
+			}
+			return res, err
+		}
+	}
+}
+
+func toolText(r *mcp.CallToolResult) string {
+	for _, c := range r.Content {
+		if t, ok := c.(*mcp.TextContent); ok {
+			return shorten(t.Text, 300)
+		}
+	}
+	return ""
+}
+
+func shorten(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
+}
+
+func serve(ctx context.Context, args []string, logger *slog.Logger, logPath string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	transport := fs.String("transport", "stdio", "MCP transport: stdio or http")
 	addr := fs.String("addr", "127.0.0.1:8090", "listen address for --transport=http")
@@ -34,8 +96,11 @@ func serve(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 	yt, err := client()
 	if err != nil {
+		logger.Error("can't start", "err", err)
 		return err
 	}
+	logger.Info("ymcp started", "version", version, "transport", *transport, "youtrack", yt.BaseURL(), "log", logPath)
+	defer logger.Info("ymcp stopped")
 
 	switch *transport {
 	case "stdio":
@@ -48,7 +113,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger) error {
 			<-ctx.Done()
 			httpSrv.Shutdown(context.Background())
 		}()
-		logger.Warn("listening", "addr", "http://"+*addr, "youtrack", yt.BaseURL())
+		logger.Info("listening", "addr", "http://"+*addr)
 		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}

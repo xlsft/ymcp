@@ -30,12 +30,13 @@ Commands:
   setup     Configure credentials and register ymcp in MCP clients
   check     Log in and print the current user
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
+  logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is
   update    Update ymcp to the latest release
   version   Print the version
 
 Global flags:
   --env FILE   Load YOUTRACK_* variables from a dotenv file
-  -v           Verbose logging (to stderr)
+  -v           Debug logging, including every YouTrack request (YMCP_LOG_LEVEL also works)
 `
 
 func main() {
@@ -62,13 +63,6 @@ func run(args []string) error {
 		}
 	}
 
-	// stdout belongs to the stdio transport, so logs go to stderr.
-	level := slog.LevelWarn
-	if *verbose {
-		level = slog.LevelInfo
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -76,12 +70,22 @@ func run(args []string) error {
 	if len(rest) > 0 {
 		cmd, rest = rest[0], rest[1:]
 	}
+
+	// The server logs what it does to stderr and the log file; interactive
+	// commands stay quiet so log lines don't break their forms.
+	serving := cmd == "serve" || cmd == "call"
+	level := logLevel(*verbose)
+	if !serving && !*verbose {
+		level = slog.LevelWarn
+	}
+	logger, logPath, closeLog := newLogger(level, serving)
+	defer closeLog()
 	if (cmd == "auth" || cmd == "setup" || cmd == "update") && interactive() {
 		drainTerminalReplies()
 	}
 	switch cmd {
 	case "serve":
-		return serve(ctx, rest, logger)
+		return serve(ctx, rest, logger, logPath)
 	case "auth":
 		return auth(ctx, rest)
 	case "setup":
@@ -92,6 +96,8 @@ func run(args []string) error {
 		return check(ctx)
 	case "call":
 		return call(ctx, rest, logger)
+	case "logs":
+		return logs(ctx, rest)
 	case "version", "--version":
 		fmt.Println("ymcp", version)
 		return nil
