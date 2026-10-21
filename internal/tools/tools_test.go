@@ -381,7 +381,7 @@ func TestLogWork(t *testing.T) {
 		t.Fatalf("POSTs = %d", len(bodies))
 	}
 	b := bodies[0]
-	want := time.Date(2026, 1, 1, 0, 0, 0, 0, time.Local).UnixMilli()
+	want := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
 	if b["date"] != float64(want) || b["text"] != "fix" {
 		t.Errorf("body = %v", b)
 	}

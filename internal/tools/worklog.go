@@ -195,11 +195,17 @@ func joinNames(items []namedRef) string {
 	return strings.Join(names, ", ")
 }
 
+// parseWorkDate reads a work item date. YouTrack keeps only the day, cut in
+// the user's time zone, so a bare date is placed at noon UTC to land on the
+// same day in any zone from UTC-11 to UTC+11.
 func parseWorkDate(s string) (time.Time, error) {
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return t, nil
 	}
-	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02 15:04", "2006-01-02"} {
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.Add(12 * time.Hour), nil
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02 15:04"} {
 		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 			return t, nil
 		}
