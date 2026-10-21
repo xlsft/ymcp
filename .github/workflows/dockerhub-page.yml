@@ -1,0 +1,32 @@
+name: Docker Hub page
+
+# Publishes docs/dockerhub.md as the image's description on Docker Hub,
+# whenever it changes on main or by hand:
+#
+#   gh workflow run dockerhub-page.yml
+#
+# Docker Hub only lets a token with the Read, Write, Delete scope edit the
+# description; the YOUTRACK_DOCKERHUB_TOKEN used for pushing may lack it.
+on:
+  push:
+    branches: [main]
+    paths: [docs/dockerhub.md, .github/workflows/dockerhub-page.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  page:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/ymcp', secrets.YOUTRACK_DOCKERHUB_LOGIN) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.YOUTRACK_DOCKERHUB_LOGIN }}
+          password: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: "YouTrack MCP server over Streamable HTTP: every profile on one port, behind a token"
+          readme-filepath: ./docs/dockerhub.md

@@ -85,18 +85,6 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
-      # The Docker Hub page comes from docs/dockerhub.md. Updating it needs a
-      # token with the read, write and delete scope; a narrower one only
-      # warns here.
-      - uses: peter-evans/dockerhub-description@v4
-        if: steps.creds.outputs.ok == 'true'
-        continue-on-error: true
-        with:
-          username: ${{ secrets.YOUTRACK_DOCKERHUB_LOGIN }}
-          password: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
-          repository: ${{ env.IMAGE }}
-          short-description: "YouTrack MCP server over Streamable HTTP: every profile on one port, behind a token"
-          readme-filepath: ./docs/dockerhub.md
       - name: Summary
         if: steps.creds.outputs.ok == 'true'
         run: echo "Pushed and signed $IMAGE:${VERSION#v}" >> "$GITHUB_STEP_SUMMARY"
