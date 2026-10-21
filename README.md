@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/xlsft/ymcp/actions/workflows/ci.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml/badge.svg" alt="E2E"></a>
   <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
@@ -167,9 +168,12 @@ go test -race ./...
 ./bin/ymcp --env .env call get_current_user
 ```
 
-Tests never touch the network. [`internal/youtrack/youtracktest`](internal/youtrack/youtracktest) emulates YouTrack
-and Hub, including the login form, the OAuth redirects and token revocation. The tool tests call every tool through an
-in-memory MCP client and assert on the REST requests it sends.
+Unit tests never touch the network. [`internal/youtrack/youtracktest`](internal/youtrack/youtracktest) emulates
+YouTrack and Hub, including the login form, the OAuth redirects and token revocation. The tool tests call tools through
+an in-memory MCP client and check the REST requests they send.
+
+E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack. They call all 56 tools on a
+throwaway project and delete everything they create. They run in CI on every push and nightly.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow.
 

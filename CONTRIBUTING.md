@@ -22,14 +22,38 @@ go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 go test -race ./...
 ```
 
+## E2E tests
+
+`e2e/` runs the real binary as an MCP server over stdio against a real YouTrack and calls every tool. The test
+account must be an admin there, because the suite creates its own project and agile board. The E2E workflow runs on
+pushes to `main`, on pull requests from this repository, nightly and on demand. It uses the
+`YOUTRACK_E2E_ENDPOINT`, `YOUTRACK_E2E_LOGIN` and `YOUTRACK_E2E_PASSWORD` repository secrets. To run it locally
+against an instance of your own:
+
+```sh
+YOUTRACK_E2E_ENDPOINT=youtrack.example.com YOUTRACK_E2E_LOGIN=admin YOUTRACK_E2E_PASSWORD=… \
+  go test -tags e2e -count=1 -v ./e2e
+```
+
+Without those variables the suite skips. Everything a test creates is named with the `ymcp-e2e` prefix and
+cleaned up:
+
+- `t.Cleanup` deletes each object, even when the test fails;
+- a sweep removes marked leftovers before and after the run;
+- the run fails if anything marked is still there at the end.
+
+Keep it that way when adding scenarios: create through the fixture project or with the marker in the name, and
+delete what you create.
+
 ## Adding a tool
 
 1. Put the handler in `internal/tools`, next to related tools, and register it in `Register` (`tools.go`).
    Input structs use `json`/`jsonschema` tags; fields without `omitempty` are required.
 2. Mark read-only tools with `readOnly(...)` and writes with `mutating(..., destructive)`.
-3. Test it end to end in `tools_test.go`. `connect` runs the tool through an in-memory MCP client against the fake
+3. Test it in `tools_test.go`. `connect` runs the tool through an in-memory MCP client against the fake
    YouTrack in `internal/youtrack/youtracktest`; assert on the REST requests it sends.
-4. Add it to the tool tables in the README.
+4. Add a scenario to `e2e/scenarios_test.go` that calls it on the live instance.
+5. Add it to the tool tables in the README.
 
 ### Trying changes on a live instance
 
