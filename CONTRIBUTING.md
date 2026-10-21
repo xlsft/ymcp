@@ -45,6 +45,11 @@ cleaned up:
 Keep it that way when adding scenarios: create through the fixture project or with the marker in the name, and
 delete what you create.
 
+One account is the exception: `ymcp-e2e-regular`, the member without admin rights that runs the non-admin scenarios.
+The license limits users and YouTrack keeps deleted ones, so it is created on the first run and kept. Its password
+derives from the admin's and must never reach a log, since CI logs of this repository are public; Hub can't reset it.
+Never create a user per run.
+
 ## Adding a tool
 
 1. Put the handler in `internal/tools`, next to related tools, and register it in `Register` (`tools.go`).
