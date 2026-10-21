@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/xlsft/youtrack-mcp/internal/youtrack/youtracktest"
 )
 
-func newTestClient(t *testing.T, api http.HandlerFunc) (*Client, *fakeYouTrack) {
+func newTestClient(t *testing.T, api http.HandlerFunc) (*Client, *youtracktest.Server) {
 	t.Helper()
-	f := newFakeYouTrack(t, api)
-	c, err := New(Options{BaseURL: f.URL + "/api/", Login: fakeLogin, Password: fakePassword, Proxy: "none"})
+	f := youtracktest.New(t, api)
+	c, err := New(Options{BaseURL: f.URL + "/api/", Login: youtracktest.Login, Password: youtracktest.Password, Proxy: "none"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,14 +52,14 @@ func TestDoLogsInAndDecodes(t *testing.T) {
 	if string(raw) != `{"login":"alice"}` {
 		t.Errorf("raw = %s", raw)
 	}
-	if logins, issued := f.counts(); logins != 1 || issued != 1 {
+	if logins, issued := f.Counts(); logins != 1 || issued != 1 {
 		t.Errorf("logins=%d issued=%d, want one of each (token reused)", logins, issued)
 	}
 }
 
 func TestBadCredentials(t *testing.T) {
-	f := newFakeYouTrack(t, meHandler)
-	c, err := New(Options{BaseURL: f.URL, Login: fakeLogin, Password: "wrong", Proxy: "none"})
+	f := youtracktest.New(t, http.HandlerFunc(meHandler))
+	c, err := New(Options{BaseURL: f.URL, Login: youtracktest.Login, Password: "wrong", Proxy: "none"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestExpiredTokenRefreshedFromSession(t *testing.T) {
 		}
 		now = now.Add(2 * time.Hour)
 	}
-	if logins, issued := f.counts(); logins != 1 || issued != 3 {
+	if logins, issued := f.Counts(); logins != 1 || issued != 3 {
 		t.Errorf("logins=%d issued=%d, want 1 login and a fresh token per call", logins, issued)
 	}
 }
@@ -88,11 +90,11 @@ func TestRevokedTokenRetried(t *testing.T) {
 	if err := c.Get(context.Background(), "users/me", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	f.revokeTokens()
+	f.RevokeTokens()
 	if err := c.Get(context.Background(), "users/me", nil, nil); err != nil {
 		t.Fatalf("after revoke: %v", err)
 	}
-	if _, issued := f.counts(); issued != 2 {
+	if _, issued := f.Counts(); issued != 2 {
 		t.Errorf("issued=%d, want 2", issued)
 	}
 }

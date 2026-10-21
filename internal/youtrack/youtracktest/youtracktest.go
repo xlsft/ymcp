@@ -1,4 +1,5 @@
-package youtrack
+// Package youtracktest provides a fake YouTrack + Hub server for tests.
+package youtracktest
 
 import (
 	"fmt"
@@ -11,16 +12,17 @@ import (
 )
 
 const (
-	fakeServiceID = "svc-1"
-	fakeLogin     = "alice"
-	fakePassword  = "s3cret"
+	ServiceID = "svc-1"
+	Login     = "alice"
+	Password  = "s3cret"
 )
 
-// fakeYouTrack emulates the parts of YouTrack and Hub the client relies on:
-// the public config, the interactive login form and the implicit OAuth flow.
-type fakeYouTrack struct {
+// Server emulates the parts of YouTrack and Hub the client relies on: the
+// public config, the interactive login form and the implicit OAuth flow.
+// Authenticated /api/ requests are passed to the API handler.
+type Server struct {
 	*httptest.Server
-	api http.HandlerFunc
+	api http.Handler
 
 	mu       sync.Mutex
 	sessions map[string]bool
@@ -29,13 +31,14 @@ type fakeYouTrack struct {
 	issued   int // access tokens
 }
 
-func newFakeYouTrack(t *testing.T, api http.HandlerFunc) *fakeYouTrack {
+// New starts a fake instance; it is closed when the test ends.
+func New(t testing.TB, api http.Handler) *Server {
 	t.Helper()
-	f := &fakeYouTrack{api: api, sessions: map[string]bool{}, tokens: map[string]bool{}}
+	f := &Server{api: api, sessions: map[string]bool{}, tokens: map[string]bool{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"ring":{"url":"/hub","serviceId":%q}}`, fakeServiceID)
+		fmt.Fprintf(w, `{"ring":{"url":"/hub","serviceId":%q}}`, ServiceID)
 	})
 	mux.HandleFunc("POST /hub/api/rest/oauth2/interactive/login", f.handleLogin)
 	mux.HandleFunc("GET /hub/api/rest/oauth2/auth", f.handleAuth)
@@ -46,17 +49,17 @@ func newFakeYouTrack(t *testing.T, api http.HandlerFunc) *fakeYouTrack {
 			w.Write([]byte(`{"error":"Unauthorized","error_description":"Invalid token"}`))
 			return
 		}
-		f.api(w, r)
+		f.api.ServeHTTP(w, r)
 	})
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Close)
 	return f
 }
 
-func (f *fakeYouTrack) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (f *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	q := r.URL.Query()
-	if r.PostForm.Get("username") != fakeLogin || r.PostForm.Get("password") != fakePassword {
+	if r.PostForm.Get("username") != Login || r.PostForm.Get("password") != Password {
 		http.Redirect(w, r, "/hub/auth/login?message=hub-auth-credentials-bad&developer_message=Bad+credentials", http.StatusSeeOther)
 		return
 	}
@@ -70,9 +73,9 @@ func (f *fakeYouTrack) handleLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/hub/api/rest/oauth2/auth?"+q.Encode(), http.StatusSeeOther)
 }
 
-func (f *fakeYouTrack) handleAuth(w http.ResponseWriter, r *http.Request) {
+func (f *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if q.Get("client_id") != fakeServiceID || q.Get("response_type") != "token" {
+	if q.Get("client_id") != ServiceID || q.Get("response_type") != "token" {
 		http.Error(w, "bad client", http.StatusBadRequest)
 		return
 	}
@@ -94,19 +97,21 @@ func (f *fakeYouTrack) handleAuth(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, q.Get("redirect_uri")+"#"+frag.Encode(), http.StatusFound)
 }
 
-func (f *fakeYouTrack) validToken(tok string) bool {
+func (f *Server) validToken(tok string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.tokens[tok]
 }
 
-func (f *fakeYouTrack) revokeTokens() {
+// RevokeTokens invalidates every issued access token, keeping sessions.
+func (f *Server) RevokeTokens() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tokens = map[string]bool{}
 }
 
-func (f *fakeYouTrack) counts() (logins, issued int) {
+// Counts reports how many password logins and access tokens happened.
+func (f *Server) Counts() (logins, issued int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.logins, f.issued
