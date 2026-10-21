@@ -181,7 +181,7 @@ func (t *toolset) updateIssue(ctx context.Context, in updateIssueIn) (any, error
 		}
 	}
 	if in.Subscription != nil {
-		if err := t.command(ctx, pick(*in.Subscription, "star", "unstar"), in.IssueID); err != nil {
+		if err := t.setStar(ctx, in.IssueID, *in.Subscription); err != nil {
 			return nil, err
 		}
 		changed = append(changed, pick(*in.Subscription, "starred", "unstarred"))

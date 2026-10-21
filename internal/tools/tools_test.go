@@ -250,7 +250,7 @@ func TestUpdateIssueStarsAndSetsFields(t *testing.T) {
 	api := newFakeAPI(t)
 	api.json("GET /api/issues/DEMO-7", `{"project":{"id":"0-1","shortName":"DEMO"}}`)
 	api.json("POST /api/issues/DEMO-7", `{"idReadable":"DEMO-7"}`)
-	api.json("POST /api/commands", `{}`)
+	api.json("POST /api/issues/DEMO-7/watchers/issueWatchers", `{"id":"1-1"}`)
 	cs := connect(t, api)
 
 	var out struct{ Changed []string }
@@ -262,8 +262,9 @@ func TestUpdateIssueStarsAndSetsFields(t *testing.T) {
 	if strings.Join(out.Changed, ",") != "summary,Priority,starred" {
 		t.Errorf("changed = %v", out.Changed)
 	}
-	if cmds := api.bodies("/api/commands"); len(cmds) != 1 || cmds[0]["query"] != "star" {
-		t.Errorf("commands = %v", cmds)
+	got, _ := json.Marshal(api.bodies("/api/issues/DEMO-7/watchers/issueWatchers"))
+	if string(got) != `[{"isStarred":true,"user":{"id":"1-1"}}]` {
+		t.Errorf("watcher bodies = %s", got)
 	}
 }
 
@@ -698,5 +699,43 @@ func TestSavedSearchesAreFavorites(t *testing.T) {
 	}
 	if out.Total != 2 || len(out.Searches) != 1 || out.Searches[0].Query != "commenter: me" {
 		t.Errorf("out = %+v", out)
+	}
+}
+
+func TestStarTagGoesThroughWatchers(t *testing.T) {
+	api := newFakeAPI(t)
+	var mu sync.Mutex
+	starred := false
+	api.handle("POST /api/issues/DEMO-7/watchers/issueWatchers", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		starred = !starred
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"1-1"}`)
+	})
+	api.handle("GET /api/issues/DEMO-7", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"tags": []apiTag{{Name: "backend"}}, "watchers": map[string]any{"hasStar": starred}})
+	})
+	cs := connect(t, api)
+
+	var out struct{ Tags []string }
+	if isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "star", "operation": "add"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if strings.Join(out.Tags, ",") != "Star,backend" {
+		t.Errorf("after star: %v", out.Tags)
+	}
+	if isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "Star", "operation": "remove"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if strings.Join(out.Tags, ",") != "backend" {
+		t.Errorf("after unstar: %v", out.Tags)
+	}
+	bodies := api.bodies("/api/issues/DEMO-7/watchers/issueWatchers")
+	if len(bodies) != 2 || bodies[0]["isStarred"] != true || bodies[1]["isStarred"] != false {
+		t.Errorf("watcher bodies = %v", bodies)
 	}
 }

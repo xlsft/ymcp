@@ -45,6 +45,20 @@ func (t *toolset) manageIssueTags(ctx context.Context, in manageIssueTagsIn) (an
 	if op != "add" && op != "remove" {
 		return nil, fmt.Errorf("operation must be add or remove, got %q", in.Operation)
 	}
+	me, err := t.currentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if star, err := t.isStarRef(ctx, in.Tag, me.Login); err != nil {
+		return nil, err
+	} else if star {
+		// The Star tag is the issue's watcher flag and isn't listed among its tags.
+		if err := t.setStar(ctx, in.IssueID, op == "add"); err != nil {
+			return nil, err
+		}
+		return t.tagsResult(ctx, in.IssueID)
+	}
+
 	issueTags, err := t.issueTags(ctx, in.IssueID)
 	if err != nil {
 		return nil, err
@@ -56,10 +70,6 @@ func (t *toolset) manageIssueTags(ctx context.Context, in manageIssueTagsIn) (an
 		if candidates, err = t.visibleTags(ctx); err != nil {
 			return nil, err
 		}
-	}
-	me, err := t.currentUser(ctx)
-	if err != nil {
-		return nil, err
 	}
 	tag, err := matchTag(candidates, in.Tag, me.Login)
 	if err != nil {
@@ -78,16 +88,62 @@ func (t *toolset) manageIssueTags(ctx context.Context, in manageIssueTagsIn) (an
 	if err != nil {
 		return nil, err
 	}
+	return t.tagsResult(ctx, in.IssueID)
+}
 
-	after, err := t.issueTags(ctx, in.IssueID)
-	if err != nil {
+// tagsResult lists the issue's tags, with Star when the current user starred it.
+func (t *toolset) tagsResult(ctx context.Context, issueID string) (any, error) {
+	var is struct {
+		Tags     []apiTag `json:"tags"`
+		Watchers struct {
+			HasStar bool `json:"hasStar"`
+		} `json:"watchers"`
+	}
+	q := url.Values{"fields": {"tags(name),watchers(hasStar)"}}
+	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), q, &is); err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(after))
-	for _, tg := range after {
+	names := make([]string, 0, len(is.Tags)+1)
+	if is.Watchers.HasStar {
+		names = append(names, "Star")
+	}
+	for _, tg := range is.Tags {
 		names = append(names, tg.Name)
 	}
-	return map[string]any{"issueId": in.IssueID, "tags": names}, nil
+	return map[string]any{"issueId": issueID, "tags": names}, nil
+}
+
+// isStarRef reports whether ref names the current user's Star tag.
+func (t *toolset) isStarRef(ctx context.Context, ref, me string) (bool, error) {
+	ref = strings.TrimSpace(ref)
+	if strings.EqualFold(ref, "Star") {
+		return true, nil
+	}
+	if !dbID.MatchString(ref) {
+		return false, nil
+	}
+	tags, err := t.visibleTags(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, tg := range tags {
+		if tg.ID == ref {
+			return tg.Name == "Star" && tg.ownedBy(me), nil
+		}
+	}
+	return false, nil
+}
+
+// setStar stars or unstars an issue for the current user. Adding the Star
+// tag stars an issue, but it can't be removed through the tags API, so both
+// directions go through the issue watchers.
+func (t *toolset) setStar(ctx context.Context, issueID string, starred bool) error {
+	me, err := t.currentUser(ctx)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"user": map[string]any{"id": me.ID}, "isStarred": starred}
+	return t.yt.Post(ctx, "issues/"+url.PathEscape(issueID)+"/watchers/issueWatchers", url.Values{"fields": {"id"}}, body, nil)
 }
 
 func (t *toolset) issueTags(ctx context.Context, issueID string) ([]apiTag, error) {
