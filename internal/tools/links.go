@@ -19,14 +19,27 @@ type apiLinkType struct {
 }
 
 type apiLink struct {
+	ID        string      `json:"id"`
 	Direction string      `json:"direction"`
 	LinkType  apiLinkType `json:"linkType"`
 	Issues    []struct {
+		ID         string `json:"id"`
 		IDReadable string `json:"idReadable"`
 	} `json:"issues"`
 }
 
-const linkFields = "direction,linkType(name,sourceToTarget,targetToSource,directed),issues(idReadable)"
+const linkFields = "id,direction,linkType(name,sourceToTarget,targetToSource,directed),issues(id,idReadable)"
+
+// name is the link phrase as read from the issue that owns the link.
+func (l apiLink) name() string {
+	if l.Direction == "INWARD" && l.LinkType.TargetToSource != "" {
+		return l.LinkType.TargetToSource
+	}
+	if l.LinkType.SourceToTarget != "" {
+		return l.LinkType.SourceToTarget
+	}
+	return l.LinkType.Name
+}
 
 // linkMap groups linked issue IDs by the link name as seen from the issue,
 // e.g. {"subtask of": ["DEMO-1"], "relates to": ["DEMO-5"]}.
@@ -36,13 +49,7 @@ func linkMap(links []apiLink) map[string][]string {
 		if len(l.Issues) == 0 {
 			continue
 		}
-		name := l.LinkType.SourceToTarget
-		if l.Direction == "INWARD" && l.LinkType.TargetToSource != "" {
-			name = l.LinkType.TargetToSource
-		}
-		if name == "" {
-			name = l.LinkType.Name
-		}
+		name := l.name()
 		for _, li := range l.Issues {
 			out[name] = append(out[name], li.IDReadable)
 		}
@@ -63,30 +70,80 @@ func (t *toolset) registerLinks(s *mcp.Server) {
 			"makes DEMO-1 a subtask of DEMO-2. Returns the number of linked issues per link type of the target.",
 		Annotations: mutating("Link issues", false),
 	}, t.linkIssues)
+
+	add(s, &mcp.Tool{
+		Name: "unlink_issues",
+		Description: "Removes a link between two issues; arguments mirror link_issues. " +
+			"{\"targetIssueId\":\"DEMO-1\",\"linkType\":\"subtask of\",\"issueToLinkId\":\"DEMO-2\"} makes DEMO-1 no longer a subtask of DEMO-2.",
+		Annotations: mutating("Unlink issues", true),
+	}, t.unlinkIssues)
 }
 
 func (t *toolset) linkIssues(ctx context.Context, in linkIssuesIn) (any, error) {
-	var types []apiLinkType
-	if err := t.yt.Get(ctx, "issueLinkTypes", url.Values{"fields": {"name,sourceToTarget,targetToSource,directed"}}, &types); err != nil {
-		return nil, err
-	}
-	phrase, err := linkPhrase(types, in.LinkType)
+	phrase, err := t.resolveLinkPhrase(ctx, in.LinkType)
 	if err != nil {
 		return nil, err
 	}
 	if err := t.command(ctx, phrase+" "+in.IssueToLinkID, in.TargetIssueID); err != nil {
 		return nil, err
 	}
-
-	var links []apiLink
-	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(in.TargetIssueID)+"/links", url.Values{"fields": {linkFields}}, &links); err != nil {
+	links, err := t.issueLinks(ctx, in.TargetIssueID)
+	if err != nil {
 		return nil, err
 	}
+	return map[string]any{"issueId": in.TargetIssueID, "linked": phrase + " " + in.IssueToLinkID, "linkedIssueCounts": linkCounts(links)}, nil
+}
+
+func (t *toolset) unlinkIssues(ctx context.Context, in linkIssuesIn) (any, error) {
+	phrase, err := t.resolveLinkPhrase(ctx, in.LinkType)
+	if err != nil {
+		return nil, err
+	}
+	links, err := t.issueLinks(ctx, in.TargetIssueID)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range links {
+		if l.name() != phrase {
+			continue
+		}
+		for _, li := range l.Issues {
+			if !strings.EqualFold(li.IDReadable, in.IssueToLinkID) {
+				continue
+			}
+			path := "issues/" + url.PathEscape(in.TargetIssueID) + "/links/" + url.PathEscape(l.ID) + "/issues/" + url.PathEscape(li.ID)
+			if err := t.yt.Delete(ctx, path, nil); err != nil {
+				return nil, err
+			}
+			if links, err = t.issueLinks(ctx, in.TargetIssueID); err != nil {
+				return nil, err
+			}
+			return map[string]any{"issueId": in.TargetIssueID, "unlinked": phrase + " " + li.IDReadable, "linkedIssueCounts": linkCounts(links)}, nil
+		}
+	}
+	return nil, fmt.Errorf("%s has no link %q to %s; its links: %v", in.TargetIssueID, phrase, in.IssueToLinkID, linkMap(links))
+}
+
+func (t *toolset) resolveLinkPhrase(ctx context.Context, input string) (string, error) {
+	var types []apiLinkType
+	if err := t.yt.Get(ctx, "issueLinkTypes", url.Values{"fields": {"name,sourceToTarget,targetToSource,directed"}}, &types); err != nil {
+		return "", err
+	}
+	return linkPhrase(types, input)
+}
+
+func (t *toolset) issueLinks(ctx context.Context, issueID string) ([]apiLink, error) {
+	var links []apiLink
+	err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID)+"/links", url.Values{"fields": {linkFields}}, &links)
+	return links, err
+}
+
+func linkCounts(links []apiLink) map[string]int {
 	counts := map[string]int{}
 	for name, ids := range linkMap(links) {
 		counts[name] = len(ids)
 	}
-	return map[string]any{"issueId": in.TargetIssueID, "linked": phrase + " " + in.IssueToLinkID, "linkedIssueCounts": counts}, nil
+	return counts
 }
 
 // linkPhrase resolves user input to the command phrase of a link direction.

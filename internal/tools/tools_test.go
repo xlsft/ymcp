@@ -863,3 +863,42 @@ func TestWorkItemsListAndDelete(t *testing.T) {
 		t.Error("work item was not deleted")
 	}
 }
+
+func TestUnlinkIssues(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issueLinkTypes", `[{"name":"Depend","sourceToTarget":"is required for","targetToSource":"depends on","directed":true}]`)
+	var mu sync.Mutex
+	linked := true
+	api.handle("GET /api/issues/DEMO-1/links", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		issues := `[]`
+		if linked {
+			issues = `[{"id":"3-2","idReadable":"DEMO-2"}]`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"id":"163-1s","direction":"OUTWARD","linkType":{"name":"Depend","sourceToTarget":"is required for","targetToSource":"depends on"},"issues":[]},
+			{"id":"163-1t","direction":"INWARD","linkType":{"name":"Depend","sourceToTarget":"is required for","targetToSource":"depends on"},"issues":%s}]`, issues)
+	})
+	api.handle("DELETE /api/issues/DEMO-1/links/163-1t/issues/3-2", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		linked = false
+		mu.Unlock()
+	})
+	cs := connect(t, api)
+
+	var out struct {
+		Unlinked          string
+		LinkedIssueCounts map[string]int
+	}
+	if isErr, text := call(t, cs, "unlink_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "depends on", "issueToLinkId": "demo-2"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if out.Unlinked != "depends on DEMO-2" || len(out.LinkedIssueCounts) != 0 {
+		t.Errorf("out = %+v", out)
+	}
+	isErr, text := call(t, cs, "unlink_issues", map[string]any{"targetIssueId": "DEMO-1", "linkType": "depends on", "issueToLinkId": "DEMO-2"}, nil)
+	if !isErr || !strings.Contains(text, `has no link "depends on" to DEMO-2`) {
+		t.Errorf("second unlink: isErr=%v %q", isErr, text)
+	}
+}
