@@ -193,36 +193,29 @@ func TestOpencodeCommandIsArray(t *testing.T) {
 func TestPathsPerOS(t *testing.T) {
 	for _, c := range []struct {
 		goos, client, want string
-		env                map[string]string
+		env                map[string]string // values are relative to the fake home
 	}{
 		{"linux", "claude-desktop", ".config/Claude/claude_desktop_config.json", nil},
-		{"linux", "zed", "xdg/zed/settings.json", map[string]string{"XDG_CONFIG_HOME": "XDG"}},
+		{"linux", "zed", "xdg/zed/settings.json", map[string]string{"XDG_CONFIG_HOME": "xdg"}},
 		{"windows", "claude-desktop", "Roaming/Claude/claude_desktop_config.json", map[string]string{"APPDATA": "Roaming"}},
 		{"windows", "zed", "Roaming/Zed/settings.json", map[string]string{"APPDATA": "Roaming"}},
 		{"windows", "devin", "Roaming/devin/mcp_config.json", map[string]string{"APPDATA": "Roaming"}},
-		{"darwin", "cline", "custom/cline.json", map[string]string{"CLINE_MCP_SETTINGS_PATH": "CUSTOM"}},
+		{"darwin", "cline", "custom/cline.json", map[string]string{"CLINE_MCP_SETTINGS_PATH": "custom/cline.json"}},
 	} {
 		e := newEnv(t)
 		e.OS = c.goos
 		root := e.Home
 		e.Getenv = func(k string) string {
 			if v, ok := c.env[k]; ok {
-				return filepath.Join(root, strings.ToLower(v))
+				return filepath.Join(root, filepath.FromSlash(v))
 			}
 			return ""
-		}
-		if c.client == "cline" {
-			e.Getenv = func(k string) string {
-				if k == "CLINE_MCP_SETTINGS_PATH" {
-					return filepath.Join(root, "custom", "cline.json")
-				}
-				return ""
-			}
 		}
 		if err := byID(t, c.client).Install(e.Env, "/opt/ymcp"); err != nil {
 			t.Fatalf("%s/%s: %v", c.goos, c.client, err)
 		}
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(strings.ToLower(c.want)))); err != nil {
+		// Exact case matters: Linux file systems are case-sensitive.
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(c.want))); err != nil {
 			t.Errorf("%s/%s: expected %s: %v", c.goos, c.client, c.want, err)
 		}
 	}
