@@ -15,6 +15,7 @@ import (
 func Register(s *mcp.Server, yt *youtrack.Client) {
 	t := &toolset{yt: yt}
 	t.registerIssues(s)
+	t.registerIssueEdit(s)
 	t.registerUsers(s)
 }
 
