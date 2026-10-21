@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -167,5 +169,44 @@ func TestErrorWithoutCode(t *testing.T) {
 	err := c.Post(context.Background(), "issues/X-1", nil, map[string]any{}, nil)
 	if want := "youtrack: POST /api/issues/X-1: 400: Value is not allowed"; err == nil || err.Error() != want {
 		t.Errorf("err = %v, want %q", err, want)
+	}
+}
+
+func TestDownloadAndUpload(t *testing.T) {
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/files/12-1":
+			if r.URL.Query().Get("sign") != "abc" {
+				t.Errorf("sign = %q", r.URL.Query().Get("sign"))
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("hello"))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/issues/X-1/attachments":
+			f, h, err := r.FormFile("file")
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(f)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `[{"name":%q,"size":%d}]`, h.Filename, len(body))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+
+	data, ct, err := c.Download(context.Background(), "/api/files/12-1?sign=abc")
+	if err != nil || string(data) != "hello" || ct != "text/plain" {
+		t.Errorf("download = %q %q %v", data, ct, err)
+	}
+
+	var out []struct {
+		Name string
+		Size int
+	}
+	if err := c.Upload(context.Background(), "issues/X-1/attachments", nil, []File{{Name: "a.txt", Content: []byte("12345")}}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].Name != "a.txt" || out[0].Size != 5 {
+		t.Errorf("upload = %+v", out)
 	}
 }

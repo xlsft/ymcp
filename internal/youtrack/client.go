@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -125,31 +126,94 @@ func (c *Client) HubGet(ctx context.Context, path string, query url.Values, out 
 	return c.do(ctx, HubScope, http.MethodGet, u, nil, out)
 }
 
+// Download fetches a file YouTrack links to, such as an attachment URL
+// ("/api/files/..."), and returns its bytes and content type.
+func (c *Client) Download(ctx context.Context, fileURL string) ([]byte, string, error) {
+	u, err := url.Parse(c.BaseURL() + fileURL)
+	if err != nil {
+		return nil, "", fmt.Errorf("youtrack: bad file URL: %w", err)
+	}
+	resp, data, err := c.exchange(ctx, "", http.MethodGet, u, "", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, resp.Header.Get("Content-Type"), nil
+}
+
+// File is one part of a multipart upload.
+type File struct {
+	Name    string
+	Content []byte
+}
+
+// Upload posts files as multipart/form-data to /api/<path>, decoding the
+// JSON response into out.
+func (c *Client) Upload(ctx context.Context, path string, query url.Values, files []File, out any) error {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, f := range files {
+		w, err := mw.CreateFormFile("file", f.Name)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(f.Content); err != nil {
+			return err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	u := *c.baseURL
+	u.Path = u.Path + "/api/" + strings.TrimLeft(path, "/")
+	u.RawQuery = query.Encode()
+	resp, data, err := c.exchange(ctx, "", http.MethodPost, &u, mw.FormDataContentType(), buf.Bytes())
+	if err != nil {
+		return err
+	}
+	return decode(resp, data, u.Host, out)
+}
+
 func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body, out any) error {
 	var payload []byte
+	contentType := ""
 	if body != nil {
 		var err error
 		if payload, err = json.Marshal(body); err != nil {
 			return fmt.Errorf("youtrack: encode body: %w", err)
 		}
+		contentType = "application/json"
 	}
-
-	resp, data, err := c.send(ctx, scope, method, u, payload)
-	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-		// The token may have been revoked before its expiry; log in again once.
-		resp, data, err = c.send(ctx, scope, method, u, payload)
-	}
+	resp, data, err := c.exchange(ctx, scope, method, u, contentType, payload)
 	if err != nil {
 		return err
+	}
+	return decode(resp, data, u.Host, out)
+}
+
+// exchange sends a request, logs in again once on 401, and turns non-2xx
+// answers into *Error.
+func (c *Client) exchange(ctx context.Context, scope, method string, u *url.URL, contentType string, payload []byte) (*http.Response, []byte, error) {
+	resp, data, err := c.send(ctx, scope, method, u, contentType, payload)
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		// The token may have been revoked before its expiry; log in again once.
+		resp, data, err = c.send(ctx, scope, method, u, contentType, payload)
+	}
+	if err != nil {
+		return nil, nil, err
 	}
 	if resp.StatusCode/100 != 2 {
 		e := &Error{Method: method, Path: u.Path, Status: resp.StatusCode, Body: string(data)}
 		_ = json.Unmarshal(data, e)
-		return e
+		return nil, nil, e
 	}
+	return resp, data, nil
+}
+
+// decode reads a JSON answer into out.
+func decode(resp *http.Response, data []byte, host string, out any) error {
 	if ct := resp.Header.Get("Content-Type"); len(data) > 0 && !strings.Contains(ct, "json") {
 		// A proxy or captive portal answered instead of YouTrack.
-		return fmt.Errorf("youtrack: unexpected %q response from %s (check URL, VPN and proxy settings)", ct, u.Host)
+		return fmt.Errorf("youtrack: unexpected %q response from %s (check URL, VPN and proxy settings)", ct, host)
 	}
 	if out == nil || len(data) == 0 {
 		return nil
@@ -165,7 +229,7 @@ func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body,
 }
 
 // send makes one authenticated attempt and returns the full response body.
-func (c *Client) send(ctx context.Context, scope, method string, u *url.URL, payload []byte) (*http.Response, []byte, error) {
+func (c *Client) send(ctx context.Context, scope, method string, u *url.URL, contentType string, payload []byte) (*http.Response, []byte, error) {
 	token, err := c.auth.Token(ctx, scope)
 	if err != nil {
 		return nil, nil, err
@@ -180,8 +244,8 @@ func (c *Client) send(ctx context.Context, scope, method string, u *url.URL, pay
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	resp, err := c.http.Do(req)
