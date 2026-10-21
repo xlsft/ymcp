@@ -3,33 +3,69 @@
 package e2e
 
 import (
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
+// memberLogin is the one regular account the suite uses. The license limits
+// the number of users and YouTrack keeps deleted ones, so it is created on
+// the first run and kept; the sweep leaves it alone. Its password derives
+// from the admin's, so it needs no secret of its own.
+const memberLogin = marker + "-member"
+
+func memberPassword() string {
+	sum := sha256.Sum256([]byte("ymcp-e2e member\x00" + os.Getenv("YOUTRACK_E2E_PASSWORD")))
+	return "Ym-" + hex.EncodeToString(sum[:12]) + "-Pw!"
+}
+
+// ensureMember creates the member account if it is missing, unbans it and
+// resets its password, and returns its Hub ID.
+func ensureMember(t *testing.T) string {
+	t.Helper()
+	var found struct {
+		Users []struct {
+			ID      string
+			Banned  bool
+			Details []struct{ ID, Type string }
+		}
+	}
+	api(t, "GET", "users", map[string]any{"fields": "id,banned,details(id,type)", "query": "login: " + memberLogin}, nil, &found, "hub")
+	password := map[string]any{"type": "PlainpasswordJSON", "value": memberPassword()}
+	if len(found.Users) == 0 {
+		var created struct{ ID string }
+		api(t, "POST", "users", map[string]any{"fields": "id"}, map[string]any{
+			"login": memberLogin, "name": memberLogin,
+			"details": []any{map[string]any{"type": "LoginuserdetailsJSON", "login": memberLogin, "password": password}},
+		}, &created, "hub")
+		t.Logf("created the member account %s", memberLogin)
+		return created.ID
+	}
+	u := found.Users[0]
+	if u.Banned {
+		api(t, "POST", "users/"+u.ID, map[string]any{"fields": "id"}, map[string]any{"banned": false}, nil, "hub")
+		t.Logf("unbanned %s", memberLogin)
+	}
+	for _, d := range u.Details {
+		if d.Type == "LoginuserdetailsJSON" {
+			api(t, "POST", "users/"+u.ID+"/details/"+d.ID, map[string]any{"fields": "id"}, map[string]any{"type": d.Type, "password": password}, nil, "hub")
+		}
+	}
+	return u.ID
+}
+
 // TestRegularUser runs ymcp as a project member without admin rights, where
 // ymcp has to work around the admin-only parts of the API: the field schema
 // comes from issues, groups from Hub, and comments are marked deleted.
 func TestRegularUser(t *testing.T) {
-	login := marker + "-user-" + runID
-	password := "Ymcp-e2e-" + runID + "-Pa55word!"
-	var hubUser struct{ ID string }
-	api(t, "POST", "users", map[string]any{"fields": "id,login"}, map[string]any{
-		"login": login, "name": login,
-		"details": []any{map[string]any{"type": "LoginuserdetailsJSON", "login": login,
-			"password": map[string]any{"type": "PlainpasswordJSON", "value": password}}},
-	}, &hubUser, "hub")
-	t.Cleanup(func() {
-		if r := call(t, "call_api", map[string]any{"api": "hub", "method": "DELETE", "path": "users/" + hubUser.ID}); r.isError {
-			t.Errorf("cleanup: deleting user %s: %s", login, r.text)
-		}
-	})
+	login := memberLogin
+	hubID := ensureMember(t)
 
-	// Created after the user, so the project goes first on cleanup.
 	f := newFixture(t)
-	user, err := startServer("user", login, password)
+	user, err := startServer("user", login, memberPassword())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +82,7 @@ func TestRegularUser(t *testing.T) {
 	if me.Login != login {
 		t.Fatalf("signed in as %q", me.Login)
 	}
-	grantAccess(t, user, f, hubUser.ID)
+	grantAccess(t, user, f, hubID)
 
 	// No issues yet: the schema can't be read without admin rights.
 	r := user.call(t, "get_issue_fields_schema", map[string]any{"projectKey": f.key})
@@ -121,11 +157,29 @@ func TestRegularUser(t *testing.T) {
 	}
 }
 
-// grantAccess gives a Hub user a Developer-like role in Hub's Global
-// project, which covers the fixture project. YouTrack 2026 keeps projects
-// out of Hub, and its project team API doesn't take new members.
+// grantAccess makes sure the member can work in the fixture project. It
+// gets a Developer-like role in Hub's Global project once, which covers
+// every project; YouTrack 2026 keeps projects out of Hub, and its project
+// team API doesn't take new members. The role takes a moment to apply.
 func grantAccess(t *testing.T, user *server, f *fixture, hubID string) {
 	t.Helper()
+	canSee := func(tries int) string {
+		var last string
+		for i := range tries {
+			if i > 0 {
+				time.Sleep(time.Second)
+			}
+			r := user.call(t, "get_project", map[string]any{"projectKey": f.key})
+			if !r.isError {
+				return ""
+			}
+			last = r.text
+		}
+		return last
+	}
+	if canSee(3) == "" {
+		return
+	}
 	var roles struct {
 		Roles []struct{ ID, Key string }
 	}
@@ -141,35 +195,17 @@ func grantAccess(t *testing.T, user *server, f *fixture, hubID string) {
 	if roleID == "" {
 		t.Fatalf("no developer or contributor role among %+v", roles.Roles)
 	}
-	role := map[string]any{"role": map[string]any{"id": roleID}, "project": map[string]any{"id": "0"}}
-	attempts := []map[string]any{
-		{"api": "hub", "method": "POST", "path": "users/" + hubID + "/projectroles", "query": map[string]any{"fields": "id"}, "body": role},
-		{"api": "hub", "method": "POST", "path": "projectroles", "query": map[string]any{"fields": "id"},
-			"body": map[string]any{"role": role["role"], "project": role["project"], "owner": map[string]any{"id": hubID}}},
+	r := call(t, "call_api", map[string]any{"api": "hub", "method": "POST", "path": "users/" + hubID + "/projectroles",
+		"query": map[string]any{"fields": "id"}, "body": map[string]any{"role": map[string]any{"id": roleID}, "project": map[string]any{"id": "0"}}})
+	t.Logf("granted the member role: error=%v %s", r.isError, shortText(r.text))
+	if last := canSee(15); last != "" {
+		t.Fatalf("the member still can't see %s: %s", f.key, last)
 	}
-	var tried []string
-	for _, args := range attempts {
-		r := call(t, "call_api", args)
-		if !r.isError {
-			// Permissions can take a moment to reach YouTrack.
-			var last string
-			for range 15 {
-				p := user.call(t, "get_project", map[string]any{"projectKey": f.key})
-				if !p.isError {
-					t.Logf("access granted with POST %s", args["path"])
-					return
-				}
-				last = p.text
-				time.Sleep(time.Second)
-			}
-			tried = append(tried, fmt.Sprintf("POST %s: ok, but get_project: %s", args["path"], last))
-			continue
-		}
-		tried = append(tried, fmt.Sprintf("POST %s: %s", args["path"], r.text))
+}
+
+func shortText(s string) string {
+	if len(s) > 200 {
+		return s[:200] + "…"
 	}
-	for _, fields := range []string{"$type,id,name,users(login)", "ownUsers(login)", "subgroups(name)", "parent(name)"} {
-		r := call(t, "call_api", map[string]any{"method": "GET", "path": "admin/projects/" + f.projectID + "/team", "query": map[string]any{"fields": fields}})
-		tried = append(tried, fmt.Sprintf("team %s: error=%v %s", fields, r.isError, r.text))
-	}
-	t.Fatalf("can't give %s access to %s:\n%s", hubID, f.key, strings.Join(tried, "\n"))
+	return s
 }

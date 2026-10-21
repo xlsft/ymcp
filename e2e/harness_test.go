@@ -78,6 +78,7 @@ func TestMain(m *testing.M) {
 	}
 
 	sweep()
+	sweepUsers()
 	code := m.Run()
 	sweep()
 	if left := leftovers(); len(left) > 0 {
@@ -236,7 +237,7 @@ func marked() map[string][]string {
 	}
 	json.Unmarshal([]byte(r.text), &hub)
 	for _, u := range hub.Users {
-		if strings.HasPrefix(u.Login, marker) {
+		if strings.HasPrefix(u.Login, marker) && u.Login != memberLogin {
 			found["hub:users"] = append(found["hub:users"], u.ID+" "+u.Login)
 		}
 	}
@@ -270,6 +271,23 @@ func sweep() {
 			r := call(t, "call_api", args)
 			fmt.Printf("e2e: sweep %s %q: error=%v\n", path, name, r.isError)
 		}
+	}
+}
+
+// sweepUsers deletes YouTrack accounts of earlier runs, which made a user
+// per run: deleting them in Hub left them in YouTrack, taking up seats of
+// the license. Best effort, and not part of the leftovers check.
+func sweepUsers() {
+	t := &sweepT{}
+	var users []struct{ ID, Login string }
+	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login", "query": marker + "-user-", "$top": -1}})
+	json.Unmarshal([]byte(r.text), &users)
+	for _, u := range users {
+		if !strings.HasPrefix(u.Login, marker+"-user-") {
+			continue
+		}
+		d := call(t, "call_api", map[string]any{"method": "DELETE", "path": "users/" + u.ID})
+		fmt.Printf("e2e: sweep YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
 	}
 }
 

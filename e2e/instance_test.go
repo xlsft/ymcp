@@ -31,4 +31,12 @@ func TestInstance(t *testing.T) {
 
 	r := call(t, "call_api", map[string]any{"method": "GET", "path": "groups", "query": map[string]any{"fields": "name", "$top": 5}})
 	t.Logf("can read /api/groups: %v", !r.isError)
+
+	// The license limits users, so record how many there are.
+	var users []struct {
+		Login  string
+		Banned bool
+	}
+	api(t, "GET", "users", map[string]any{"fields": "login,banned", "$top": -1}, nil, &users)
+	t.Logf("users: %d %+v", len(users), users)
 }
