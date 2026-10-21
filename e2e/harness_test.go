@@ -69,11 +69,13 @@ func TestMain(m *testing.M) {
 		"YMCP_CONFIG="+filepath.Join(dir, "config.json"),
 		"YMCP_LOG_FILE="+logFile,
 	)
+	cmd.Stderr = os.Stderr // the server's own log, visible in test output
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{Name: "ymcp-e2e", Version: runID}, nil)
 	session, err = client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
 	if err != nil {
 		fmt.Println("e2e: connect:", err)
+		dumpLog()
 		os.Exit(1)
 	}
 
