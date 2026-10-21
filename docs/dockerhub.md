@@ -50,6 +50,8 @@ For a single instance without a volume, pass the connection instead:
 Arguments after the image name replace the default command, `serve --transport http --addr 0.0.0.0:8090`, e.g.
 `xlsoftware/ymcp serve --transport http --addr 0.0.0.0:8090 --profiles youtrack,youtrack-beget`.
 
+The image has a `HEALTHCHECK` on `GET /healthz`, which answers without the token.
+
 There is no keychain in a container, so passwords are kept in the `/config` volume's config file (mode 0600);
 treat the volume as a secret.
 

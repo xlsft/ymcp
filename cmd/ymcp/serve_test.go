@@ -110,6 +110,17 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 			t.Errorf("%s: %+v %v", name, res, err)
 		}
 	}
+	// /healthz needs no token, and ymcp health reads it.
+	if resp, err := http.Get(ts.URL + "/healthz"); err != nil || resp.StatusCode != http.StatusOK {
+		t.Errorf("/healthz: %v %v", resp, err)
+	}
+	if out, err := captureStdout(t, func() error { return health(context.Background(), []string{"--url", ts.URL}) }); err != nil || !strings.Contains(out, `"status":"ok"`) {
+		t.Errorf("ymcp health = %q, %v", out, err)
+	}
+	if err := health(context.Background(), []string{"--url", "http://127.0.0.1:1"}); err == nil || !strings.Contains(err.Error(), "unhealthy") {
+		t.Errorf("ymcp health on a closed port = %v", err)
+	}
+
 	// Two profiles and no default: / lists what is served.
 	resp, err := authed.Get(ts.URL + "/")
 	if err != nil || resp.StatusCode != http.StatusNotFound {

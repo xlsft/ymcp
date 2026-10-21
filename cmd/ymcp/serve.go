@@ -287,10 +287,19 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such profile; served: /"+strings.Join(served, ", /"), http.StatusNotFound)
 	})
-	if token == "" {
-		return mux, served, nil
+	var handler http.Handler = mux
+	if token != "" {
+		handler = requireToken(token, mux, logger)
 	}
-	return requireToken(token, mux, logger), served, nil
+	// /healthz answers without the token, for Docker and monitoring; it
+	// tells only that the server runs and its version.
+	outer := http.NewServeMux()
+	outer.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","version":%q}`+"\n", version)
+	})
+	outer.Handle("/", handler)
+	return outer, served, nil
 }
 
 // toolSelection picks the tools to serve: spec (from --tools or

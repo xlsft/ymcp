@@ -22,5 +22,6 @@ ENV YMCP_CONFIG=/config/config.json \
     YMCP_INSTALL=docker
 VOLUME /config
 EXPOSE 8090
+HEALTHCHECK --interval=30s --timeout=6s --start-period=5s CMD ["ymcp", "health"]
 ENTRYPOINT ["ymcp"]
 CMD ["serve", "--transport", "http", "--addr", "0.0.0.0:8090"]

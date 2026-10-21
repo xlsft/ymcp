@@ -81,6 +81,7 @@ cosign verify xlsoftware/ymcp:latest \
 | `ymcp auth` | Set or replace the URL, login and password of a profile. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
+| `ymcp health` | Check that a running HTTP server answers (`--url`, default `http://127.0.0.1:8090`) |
 | `ymcp logs` | Show what the server did; `-f` follows the log live, `-n 200` shows more lines |
 | `ymcp update` | Replace the binary with the latest release (`--check` only reports) |
 | `ymcp version` | Print the version |
@@ -187,6 +188,9 @@ YMCP_HTTP_TOKEN=$(openssl rand -hex 32) ymcp serve --transport http --addr 127.0
 The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-beget`. The default profile
 is also served at `/`. `--profiles a,b` serves only those, and `--profile a` serves just one. A profile that can't sign
 in is skipped with a warning.
+
+`GET /healthz` answers `{"status":"ok","version":"…"}` without the token, for load balancers and monitoring, and
+`ymcp health` checks it from the command line. The Docker image uses it as its `HEALTHCHECK`.
 
 With `--token` or `YMCP_HTTP_TOKEN`, every request must carry `Authorization: Bearer <token>`; set that header in
 the client's entry for the URL. Without a token the server is open to anyone who can reach it, so keep it on

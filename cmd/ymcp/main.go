@@ -35,6 +35,7 @@ Commands:
   check     Log in and print the current user
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
   logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is
+  health    Check that a running HTTP server answers; --url, default http://127.0.0.1:8090
   update    Update ymcp to the latest release
   version   Print the version
 
@@ -106,6 +107,8 @@ func run(args []string) error {
 		return call(ctx, rest, logger)
 	case "logs":
 		return logs(ctx, rest)
+	case "health":
+		return health(ctx, rest)
 	case "version", "--version":
 		fmt.Println("ymcp", version)
 		return nil
