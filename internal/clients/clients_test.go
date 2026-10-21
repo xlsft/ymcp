@@ -237,6 +237,8 @@ func TestPathsPerOS(t *testing.T) {
 		{"windows", "zed", "Roaming/Zed/settings.json", map[string]string{"APPDATA": "Roaming"}},
 		{"windows", "devin", "Roaming/devin/mcp_config.json", map[string]string{"APPDATA": "Roaming"}},
 		{"darwin", "cline", "custom/cline.json", map[string]string{"CLINE_MCP_SETTINGS_PATH": "custom/cline.json"}},
+		{"linux", "kimi", ".kimi-code/mcp.json", nil},
+		{"windows", "kimi", "kimi-home/mcp.json", map[string]string{"KIMI_CODE_HOME": "kimi-home"}},
 	} {
 		e := newEnv(t)
 		e.OS = c.goos
@@ -265,8 +267,8 @@ func TestSystemEnv(t *testing.T) {
 	if err := e.Run("false"); err == nil {
 		t.Error("failing command reported success")
 	}
-	if len(All()) != 14 {
-		t.Errorf("clients = %d, want 14", len(All()))
+	if len(All()) != 15 {
+		t.Errorf("clients = %d, want 15", len(All()))
 	}
 }
 
@@ -303,5 +305,24 @@ func TestClaudeDesktopQuitsAndReopens(t *testing.T) {
 	}
 	if byID(t, "cursor").App() != "" || byID(t, "cursor").Running(e.Env) {
 		t.Error("Cursor has no app to close")
+	}
+}
+
+func TestKimiKeepsOtherServers(t *testing.T) {
+	e := newEnv(t)
+	path := filepath.Join(e.Home, ".kimi-code", "mcp.json")
+	write(t, path, `{"mcpServers": {"nuxt": {"url": "https://nuxt.com/mcp"}}}`)
+	c := byID(t, "kimi")
+	if !c.Detected(e.Env) || c.Installed(e.Env, "youtrack") {
+		t.Fatal("Kimi should be detected and not installed")
+	}
+	if err := c.Install(e.Env, srv); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, path)
+	for _, want := range []string{`"nuxt"`, `"youtrack": {`, `"command": "/opt/ymcp"`, `"--profile"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
 	}
 }

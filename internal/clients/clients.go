@@ -1,5 +1,5 @@
 // Package clients registers ymcp as a stdio MCP server in MCP clients
-// (Claude, Cursor, VS Code, Zed, Codex, Gemini and others).
+// (Claude, Cursor, VS Code, Zed, Codex, Gemini, Kimi and others).
 package clients
 
 import (
@@ -246,7 +246,19 @@ func All() []Client {
 			func(s Server) any {
 				return map[string]any{"type": "local", "command": append([]string{s.Command}, s.Args...), "enabled": true}
 			}),
+		jsonClient("kimi", "Kimi Code", "start a new Kimi session to load the server",
+			func(e Env) string { return filepath.Join(kimiHome(e), "mcp.json") },
+			func(e Env) bool { return e.onPath("kimi") || e.exists(kimiHome(e)) },
+			[]string{"mcpServers"}, stdioEntry),
 	}
+}
+
+// kimiHome is Kimi Code's directory, ~/.kimi-code or $KIMI_CODE_HOME.
+func kimiHome(e Env) string {
+	if h := e.Getenv("KIMI_CODE_HOME"); h != "" {
+		return h
+	}
+	return filepath.Join(e.Home, ".kimi-code")
 }
 
 // claudeDesktop writes its config back from memory, e.g. when a session

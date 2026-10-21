@@ -150,7 +150,7 @@ To log at debug level from a client, add `"env": {"YMCP_LOG_LEVEL": "debug"}` to
 ### Supported clients
 
 Claude Code · Claude Desktop · Cursor · VS Code (Copilot) · Windsurf · Devin Desktop · Zed · Codex · Gemini CLI ·
-Antigravity · JetBrains Junie · Cline · LM Studio · opencode
+Antigravity · JetBrains Junie · Cline · LM Studio · opencode · Kimi Code
 
 Claude Desktop writes its config back from memory while it runs, which drops edits made meanwhile, so `ymcp setup`
 offers to quit it during the change and reopens it afterwards.
