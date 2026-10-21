@@ -326,3 +326,63 @@ func TestKimiKeepsOtherServers(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONCEntriesAreIndentedLikeTheirSiblings(t *testing.T) {
+	e := newEnv(t)
+	path := filepath.Join(e.Home, ".config", "zed", "settings.json")
+	write(t, path, `// Zed settings
+{
+    "theme": "One Dark", // keep me
+    "context_servers": {
+        "other": {
+            "url": "https://example.com/mcp"
+        },
+    }
+}
+`)
+	zed := byID(t, "zed")
+	beget := Server{Name: "youtrack-beget", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-beget"}}
+	for _, s := range []Server{srv, beget, srv} {
+		if err := zed.Install(e.Env, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := `// Zed settings
+{
+    "theme": "One Dark", // keep me
+    "context_servers": {
+        "other": {
+            "url": "https://example.com/mcp"
+        },
+        "youtrack": {
+            "args": [
+                "--profile",
+                "youtrack"
+            ],
+            "command": "/opt/ymcp"
+        },
+        "youtrack-beget": {
+            "args": [
+                "--profile",
+                "youtrack-beget"
+            ],
+            "command": "/opt/ymcp"
+        }
+    }
+}
+`
+	if got := read(t, path); got != want {
+		t.Errorf("settings.json:\n%s", got)
+	}
+
+	// A section the patch has to create is laid out too.
+	path = filepath.Join(e.Home, ".config", "zed", "settings.json")
+	write(t, path, "// fresh\n{\n  \"theme\": \"x\",\n}\n")
+	if err := zed.Install(e.Env, srv); err != nil {
+		t.Fatal(err)
+	}
+	want = "// fresh\n{\n  \"theme\": \"x\",\n  \"context_servers\": {\n    \"youtrack\": {\n      \"args\": [\n        \"--profile\",\n        \"youtrack\"\n      ],\n      \"command\": \"/opt/ymcp\"\n    }\n  }\n}\n"
+	if got := read(t, path); got != want {
+		t.Errorf("new section:\n%s", got)
+	}
+}

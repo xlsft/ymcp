@@ -76,13 +76,24 @@ func setJSONEntry(path string, keyPath []string, name string, entry any) error {
 		return err
 	}
 	original := string(v.Pack())
+	keys := append(append([]string{}, keyPath...), name)
+	var isNew []bool
+	for i := range keys {
+		isNew = append(isNew, v.Find(pointer(keys[:i+1]...)) == nil)
+	}
 	if err := v.Patch(patch); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	out := v.Pack()
 	// Plain JSON (no comments or trailing commas) is re-indented with two
-	// spaces, keeping key order; JSONC is left as patched so hand-written
-	// formatting and comments survive.
+	// spaces, keeping key order. JSONC keeps its hand-written formatting
+	// and comments; only what the patch added, which it puts on one line,
+	// is laid out like its siblings.
+	if entry != nil && !isPlainJSON(original) {
+		if err := layout(&v, keys, isNew, entry); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	out := v.Pack()
 	if isPlainJSON(original) {
 		var buf bytes.Buffer
 		if err := json.Indent(&buf, out, "", "  "); err == nil {
@@ -90,6 +101,69 @@ func setJSONEntry(path string, keyPath []string, name string, entry any) error {
 		}
 	}
 	return writeFile(path, out, existed)
+}
+
+// layout indents the members at keys that the patch added (isNew), and
+// the entry's value at the end of keys, like the members around them.
+func layout(root *hujson.Value, keys []string, isNew []bool, entry any) error {
+	unit := "  "
+	if obj, ok := root.Value.(*hujson.Object); ok {
+		for _, m := range obj.Members {
+			if ind, ok := indentOf(m.Name.BeforeExtra); ok && ind != "" {
+				unit = ind
+				break
+			}
+		}
+	}
+	cur, indent := root, ""
+	for depth, key := range keys {
+		obj, ok := cur.Value.(*hujson.Object)
+		if !ok {
+			return nil
+		}
+		idx, child := -1, indent+unit
+		for i, m := range obj.Members {
+			if lit, ok := m.Name.Value.(hujson.Literal); ok && lit.String() == key {
+				idx = i
+			} else if ind, ok := indentOf(m.Name.BeforeExtra); ok {
+				child = ind
+			}
+		}
+		if idx < 0 {
+			return nil
+		}
+		m := &obj.Members[idx]
+		if isNew[depth] {
+			m.Name.BeforeExtra = hujson.Extra("\n" + child)
+			m.Value.BeforeExtra = hujson.Extra(" ")
+			if idx == len(obj.Members)-1 && !strings.Contains(string(obj.AfterExtra), "\n") {
+				obj.AfterExtra = hujson.Extra("\n" + indent)
+			}
+		}
+		if depth == len(keys)-1 {
+			data, err := json.MarshalIndent(entry, child, unit)
+			if err != nil {
+				return err
+			}
+			val, err := hujson.Parse(data)
+			if err != nil {
+				return err
+			}
+			m.Value.Value = val.Value
+		}
+		cur, indent = &m.Value, child
+	}
+	return nil
+}
+
+// indentOf is the indentation on the last line of extra, if it ends a line.
+func indentOf(extra hujson.Extra) (string, bool) {
+	s := string(extra)
+	i := strings.LastIndex(s, "\n")
+	if i < 0 || strings.TrimLeft(s[i+1:], " \t") != "" {
+		return "", false
+	}
+	return s[i+1:], true
 }
 
 func isPlainJSON(s string) bool {
