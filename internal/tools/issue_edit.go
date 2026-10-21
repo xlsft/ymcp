@@ -102,11 +102,7 @@ func (t *toolset) createIssue(ctx context.Context, in createIssueIn) (any, error
 		body["description"] = in.Description
 	}
 	if len(in.CustomFields) > 0 {
-		schema, err := t.projectFields(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		fields, err := buildCustomFields(schema, in.CustomFields)
+		fields, err := t.customFieldsFor(ctx, p, in.CustomFields)
 		if err != nil {
 			return nil, err
 		}
@@ -243,11 +239,7 @@ func (t *toolset) issueCustomFields(ctx context.Context, issueID string, values 
 	if err != nil {
 		return nil, err
 	}
-	schema, err := t.projectFields(ctx, project)
-	if err != nil {
-		return nil, err
-	}
-	return buildCustomFields(schema, values)
+	return t.customFieldsFor(ctx, project, values)
 }
 
 // command applies a YouTrack command (as typed in the UI) to issues.

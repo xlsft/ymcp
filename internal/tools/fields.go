@@ -115,13 +115,76 @@ func (f projectField) issueFieldType() string {
 	return "Single" + base + "IssueCustomField"
 }
 
-// projectFields returns the custom fields of a project keyed by name.
+// fieldsTTL is how long a project's field schema is reused. Bulk edits
+// then cost one schema request instead of one per call.
+const fieldsTTL = 5 * time.Minute
+
+type cachedFields struct {
+	fields map[string]projectField
+	at     time.Time
+}
+
+// projectFields returns the custom fields of a project keyed by name,
+// from the cache when they were read in the last fieldsTTL.
+func (t *toolset) projectFields(ctx context.Context, project apiProjectRef) (map[string]projectField, error) {
+	fields, _, err := t.cachedProjectFields(ctx, project)
+	return fields, err
+}
+
+// cachedProjectFields is projectFields, also telling whether the fields
+// came from the cache.
+func (t *toolset) cachedProjectFields(ctx context.Context, project apiProjectRef) (map[string]projectField, bool, error) {
+	t.fieldsMu.Lock()
+	c, ok := t.fields[project.ID]
+	t.fieldsMu.Unlock()
+	if ok && t.clock().Sub(c.at) < fieldsTTL {
+		return c.fields, true, nil
+	}
+	fields, err := t.loadProjectFields(ctx, project)
+	if err != nil {
+		return nil, false, err
+	}
+	t.fieldsMu.Lock()
+	if t.fields == nil {
+		t.fields = map[string]cachedFields{}
+	}
+	t.fields[project.ID] = cachedFields{fields: fields, at: t.clock()}
+	t.fieldsMu.Unlock()
+	return fields, false, nil
+}
+
+func (t *toolset) forgetProjectFields(projectID string) {
+	t.fieldsMu.Lock()
+	delete(t.fields, projectID)
+	t.fieldsMu.Unlock()
+}
+
+// customFieldsFor builds the REST payload for values against the project's
+// schema. When a cached schema rejects them, a field or value may have
+// been added since, so it checks again against a fresh one.
+func (t *toolset) customFieldsFor(ctx context.Context, project apiProjectRef, values map[string]any) ([]map[string]any, error) {
+	schema, cached, err := t.cachedProjectFields(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := buildCustomFields(schema, values)
+	if err == nil || !cached {
+		return fields, err
+	}
+	t.forgetProjectFields(project.ID)
+	if schema, _, err = t.cachedProjectFields(ctx, project); err != nil {
+		return nil, err
+	}
+	return buildCustomFields(schema, values)
+}
+
+// loadProjectFields reads the custom fields of a project keyed by name.
 //
 // The project settings endpoint answers an empty list to users without
 // admin rights on the project, so the schema is then collected from the
 // projectCustomField of recent issues. Several issues are merged because
 // conditional fields only show up on issues they apply to.
-func (t *toolset) projectFields(ctx context.Context, project apiProjectRef) (map[string]projectField, error) {
+func (t *toolset) loadProjectFields(ctx context.Context, project apiProjectRef) (map[string]projectField, error) {
 	var fields []projectField
 	q := url.Values{"fields": {projectFieldFields}, "$top": {"-1"}}
 	if err := t.yt.Get(ctx, "admin/projects/"+url.PathEscape(project.ID)+"/customFields", q, &fields); err != nil && !isForbidden(err) {

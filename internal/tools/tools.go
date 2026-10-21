@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,6 +59,17 @@ type toolset struct {
 
 	meMu sync.Mutex
 	me   *apiUser
+
+	fieldsMu sync.Mutex
+	fields   map[string]cachedFields // project ID → field schema
+	now      func() time.Time        // for tests; nil means time.Now
+}
+
+func (t *toolset) clock() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
 }
 
 // currentUser returns the authenticated user, cached after the first call.

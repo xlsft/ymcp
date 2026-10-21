@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1585,5 +1586,48 @@ func TestArticleAttachments(t *testing.T) {
 	}
 	if isErr, text := call(t, cs, "add_attachment", map[string]any{"articleId": "HELP-A-1", "filePaths": paths, "fileName": "x.png"}, nil); !isErr || !strings.Contains(text, "single file") {
 		t.Errorf("fileName with many files: isErr=%v %q", isErr, text)
+	}
+}
+
+func TestFieldSchemaIsCachedAndRefreshedForNewValues(t *testing.T) {
+	api := newFakeAPI(t)
+	var schemaReads atomic.Int32
+	priorities := `[{"name":"Minor"}]`
+	var mu sync.Mutex
+	api.handle("GET /api/admin/projects/0-2/customFields", func(w http.ResponseWriter, r *http.Request) {
+		schemaReads.Add(1)
+		mu.Lock()
+		values := priorities
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"$type":"EnumProjectCustomField","canBeEmpty":true,"field":{"name":"Priority","fieldType":{"id":"enum[1]","isMultiValue":false,"valueType":"enum"}},"bundle":{"values":%s}}]`, values)
+	})
+	api.json("POST /api/issues", `{"idReadable":"OPS-9"}`)
+	cs := connect(t, api)
+
+	create := func(priority string) (bool, string) {
+		return call(t, cs, "create_issue", map[string]any{"project": "OPS", "summary": "x", "customFields": map[string]any{"Priority": priority}}, nil)
+	}
+	for range 3 {
+		if isErr, text := create("Minor"); isErr {
+			t.Fatal(text)
+		}
+	}
+	if n := schemaReads.Load(); n != 1 {
+		t.Errorf("schema read %d times for three issues, want 1", n)
+	}
+
+	// An admin adds a value: the cached schema rejects it, so it is read again.
+	mu.Lock()
+	priorities = `[{"name":"Minor"},{"name":"Urgent"}]`
+	mu.Unlock()
+	if isErr, text := create("Urgent"); isErr {
+		t.Fatalf("new value after the schema changed: %s", text)
+	}
+	if n := schemaReads.Load(); n != 2 {
+		t.Errorf("schema read %d times, want 2", n)
+	}
+	if isErr, text := create("Nope"); !isErr || !strings.Contains(text, "allowed: Minor, Urgent") {
+		t.Errorf("bad value: isErr=%v %s", isErr, text)
 	}
 }
