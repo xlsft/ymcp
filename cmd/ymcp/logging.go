@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
-	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/term"
 )
 
@@ -66,11 +66,7 @@ func logLevel(verbose bool) slog.Level {
 func newLogger(level slog.Level, withFile bool) (*slog.Logger, string, func()) {
 	var stderr slog.Handler
 	if term.IsTerminal(int(os.Stderr.Fd())) {
-		stderr = charmlog.NewWithOptions(os.Stderr, charmlog.Options{
-			Level:           charmlog.Level(level),
-			ReportTimestamp: true,
-			TimeFormat:      time.TimeOnly,
-		})
+		stderr = &prettyHandler{w: os.Stderr, level: level}
 	} else {
 		stderr = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
 	}
@@ -119,6 +115,74 @@ func (h atLeast) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h atLeast) WithGroup(name string) slog.Handler {
 	return atLeast{h.Handler.WithGroup(name), h.min}
+}
+
+// prettyHandler writes compact coloured lines for a terminal:
+// "15:04:05 INFO  tool  tool=search_issues took=120ms". Colours are fixed
+// ANSI codes, so nothing queries the terminal (its replies could otherwise
+// end up in stdin).
+type prettyHandler struct {
+	w     io.Writer
+	level slog.Level
+	attrs []slog.Attr
+	group string
+	mu    *sync.Mutex
+}
+
+const (
+	ansiReset = "\033[0m"
+	ansiDim   = "\033[2m"
+	ansiBold  = "\033[1m"
+)
+
+func (h *prettyHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= h.level }
+
+func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
+	var b strings.Builder
+	b.WriteString(ansiDim + r.Time.Format(time.TimeOnly) + ansiReset + " ")
+	switch {
+	case r.Level >= slog.LevelError:
+		b.WriteString("\033[1;31mERROR" + ansiReset)
+	case r.Level >= slog.LevelWarn:
+		b.WriteString("\033[1;33mWARN " + ansiReset)
+	case r.Level >= slog.LevelInfo:
+		b.WriteString("\033[1;32mINFO " + ansiReset)
+	default:
+		b.WriteString("\033[1;36mDEBUG" + ansiReset)
+	}
+	b.WriteString(" " + ansiBold + r.Message + ansiReset)
+	write := func(a slog.Attr) bool {
+		key := a.Key
+		if h.group != "" {
+			key = h.group + "." + key
+		}
+		b.WriteString(" " + ansiDim + key + "=" + ansiReset + fmt.Sprint(a.Value.Resolve().Any()))
+		return true
+	}
+	for _, a := range h.attrs {
+		write(a)
+	}
+	r.Attrs(write)
+	b.WriteString("\n")
+	if h.mu == nil {
+		h.mu = &sync.Mutex{}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, err := io.WriteString(h.w, b.String())
+	return err
+}
+
+func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	c := *h
+	c.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
+	return &c
+}
+
+func (h *prettyHandler) WithGroup(name string) slog.Handler {
+	c := *h
+	c.group = name
+	return &c
 }
 
 // fanout sends every record to all handlers.

@@ -80,7 +80,9 @@ func run(args []string) error {
 	}
 	logger, logPath, closeLog := newLogger(level, serving)
 	defer closeLog()
-	if (cmd == "auth" || cmd == "setup" || cmd == "update") && interactive() {
+	// Late replies to the terminal queries made at startup would otherwise
+	// end up in a form, in the MCP stream or at the shell prompt.
+	if interactive() {
 		drainTerminalReplies()
 	}
 	switch cmd {
