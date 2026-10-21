@@ -97,15 +97,49 @@ func (f projectField) issueFieldType() string {
 }
 
 // projectFields returns the custom fields of a project keyed by name.
-func (t *toolset) projectFields(ctx context.Context, projectID string) (map[string]projectField, error) {
+//
+// The project settings endpoint answers an empty list to users without
+// admin rights on the project, so the schema is then collected from the
+// projectCustomField of recent issues. Several issues are merged because
+// conditional fields only show up on issues they apply to.
+func (t *toolset) projectFields(ctx context.Context, project apiProjectRef) (map[string]projectField, error) {
 	var fields []projectField
 	q := url.Values{"fields": {projectFieldFields}, "$top": {"-1"}}
-	if err := t.yt.Get(ctx, "admin/projects/"+url.PathEscape(projectID)+"/customFields", q, &fields); err != nil {
+	if err := t.yt.Get(ctx, "admin/projects/"+url.PathEscape(project.ID)+"/customFields", q, &fields); err != nil && !isForbidden(err) {
 		return nil, err
 	}
 	out := make(map[string]projectField, len(fields))
 	for _, f := range fields {
 		out[f.Field.Name] = f
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+
+	var issues []struct {
+		CustomFields []struct {
+			ProjectCustomField *projectField `json:"projectCustomField"`
+		} `json:"customFields"`
+	}
+	q = url.Values{
+		"query":  {"project: {" + project.ShortName + "} sort by: updated desc"},
+		"fields": {"customFields(projectCustomField(" + projectFieldFields + "))"},
+		"$top":   {"20"},
+	}
+	if err := t.yt.Get(ctx, "issues", q, &issues); err != nil {
+		return nil, err
+	}
+	for _, is := range issues {
+		for _, cf := range is.CustomFields {
+			if f := cf.ProjectCustomField; f != nil && f.Field.Name != "" {
+				if _, seen := out[f.Field.Name]; !seen {
+					out[f.Field.Name] = *f
+				}
+			}
+		}
+	}
+	if len(out) == 0 && len(issues) == 0 {
+		return nil, fmt.Errorf("cannot read custom fields of %s: the project has no issues and this account can't read project settings", project.ShortName)
 	}
 	return out, nil
 }

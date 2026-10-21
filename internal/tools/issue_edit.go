@@ -82,7 +82,7 @@ func (t *toolset) getIssueFieldsSchema(ctx context.Context, in getIssueFieldsSch
 	if err != nil {
 		return nil, err
 	}
-	schema, err := t.projectFields(ctx, p.ID)
+	schema, err := t.projectFields(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (t *toolset) createIssue(ctx context.Context, in createIssueIn) (any, error
 		body["description"] = in.Description
 	}
 	if len(in.CustomFields) > 0 {
-		schema, err := t.projectFields(ctx, p.ID)
+		schema, err := t.projectFields(ctx, p)
 		if err != nil {
 			return nil, err
 		}
@@ -243,7 +243,7 @@ func (t *toolset) issueCustomFields(ctx context.Context, issueID string, values 
 	if err != nil {
 		return nil, err
 	}
-	schema, err := t.projectFields(ctx, project.ID)
+	schema, err := t.projectFields(ctx, project)
 	if err != nil {
 		return nil, err
 	}

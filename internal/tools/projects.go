@@ -102,9 +102,15 @@ func (t *toolset) getProject(ctx context.Context, in getProjectIn) (any, error) 
 	if err := t.yt.Get(ctx, "admin/projects/"+url.PathEscape(ref.ID), url.Values{"fields": {projectFields}}, &p); err != nil {
 		return nil, err
 	}
-	fieldNames := make([]string, 0, len(p.CustomFields))
+	names := make([]string, 0, len(p.CustomFields))
 	for _, f := range p.CustomFields {
-		fieldNames = append(fieldNames, f.Field.Name)
+		names = append(names, f.Field.Name)
+	}
+	if len(names) == 0 {
+		// Without admin rights the project settings list no fields.
+		if schema, err := t.projectFields(ctx, ref); err == nil {
+			names = fieldNames(schema)
+		}
 	}
 
 	out := map[string]any{
@@ -115,7 +121,7 @@ func (t *toolset) getProject(ctx context.Context, in getProjectIn) (any, error) 
 		"archived":     p.Archived,
 		"leader":       p.Leader,
 		"createdBy":    p.CreatedBy,
-		"customFields": fieldNames,
+		"customFields": names,
 		"url":          t.yt.BaseURL() + "/projects/" + p.ShortName,
 	}
 	// Time tracking needs extra permissions; report the failure instead of failing the tool.

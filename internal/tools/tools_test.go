@@ -634,3 +634,47 @@ func TestGroupsFallBackToHubWhenForbidden(t *testing.T) {
 		t.Errorf("visibility without group IDs: isErr=%v %q", isErr, text)
 	}
 }
+
+func TestFieldSchemaFromIssuesForNonAdmin(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/admin/projects/0-2/customFields", `[]`)
+	api.handle("GET /api/issues", func(w http.ResponseWriter, r *http.Request) {
+		if q := r.URL.Query().Get("query"); q != "project: {OPS} sort by: updated desc" {
+			t.Errorf("query = %q", q)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `[
+			{"customFields":[
+				{"projectCustomField":{"$type":"StateProjectCustomField","canBeEmpty":false,"field":{"name":"Stage","fieldType":{"id":"state[1]","valueType":"state"}},
+				 "bundle":{"values":[{"name":"Backlog"},{"name":"Done"}]}}}]},
+			{"customFields":[
+				{"projectCustomField":{"$type":"StateProjectCustomField","canBeEmpty":false,"field":{"name":"Stage","fieldType":{"id":"state[1]","valueType":"state"}},
+				 "bundle":{"values":[{"name":"Backlog"},{"name":"Done"}]}}},
+				{"projectCustomField":{"$type":"EnumProjectCustomField","canBeEmpty":true,"field":{"name":"flow","fieldType":{"id":"enum[*]","isMultiValue":true,"valueType":"enum"}},
+				 "bundle":{"values":[{"name":"infra"},{"name":"app"}]}}}]}]`)
+	})
+	api.json("POST /api/issues", `{"idReadable":"OPS-9"}`)
+	cs := connect(t, api)
+
+	var schema struct {
+		Properties map[string]map[string]any
+		Required   []string
+	}
+	if isErr, text := call(t, cs, "get_issue_fields_schema", map[string]any{"projectKey": "OPS"}, &schema); isErr {
+		t.Fatal(text)
+	}
+	if len(schema.Properties) != 2 || schema.Properties["flow"]["type"] != "array" || strings.Join(schema.Required, ",") != "Stage" {
+		t.Errorf("schema = %+v", schema)
+	}
+
+	if isErr, text := call(t, cs, "create_issue", map[string]any{
+		"project": "OPS", "summary": "x", "customFields": map[string]any{"Stage": "Backlog", "flow": []string{"infra"}},
+	}, nil); isErr {
+		t.Fatal(text)
+	}
+	got, _ := json.Marshal(api.bodies("/api/issues")[0]["customFields"])
+	want := `[{"$type":"StateIssueCustomField","name":"Stage","value":{"name":"Backlog"}},{"$type":"MultiEnumIssueCustomField","name":"flow","value":[{"name":"infra"}]}]`
+	if string(got) != want {
+		t.Errorf("customFields =\n%s\nwant\n%s", got, want)
+	}
+}
