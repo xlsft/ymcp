@@ -29,6 +29,18 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# A software bill of materials for each archive, made by syft.
+sboms:
+  - artifacts: archive
+
+# checksums.txt, which covers every archive and SBOM, is signed keylessly
+# with Sigstore by the Release workflow's GitHub identity.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+
 changelog:
   use: github
   sort: asc
@@ -62,4 +74,15 @@ release:
     irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
     ```
 
-    Already installed: `ymcp update`.
+    Already installed: `ymcp update`. Docker: `docker pull xlsoftware/ymcp:{{ .Version }}`.
+
+    ## Verify
+
+    `checksums.txt` is signed with [Sigstore](https://www.sigstore.dev) by this repository's release workflow:
+    ```sh
+    cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+      --certificate-identity-regexp '^https://github.com/xlsft/ymcp/\.github/workflows/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    sha256sum --ignore-missing -c checksums.txt
+    ```
+    Each archive has an SPDX SBOM next to it (`*.sbom.json`).

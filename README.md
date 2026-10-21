@@ -52,6 +52,26 @@ server name: `YouTrack (xlsft)` becomes `youtrack-xlsft`, `youtrack-beget` stays
 lists your profiles: pick one to edit it, rename it (its client entries move along), or add or remove a profile.
 Clients run `ymcp --profile <key>`, so every instance shows up next to the others with its own tools.
 
+### Verify a release
+
+Releases are signed keylessly with [Sigstore](https://www.sigstore.dev) by this repository's release workflow:
+`checksums.txt` has a `checksums.txt.sigstore.json` bundle, and each archive an SPDX SBOM (`*.sbom.json`).
+
+```sh
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/xlsft/ymcp/\.github/workflows/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums.txt
+```
+
+The Docker image is signed the same way and carries SBOM and provenance attestations:
+
+```sh
+cosign verify xlsoftware/ymcp:latest \
+  --certificate-identity-regexp '^https://github.com/xlsft/ymcp/\.github/workflows/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Commands
 
 | Command | |

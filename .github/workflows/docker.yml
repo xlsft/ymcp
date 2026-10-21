@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # keyless Sigstore signature of the image
 
 jobs:
   push:
@@ -62,10 +63,16 @@ jobs:
             type=semver,pattern={{version}},value=${{ inputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
             type=raw,value=latest
-      # Go cross-compiles, so both platforms build without emulation.
+      - uses: sigstore/cosign-installer@v3
+        if: steps.creds.outputs.ok == 'true'
+      # Go cross-compiles, so both platforms build without emulation. The
+      # image carries an SBOM and build provenance as attestations.
       - uses: docker/build-push-action@v6
         if: steps.creds.outputs.ok == 'true'
+        id: build
         with:
+          sbom: true
+          provenance: mode=max
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
@@ -73,6 +80,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+      - name: Sign
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
       - name: Summary
         if: steps.creds.outputs.ok == 'true'
-        run: echo "Pushed $IMAGE:${VERSION#v}" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Pushed and signed $IMAGE:${VERSION#v}" >> "$GITHUB_STEP_SUMMARY"
