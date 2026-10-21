@@ -40,7 +40,18 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: go test -race -count=1 ./...
+      - name: go test
+        run: go test -race -count=1 -coverprofile=coverage.out ./... | tee test.out
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          {
+            echo '### Unit test coverage'
+            echo '```'
+            awk '/coverage:/ { pkg = ($1 == "ok") ? $2 : $1; sub("github.com/xlsft/ymcp/", "", pkg); for (i = 1; i <= NF; i++) if ($i == "coverage:") print pkg, $(i+1) }' test.out | column -t
+            echo "total $(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build-windows:
     runs-on: windows-latest
