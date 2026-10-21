@@ -12,7 +12,8 @@ const projectFieldsJSON = `[
 	 "bundle":{"values":[{"name":"Open"},{"name":"Fixed"},{"name":"Old","archived":true}]}},
 	{"$type":"EnumProjectCustomField","canBeEmpty":true,"emptyFieldText":"No priority","field":{"name":"Priority","fieldType":{"id":"enum[1]","isMultiValue":false,"valueType":"enum"}},
 	 "bundle":{"values":[{"name":"Minor"},{"name":"Critical"}]}},
-	{"$type":"UserProjectCustomField","canBeEmpty":true,"field":{"name":"Assignee","fieldType":{"id":"user[1]","isMultiValue":false,"valueType":"user"}},"bundle":{}},
+	{"$type":"UserProjectCustomField","canBeEmpty":true,"field":{"name":"Assignee","fieldType":{"id":"user[1]","isMultiValue":false,"valueType":"user"}},
+	 "bundle":{"aggregatedUsers":[{"login":"jdoe"},{"login":"admin"}]}},
 	{"$type":"VersionProjectCustomField","canBeEmpty":true,"field":{"name":"Fix versions","fieldType":{"id":"version[*]","isMultiValue":true,"valueType":"version"}},
 	 "bundle":{"values":[{"name":"1.0"},{"name":"1.1"}]}},
 	{"$type":"PeriodProjectCustomField","canBeEmpty":true,"field":{"name":"Estimation","fieldType":{"id":"period","isMultiValue":false,"valueType":"period"}}},
@@ -67,11 +68,12 @@ func TestBuildCustomFields(t *testing.T) {
 func TestBuildCustomFieldsErrors(t *testing.T) {
 	schema := testSchema(t)
 	for name, values := range map[string]map[string]any{
-		"unknown field":  {"Severity": "High"},
-		"archived value": {"State": "Old"},
-		"bad value":      {"Priority": "Urgent"},
-		"bad date":       {"Due Date": "tomorrow"},
-		"two for single": {"State": []any{"Open", "Fixed"}},
+		"unknown field":   {"Severity": "High"},
+		"archived value":  {"State": "Old"},
+		"bad value":       {"Priority": "Urgent"},
+		"bad date":        {"Due Date": "tomorrow"},
+		"two for single":  {"State": []any{"Open", "Fixed"}},
+		"user not in set": {"Assignee": "mallory"},
 	} {
 		if _, err := buildCustomFields(schema, values); err == nil {
 			t.Errorf("%s: expected error", name)
@@ -88,6 +90,9 @@ func TestFieldsJSONSchema(t *testing.T) {
 	state := props["State"].(map[string]any)
 	if !reflect.DeepEqual(state["enum"], []string{"Open", "Fixed"}) {
 		t.Errorf("State enum = %v", state["enum"])
+	}
+	if got := props["Assignee"].(map[string]any)["enum"]; !reflect.DeepEqual(got, []string{"jdoe", "admin"}) {
+		t.Errorf("Assignee enum = %v", got)
 	}
 	fix := props["Fix versions"].(map[string]any)
 	if fix["type"] != "array" {

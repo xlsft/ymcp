@@ -30,12 +30,16 @@ type projectField struct {
 			Name     string `json:"name"`
 			Archived bool   `json:"archived"`
 		} `json:"values"`
+		// AggregatedUsers are the users a user field accepts.
+		AggregatedUsers []struct {
+			Login string `json:"login"`
+		} `json:"aggregatedUsers"`
 	} `json:"bundle"`
 }
 
 const projectFieldFields = "$type,canBeEmpty,emptyFieldText," +
 	"field(name,fieldType(id,isMultiValue,valueType))," +
-	"bundle(values(name,archived))"
+	"bundle(values(name,archived),aggregatedUsers(login))"
 
 func (f projectField) multi() bool { return f.Field.FieldType.IsMultiValue }
 
@@ -77,6 +81,21 @@ func (f projectField) values() []string {
 	}
 	return out
 }
+
+// users returns the logins a user field accepts; nil when unknown.
+func (f projectField) users() []string {
+	if f.Bundle == nil || len(f.Bundle.AggregatedUsers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(f.Bundle.AggregatedUsers))
+	for _, u := range f.Bundle.AggregatedUsers {
+		out = append(out, u.Login)
+	}
+	return out
+}
+
+// maxUserEnum caps how many logins the schema lists for a user field.
+const maxUserEnum = 100
 
 // issueFieldType maps the project field to the $type of the issue field.
 func (f projectField) issueFieldType() string {
@@ -229,6 +248,9 @@ func (f projectField) encodeOne(v any) (any, error) {
 	}
 	switch f.kind() {
 	case "user":
+		if users := f.users(); len(users) > 0 && !slices.Contains(users, s) {
+			return nil, fmt.Errorf("user %q can't be set here; allowed: %s", s, joinLimited(users, 30))
+		}
 		return map[string]any{"login": s}, nil
 	case "period":
 		return map[string]any{"$type": "PeriodValue", "presentation": s}, nil
@@ -241,6 +263,13 @@ func (f projectField) encodeOne(v any) (any, error) {
 		return nil, fmt.Errorf("value %q is not allowed; allowed: %s", s, strings.Join(vals, ", "))
 	}
 	return map[string]any{"name": s}, nil
+}
+
+func joinLimited(items []string, limit int) string {
+	if len(items) <= limit {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:limit], ", "), len(items)-limit)
 }
 
 func toNumber(v any) (float64, error) {
@@ -281,6 +310,9 @@ func fieldsJSONSchema(schema map[string]projectField) map[string]any {
 		switch f.kind() {
 		case "user":
 			item["type"], desc = "string", "User login"
+			if users := f.users(); len(users) > 0 && len(users) <= maxUserEnum {
+				item["enum"] = users
+			}
 		case "period":
 			item["type"], desc = "string", "Period, e.g. 1w 2d 4h 30m"
 		case "text":
