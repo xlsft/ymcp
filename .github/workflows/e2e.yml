@@ -1,6 +1,8 @@
 name: E2E
 
-# Pushes to main run this through the Release workflow.
+# Pushes to main run this through the Release workflow, and those runs count
+# as Release runs. The E2E badge shows this workflow's own runs on main: the
+# nightly one and manual ones (gh workflow run e2e.yml --ref main).
 on:
   pull_request:
   workflow_dispatch:
