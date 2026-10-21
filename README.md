@@ -6,6 +6,7 @@
   <a href="https://github.com/xlsft/ymcp/actions/workflows/release.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/release.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml/badge.svg" alt="E2E"></a>
   <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
+  <a href="https://hub.docker.com/r/xlsoftware/ymcp"><img src="https://img.shields.io/docker/v/xlsoftware/ymcp?sort=semver&label=docker&color=0E0E0E" alt="Docker"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
 </p>
@@ -144,15 +145,15 @@ the client's entry for the URL. Without a token the server is open to anyone who
 
 ### Docker
 
-The [`xlsft/ymcp`](https://hub.docker.com/r/xlsft/ymcp) image runs the HTTP server for linux/amd64 and linux/arm64.
+The [`xlsoftware/ymcp`](https://hub.docker.com/r/xlsoftware/ymcp) image runs the HTTP server for linux/amd64 and linux/arm64.
 Profiles live in the `/config` volume. There is no keychain in a container, so passwords are kept in that volume's
 config file (mode 0600); treat the volume as a secret.
 
 Add a profile. `auth` asks for the URL, login and password and checks them before saving:
 
 ```sh
-docker run -it --rm -v ymcp:/config xlsft/ymcp auth
-docker run -it --rm -v ymcp:/config xlsft/ymcp --profile youtrack-beget auth   # another instance
+docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth
+docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-beget auth   # another instance
 ```
 
 Run the server on port 8090 with a token:
@@ -161,7 +162,7 @@ Run the server on port 8090 with a token:
 docker run -d --name ymcp --restart unless-stopped \
   -p 127.0.0.1:8090:8090 -v ymcp:/config \
   -e YMCP_HTTP_TOKEN="$(openssl rand -hex 32)" \
-  xlsft/ymcp
+  xlsoftware/ymcp
 docker logs ymcp   # lists each profile and its URL
 ```
 

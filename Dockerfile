@@ -1,8 +1,8 @@
 # ymcp as a Streamable HTTP server. Profiles live in the /config volume;
 # without a keychain in the container their passwords are kept in that file.
 #
-#   docker run -it --rm -v ymcp:/config xlsft/ymcp auth
-#   docker run -d -p 8090:8090 -v ymcp:/config -e YMCP_HTTP_TOKEN=… xlsft/ymcp
+#   docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth
+#   docker run -d -p 8090:8090 -v ymcp:/config -e YMCP_HTTP_TOKEN=… xlsoftware/ymcp
 
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG TARGETOS TARGETARCH VERSION=dev
