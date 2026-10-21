@@ -5,8 +5,8 @@ package e2e
 import (
 	"fmt"
 	"strings"
-	"time"
 	"testing"
+	"time"
 )
 
 // TestRegularUser runs ymcp as a project member without admin rights, where
@@ -87,7 +87,7 @@ func TestRegularUser(t *testing.T) {
 	var groups struct {
 		Groups []struct{ Name string }
 	}
-	user.must(t, "find_user_groups", nil, &groups)
+	user.must(t, "find_user_groups", map[string]any{"nameContains": "All Users"}, &groups)
 	if len(groups.Groups) == 0 {
 		t.Error("member sees no groups")
 	}
