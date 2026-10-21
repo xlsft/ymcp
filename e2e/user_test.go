@@ -44,12 +44,7 @@ func TestRegularUser(t *testing.T) {
 	if me.Login != login {
 		t.Fatalf("signed in as %q", me.Login)
 	}
-	var ytUsers []struct{ ID, Login string }
-	api(t, "GET", "users", map[string]any{"fields": "id,login", "query": login}, nil, &ytUsers)
-	if len(ytUsers) != 1 {
-		t.Fatalf("YouTrack users for %s = %+v", login, ytUsers)
-	}
-	joinTeam(t, f, ytUsers[0].ID, hubUser.ID)
+	joinTeam(t, f, hubUser.ID)
 
 	// No issues yet: the schema can't be read without admin rights.
 	r := user.call(t, "get_issue_fields_schema", map[string]any{"projectKey": f.key})
@@ -118,24 +113,22 @@ func TestRegularUser(t *testing.T) {
 	}
 }
 
-// joinTeam adds a user to the fixture project's team, through YouTrack or,
-// failing that, through the Hub project team.
-func joinTeam(t *testing.T, f *fixture, youtrackID, hubID string) {
+// joinTeam adds a Hub user to the team of the fixture project's Hub
+// project; YouTrack's own project team API doesn't take new members.
+func joinTeam(t *testing.T, f *fixture, hubID string) {
 	t.Helper()
-	r := call(t, "call_api", map[string]any{"method": "POST", "path": "admin/projects/" + f.projectID + "/team/users",
-		"query": map[string]any{"fields": "id"}, "body": map[string]any{"id": youtrackID}})
-	if !r.isError {
-		return
-	}
-	var hubProjects struct {
+	var hub struct {
 		Projects []struct {
-			ID   string
-			Team struct{ ID string }
+			ID, Key, Name string
+			Team          struct{ ID string }
 		}
 	}
-	api(t, "GET", "projects", map[string]any{"fields": "id,key,team(id)", "query": "key: " + f.key}, nil, &hubProjects, "hub")
-	if len(hubProjects.Projects) != 1 {
-		t.Fatalf("joining the team: YouTrack: %s; Hub projects for %s = %+v", r.text, f.key, hubProjects)
+	api(t, "GET", "projects", map[string]any{"fields": "id,key,name,team(id)", "$top": 1000}, nil, &hub, "hub")
+	for _, p := range hub.Projects {
+		if p.Key == f.key || p.Name == marker+" "+f.key {
+			api(t, "POST", "projectteams/"+p.Team.ID+"/users", nil, map[string]any{"id": hubID}, nil, "hub")
+			return
+		}
 	}
-	api(t, "POST", "projectteams/"+hubProjects.Projects[0].Team.ID+"/users", nil, map[string]any{"id": hubID}, nil, "hub")
+	t.Fatalf("no Hub project for %s among %+v", f.key, hub.Projects)
 }
