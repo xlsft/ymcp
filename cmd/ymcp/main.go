@@ -111,7 +111,7 @@ func run(args []string) error {
 }
 
 // client builds a YouTrack client from the stored config and environment.
-func client() (*youtrack.Client, error) {
+func client(logger *slog.Logger) (*youtrack.Client, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
@@ -119,11 +119,11 @@ func client() (*youtrack.Client, error) {
 	if !cfg.Complete() {
 		return nil, errors.New("YouTrack connection is not configured; run `ymcp auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)")
 	}
-	return youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy})
+	return youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: logger})
 }
 
 func check(ctx context.Context) error {
-	yt, err := client()
+	yt, err := client(nil)
 	if err != nil {
 		return err
 	}

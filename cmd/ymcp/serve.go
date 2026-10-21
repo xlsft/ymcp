@@ -94,7 +94,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	yt, err := client()
+	yt, err := client(logger)
 	if err != nil {
 		logger.Error("can't start", "err", err)
 		return err
@@ -137,7 +137,7 @@ func call(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err := json.Unmarshal([]byte(rawArgs), &toolArgs); err != nil {
 		return fmt.Errorf("tool arguments: %w", err)
 	}
-	yt, err := client()
+	yt, err := client(logger)
 	if err != nil {
 		return err
 	}

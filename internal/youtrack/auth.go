@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -35,6 +36,7 @@ type hubAuth struct {
 	password string
 	http     *http.Client // no redirects, own cookie jar
 	now      func() time.Time
+	log      *slog.Logger
 
 	mu        sync.Mutex
 	hubURL    *url.URL
@@ -54,6 +56,7 @@ func newHubAuth(baseURL *url.URL, login, password string, transport http.RoundTr
 		login:    login,
 		password: password,
 		now:      time.Now,
+		log:      slog.New(slog.DiscardHandler),
 		tokens:   map[string]cachedToken{},
 		http: &http.Client{
 			Transport: transport,
@@ -75,19 +78,32 @@ func (a *hubAuth) Token(ctx context.Context, scope string) (string, error) {
 	if t, ok := a.tokens[scope]; ok && a.now().Before(t.expires) {
 		return t.value, nil
 	}
+	start := time.Now()
 	if err := a.discover(ctx); err != nil {
+		a.log.Warn("can't reach YouTrack", "err", err)
 		return "", err
 	}
 	// The Hub session usually outlives the token, so try without the password first.
 	if err := a.authorize(ctx, scope); err == nil {
+		a.log.Debug("token renewed from session", "scope", scopeName(scope), "took", time.Since(start).Round(time.Millisecond))
 		return a.tokens[scope].value, nil
 	} else if !errors.Is(err, ErrNotAuthenticated) {
+		a.log.Warn("sign-in failed", "err", err)
 		return "", err
 	}
 	if err := a.passwordLogin(ctx, scope); err != nil {
+		a.log.Warn("sign-in failed", "login", a.login, "err", err)
 		return "", err
 	}
+	a.log.Info("signed in", "login", a.login, "scope", scopeName(scope), "took", time.Since(start).Round(time.Millisecond))
 	return a.tokens[scope].value, nil
+}
+
+func scopeName(scope string) string {
+	if scope == HubScope {
+		return "hub"
+	}
+	return "youtrack"
 }
 
 // Invalidate drops a cached token so the next Token call re-authenticates.
@@ -123,10 +139,12 @@ func (a *hubAuth) discover(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	start := time.Now()
 	resp, err := a.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("youtrack: discover hub: %w", err)
 	}
+	a.log.Debug("youtrack request", "method", "GET", "path", "/"+strings.TrimPrefix(u.Path, "/"), "status", resp.StatusCode, "took", time.Since(start).Round(time.Millisecond))
 	defer resp.Body.Close()
 	var cfg struct {
 		Ring struct {
@@ -202,12 +220,14 @@ func (a *hubAuth) passwordLogin(ctx context.Context, scope string) error {
 func (a *hubAuth) follow(ctx context.Context, req *http.Request, scope, state string) error {
 	redirectURI := a.redirectURI()
 	for hop := 0; hop < 10; hop++ {
+		start := time.Now()
 		resp, err := a.http.Do(req)
 		if err != nil {
 			return fmt.Errorf("youtrack: hub login: %w", err)
 		}
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
+		a.log.Debug("hub request", "method", req.Method, "path", req.URL.Path, "status", resp.StatusCode, "took", time.Since(start).Round(time.Millisecond))
 
 		if resp.StatusCode/100 != 3 {
 			return fmt.Errorf("youtrack: hub login: unexpected %s at %s", resp.Status, req.URL.Path)

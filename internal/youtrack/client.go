@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ type Client struct {
 	baseURL *url.URL
 	auth    *hubAuth
 	http    *http.Client
+	log     *slog.Logger
 }
 
 // Options configures a Client.
@@ -34,6 +36,9 @@ type Options struct {
 	Proxy string
 	// Timeout per request; zero means 30s.
 	Timeout time.Duration
+	// Logger receives sign-in events (info) and every request (debug);
+	// nil discards them.
+	Logger *slog.Logger
 }
 
 // New validates opts and builds a Client.
@@ -71,10 +76,17 @@ func New(opts Options) (*Client, error) {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	auth := newHubAuth(u, opts.Login, opts.Password, transport, timeout)
+	auth.log = logger
 	return &Client{
 		baseURL: u,
-		auth:    newHubAuth(u, opts.Login, opts.Password, transport, timeout),
+		auth:    auth,
 		http:    &http.Client{Transport: transport, Timeout: timeout},
+		log:     logger,
 	}, nil
 }
 
@@ -193,7 +205,12 @@ func (c *Client) do(ctx context.Context, scope, method string, u *url.URL, body,
 // exchange sends a request, logs in again once on 401, and turns non-2xx
 // answers into *Error.
 func (c *Client) exchange(ctx context.Context, scope, method string, u *url.URL, contentType string, payload []byte) (*http.Response, []byte, error) {
+	start := time.Now()
 	resp, data, err := c.send(ctx, scope, method, u, contentType, payload)
+	if resp != nil {
+		c.log.Debug("youtrack request", "method", method, "path", u.Path, "status", resp.StatusCode,
+			"bytes", len(data), "took", time.Since(start).Round(time.Millisecond))
+	}
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		// The token may have been revoked before its expiry; log in again once.
 		resp, data, err = c.send(ctx, scope, method, u, contentType, payload)
