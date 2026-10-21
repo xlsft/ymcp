@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/xlsft/youtrack-mcp/internal/youtrack"
@@ -18,6 +19,7 @@ func Register(s *mcp.Server, yt *youtrack.Client) {
 	t.registerIssueEdit(s)
 	t.registerProjects(s)
 	t.registerUsers(s)
+	t.registerTags(s)
 }
 
 type toolset struct {
@@ -67,4 +69,23 @@ func readOnly(title string) *mcp.ToolAnnotations {
 
 func mutating(title string, destructive bool) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{Title: title, DestructiveHint: &destructive}
+}
+
+// schemaFor infers the input schema of In and lets tweak refine properties
+// that struct tags can't express, such as enums and bounds.
+func schemaFor[In any](tweak func(props map[string]*jsonschema.Schema)) *jsonschema.Schema {
+	s, err := jsonschema.For[In](nil)
+	if err != nil {
+		panic(err)
+	}
+	tweak(s.Properties)
+	return s
+}
+
+func enum(values ...string) []any {
+	out := make([]any, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
 }

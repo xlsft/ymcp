@@ -258,3 +258,55 @@ func TestUpdateIssueStarsAndSetsFields(t *testing.T) {
 		t.Errorf("commands = %v", cmds)
 	}
 }
+
+func TestManageIssueTags(t *testing.T) {
+	api := newFakeAPI(t)
+	var mu sync.Mutex
+	onIssue := []apiTag{{ID: "6-1", Name: "Star"}}
+	api.handle("GET /api/issues/DEMO-7", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"tags": onIssue})
+	})
+	api.json("GET /api/tags", `[{"id":"6-1","name":"Star"},{"id":"6-2","name":"backend"},{"id":"6-3","name":"backend-legacy"}]`)
+	api.handle("POST /api/issues/DEMO-7/tags", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		onIssue = append(onIssue, apiTag{ID: "6-2", Name: "backend"})
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"id":"6-2"}`)
+	})
+	api.handle("DELETE /api/issues/DEMO-7/tags/6-1", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		onIssue = onIssue[1:]
+		mu.Unlock()
+	})
+	cs := connect(t, api)
+
+	var out struct{ Tags []string }
+	if isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "Backend", "operation": "add"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if strings.Join(out.Tags, ",") != "Star,backend" {
+		t.Errorf("after add: %v", out.Tags)
+	}
+	if body := api.bodies("/api/issues/DEMO-7/tags"); len(body) != 1 || body[0]["id"] != "6-2" {
+		t.Errorf("add body = %v", body)
+	}
+
+	if isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "6-1", "operation": "remove"}, &out); isErr {
+		t.Fatal(text)
+	}
+	if strings.Join(out.Tags, ",") != "backend" {
+		t.Errorf("after remove: %v", out.Tags)
+	}
+
+	if isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "back", "operation": "add"}, nil); !isErr || !strings.Contains(text, "backend-legacy (6-3)") {
+		t.Errorf("similar tags: isErr=%v %q", isErr, text)
+	}
+	isErr, text := call(t, cs, "manage_issue_tags", map[string]any{"issueId": "DEMO-7", "tag": "x", "operation": "toggle"}, nil)
+	if !isErr || strings.Contains(text, "operation must be") {
+		t.Errorf("operation outside enum should be rejected by the schema, got isErr=%v %q", isErr, text)
+	}
+}
