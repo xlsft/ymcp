@@ -31,7 +31,7 @@ func setup(ctx context.Context, args []string) error {
 	fmt.Println()
 
 	// 1. Credentials.
-	cfg, err := config.Load("")
+	cfg, err := config.Load(profile)
 	if err != nil {
 		return err
 	}

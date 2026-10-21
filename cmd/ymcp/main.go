@@ -19,6 +19,9 @@ import (
 // version is set at build time by the release pipeline.
 var version = "dev"
 
+// profile is the --profile flag: which stored YouTrack connection to use.
+var profile string
+
 const usage = `ymcp — YouTrack MCP server
 
 Usage:
@@ -35,8 +38,9 @@ Commands:
   version   Print the version
 
 Global flags:
-  --env FILE   Load YOUTRACK_* variables from a dotenv file
-  -v           Debug logging, including every YouTrack request (YMCP_LOG_LEVEL also works)
+  --profile KEY  Use this YouTrack profile (YMCP_PROFILE also works); see setup
+  --env FILE     Load YOUTRACK_* variables from a dotenv file
+  -v             Debug logging, including every YouTrack request (YMCP_LOG_LEVEL also works)
 `
 
 func main() {
@@ -53,6 +57,7 @@ func run(args []string) error {
 	global.SetOutput(io.Discard)
 	envFile := global.String("env", "", "")
 	verbose := global.Bool("v", false, "")
+	global.StringVar(&profile, "profile", "", "")
 	if err := global.Parse(args); err != nil {
 		fmt.Fprint(os.Stderr, usage)
 		return err
@@ -112,20 +117,22 @@ func run(args []string) error {
 	}
 }
 
-// client builds a YouTrack client from the stored config and environment.
-func client(logger *slog.Logger) (*youtrack.Client, error) {
-	cfg, err := config.Load("")
+// client builds a YouTrack client from the selected profile and the
+// environment, returning the profile key with it.
+func client(logger *slog.Logger) (*youtrack.Client, string, error) {
+	cfg, err := config.Load(profile)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if !cfg.Complete() {
-		return nil, errors.New("YouTrack connection is not configured; run `ymcp auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)")
+		return nil, cfg.Name, fmt.Errorf("YouTrack profile %q is not configured; run `ymcp setup` or `ymcp --profile %s auth` (or set YOUTRACK_URL, YOUTRACK_LOGIN, YOUTRACK_PASSWORD)", cfg.Name, cfg.Name)
 	}
-	return youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: logger})
+	yt, err := youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: logger})
+	return yt, cfg.Name, err
 }
 
 func check(ctx context.Context) error {
-	yt, err := client(nil)
+	yt, name, err := client(nil)
 	if err != nil {
 		return err
 	}
@@ -133,7 +140,7 @@ func check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("ok: logged in to %s as %s (%s)\n", yt.BaseURL(), me.Login, me.FullName)
+	fmt.Printf("ok: %s: logged in to %s as %s (%s)\n", name, yt.BaseURL(), me.Login, me.FullName)
 	return nil
 }
 

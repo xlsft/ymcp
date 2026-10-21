@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/zalando/go-keyring"
 
+	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/youtrack/youtracktest"
 )
 
@@ -41,7 +43,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("YMCP_CONFIG", filepath.Join(dir, "config.json"))
 	t.Setenv("YMCP_LOG_FILE", filepath.Join(dir, "ymcp.log"))
 	t.Setenv("YMCP_LOG_LEVEL", "")
-	for _, k := range []string{"YOUTRACK_URL", "YOUTRACK_LOGIN", "YOUTRACK_PASSWORD", "YOUTRACK_PROXY"} {
+	for _, k := range []string{"YOUTRACK_URL", "YOUTRACK_LOGIN", "YOUTRACK_PASSWORD", "YOUTRACK_PROXY", "YMCP_PROFILE"} {
 		t.Setenv(k, "")
 	}
 	return dir
@@ -64,8 +66,8 @@ func TestRunVersionHelpAndUnknown(t *testing.T) {
 
 func TestCheckWithoutConfig(t *testing.T) {
 	isolate(t)
-	if err := run([]string{"check"}); err == nil || !strings.Contains(err.Error(), "ymcp auth") {
-		t.Errorf("err = %v, want a hint to run ymcp auth", err)
+	if err := run([]string{"check"}); err == nil || !strings.Contains(err.Error(), "ymcp setup") {
+		t.Errorf("err = %v, want a hint to run ymcp setup", err)
 	}
 }
 
@@ -106,5 +108,35 @@ func TestCallAgainstFakeYouTrack(t *testing.T) {
 	}
 	if err := run([]string{"call"}); err == nil {
 		t.Error("call without a tool accepted")
+	}
+}
+
+func TestProfileFlagPicksTheInstance(t *testing.T) {
+	isolate(t)
+	for _, name := range []string{"work", "home"} {
+		f := youtracktest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"login":%q,"fullName":"At %s"}`, name, name)
+		}))
+		cfg := config.Config{Name: name, URL: f.URL, Login: youtracktest.Login, Password: youtracktest.Password, Proxy: "none"}
+		if _, err := config.Save(cfg, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := run([]string{"check"}); err == nil || !strings.Contains(err.Error(), "home, work") {
+		t.Errorf("check with two profiles = %v, want a list to pick from", err)
+	}
+	out, err := captureStdout(t, func() error { return run([]string{"--profile", "home", "check"}) })
+	if err != nil || !strings.Contains(out, "home: logged in") || !strings.Contains(out, "as home") {
+		t.Errorf("--profile home check = %q, %v", out, err)
+	}
+	t.Setenv("YMCP_PROFILE", "work")
+	out, err = captureStdout(t, func() error { return run([]string{"call", "get_current_user"}) })
+	if err != nil || !strings.Contains(out, `"login": "work"`) {
+		t.Errorf("YMCP_PROFILE=work call = %q, %v", out, err)
+	}
+	if err := run([]string{"--profile", "nope", "check"}); err == nil || !strings.Contains(err.Error(), `"nope" is not configured`) {
+		t.Errorf("unknown profile = %v", err)
 	}
 }

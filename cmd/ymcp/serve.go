@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/tools"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
@@ -117,7 +118,11 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	yt, err := client(logger)
+	// Servers of several profiles share the log file; tag each line.
+	if name, err := config.Resolve(profile); err == nil {
+		logger = logger.With("profile", name)
+	}
+	yt, _, err := client(logger)
 	if err != nil {
 		logger.Error("can't start", "err", err)
 		return err
@@ -160,7 +165,7 @@ func call(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err := json.Unmarshal([]byte(rawArgs), &toolArgs); err != nil {
 		return fmt.Errorf("tool arguments: %w", err)
 	}
-	yt, err := client(logger)
+	yt, _, err := client(logger)
 	if err != nil {
 		return err
 	}

@@ -31,7 +31,7 @@ func auth(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, err := config.Load("")
+	cfg, err := config.Load(profile)
 	if err != nil {
 		return err
 	}
