@@ -36,8 +36,8 @@ jobs:
       - name: Latest winget
         shell: pwsh
         run: |
-          Install-PackageProvider -Name NuGet -Force | Out-Null
-          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Microsoft.WinGet.Client -Force -Scope AllUsers | Out-Null
           Repair-WinGetPackageManager -AllUsers -Latest
           winget --version
       - name: winget validate
