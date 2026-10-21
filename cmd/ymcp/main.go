@@ -81,6 +81,8 @@ func run(args []string) error {
 		return serve(ctx, rest, logger)
 	case "auth":
 		return auth(ctx, rest)
+	case "setup":
+		return setup(ctx, rest)
 	case "check":
 		return check(ctx)
 	case "call":

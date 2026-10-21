@@ -1,6 +1,7 @@
 package clients
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,13 +75,25 @@ func setJSONEntry(path string, keyPath []string, name string, entry any) error {
 	if err != nil {
 		return err
 	}
+	original := string(v.Pack())
 	if err := v.Patch(patch); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	if !existed {
-		v.Format()
+	out := v.Pack()
+	// Plain JSON (no comments or trailing commas) is re-indented with two
+	// spaces, keeping key order; JSONC is left as patched so hand-written
+	// formatting and comments survive.
+	if isPlainJSON(original) {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, out, "", "  "); err == nil {
+			out = append(buf.Bytes(), '\n')
+		}
 	}
-	return writeFile(path, v.Pack(), existed)
+	return writeFile(path, out, existed)
+}
+
+func isPlainJSON(s string) bool {
+	return json.Valid([]byte(s))
 }
 
 // writeFile replaces path atomically, keeping its mode and a backup.

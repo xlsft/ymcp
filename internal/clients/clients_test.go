@@ -132,7 +132,7 @@ func TestVSCodeUsesServersKey(t *testing.T) {
 	if err := c.Install(e.Env, "/opt/ymcp"); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, path); !strings.Contains(got, `"inputs"`) || !strings.Contains(got, `"youtrack":{`) || !strings.Contains(got, `"type":"stdio"`) {
+	if got := read(t, path); !strings.Contains(got, `"inputs"`) || !strings.Contains(got, `"youtrack": {`) || !strings.Contains(got, `"type": "stdio"`) {
 		t.Errorf("config:\n%s", got)
 	}
 }
