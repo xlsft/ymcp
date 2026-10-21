@@ -28,7 +28,7 @@ Usage:
   ymcp [global flags] [command] [arguments]
 
 Commands:
-  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr
+  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr, --token, --profiles
   auth      Set or replace the URL, login and password of a profile
   setup     Add, edit or remove YouTrack profiles and register them in MCP clients
   check     Log in and print the current user

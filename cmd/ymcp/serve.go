@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -115,40 +118,172 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	transport := fs.String("transport", "stdio", "MCP transport: stdio or http")
 	addr := fs.String("addr", "127.0.0.1:8090", "listen address for --transport=http")
+	token := fs.String("token", "", "bearer token HTTP clients must send (YMCP_HTTP_TOKEN also works)")
+	only := fs.String("profiles", "", "comma-separated profiles to serve over HTTP (default: all, or --profile)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	// Servers of several profiles share the log file; tag each line.
-	if name, err := config.Resolve(profile); err == nil {
-		logger = logger.With("profile", name)
+	if *token == "" {
+		*token = os.Getenv("YMCP_HTTP_TOKEN")
 	}
-	yt, _, err := client(logger)
-	if err != nil {
-		logger.Error("can't start", "err", err)
-		return err
-	}
-	logger.Info("ymcp started", "version", version, "transport", *transport, "youtrack", yt.BaseURL(), "log", logPath)
-	defer logger.Info("ymcp stopped")
 
 	switch *transport {
 	case "stdio":
+		if *only != "" {
+			return errors.New("--profiles needs --transport http; over stdio pick one with --profile")
+		}
+		if *token != "" {
+			logger.Warn("the HTTP token is ignored over stdio")
+		}
+		// Servers of several profiles share the log file; tag each line.
+		if name, err := config.Resolve(profile); err == nil {
+			logger = logger.With("profile", name)
+		}
+		yt, _, err := client(logger)
+		if err != nil {
+			logger.Error("can't start", "err", err)
+			return err
+		}
+		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "log", logPath)
+		defer logger.Info("ymcp stopped")
 		return newServer(yt, logger).Run(ctx, &mcp.StdioTransport{})
 	case "http":
-		srv := newServer(yt, logger)
-		handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
-		httpSrv := &http.Server{Addr: *addr, Handler: handler}
+		ln, err := net.Listen("tcp", *addr)
+		if err != nil {
+			return err
+		}
+		base := "http://" + ln.Addr().String()
+		handler, served, err := httpHandler(base, *token, *only, logger)
+		if err != nil {
+			ln.Close()
+			logger.Error("can't start", "err", err)
+			return err
+		}
+		auth := "none"
+		if *token != "" {
+			auth = "bearer token"
+		} else if host, _, _ := net.SplitHostPort(*addr); !isLoopback(host) {
+			logger.Warn("serving without a token on a non-loopback address: anyone who reaches it acts as these YouTrack accounts; set --token or YMCP_HTTP_TOKEN")
+		}
+		logger.Info("ymcp started", "version", version, "transport", "http", "addr", base, "auth", auth,
+			"profiles", strings.Join(served, ", "), "log", logPath)
+		defer logger.Info("ymcp stopped")
+
+		httpSrv := &http.Server{Handler: handler}
 		go func() {
 			<-ctx.Done()
 			httpSrv.Shutdown(context.Background())
 		}()
-		logger.Info("listening", "addr", "http://"+*addr)
-		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		if err := httpSrv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
 		return nil
 	default:
 		return fmt.Errorf("unknown transport %q", *transport)
 	}
+}
+
+// httpHandler serves each profile at /<key>, and the default one at / too.
+// Profiles that can't sign in are skipped with a warning; it returns the
+// keys it serves and logs the URL of each.
+func httpHandler(base, token, only string, logger *slog.Logger) (http.Handler, []string, error) {
+	names, def, err := httpProfiles(only)
+	if err != nil {
+		return nil, nil, err
+	}
+	mux := http.NewServeMux()
+	var served []string
+	for _, name := range names {
+		l := logger.With("profile", name)
+		cfg, err := config.Load(name)
+		if err == nil && !cfg.Complete() {
+			err = errors.New("not configured; run ymcp setup")
+		}
+		var yt *youtrack.Client
+		if err == nil {
+			yt, err = youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy, Logger: l})
+		}
+		if err != nil {
+			l.Warn("profile skipped", "err", err)
+			continue
+		}
+		srv := newServer(yt, l)
+		h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
+		mux.Handle("/"+name, h)
+		mux.Handle("/"+name+"/", h)
+		urls := base + "/" + name
+		if name == def {
+			mux.Handle("/{$}", h)
+			urls += " and " + base + "/"
+		}
+		l.Info("serving profile", "name", cfg.Title(), "youtrack", yt.BaseURL(), "url", urls)
+		served = append(served, name)
+	}
+	if len(served) == 0 {
+		return nil, nil, errors.New("no profile to serve; run ymcp setup")
+	}
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no such profile; served: /"+strings.Join(served, ", /"), http.StatusNotFound)
+	})
+	if token == "" {
+		return mux, served, nil
+	}
+	return requireToken(token, mux, logger), served, nil
+}
+
+// httpProfiles lists the profiles to serve and the default one (served at
+// /, empty if none): --profile alone, the --profiles list, or every stored
+// profile; with none stored, the one YOUTRACK_* variables describe.
+func httpProfiles(only string) (names []string, def string, err error) {
+	switch {
+	case profile != "":
+		return []string{profile}, profile, nil
+	case only != "":
+		for _, n := range strings.Split(only, ",") {
+			if n = strings.TrimSpace(n); n != "" {
+				names = append(names, n)
+			}
+		}
+	default:
+		list, err := config.Profiles()
+		if err != nil {
+			return nil, "", err
+		}
+		for _, p := range list {
+			names = append(names, p.Name)
+		}
+		if len(names) == 0 {
+			names = []string{config.DefaultProfile}
+		}
+	}
+	if key, err := config.Resolve(""); err == nil && slices.Contains(names, key) {
+		def = key
+	} else if len(names) == 1 {
+		def = names[0]
+	}
+	return names, def, nil
+}
+
+// requireToken rejects requests without "Authorization: Bearer <token>".
+func requireToken(token string, next http.Handler, logger *slog.Logger) http.Handler {
+	want := []byte("Bearer " + token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+			logger.Warn("rejected HTTP request without a valid token", "remote", r.RemoteAddr, "path", r.URL.Path)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="ymcp"`)
+			http.Error(w, "missing or wrong bearer token", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // call runs a single tool through an in-memory MCP session, so the result

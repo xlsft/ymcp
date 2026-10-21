@@ -55,7 +55,7 @@ Clients run `ymcp --profile <key>`, so every instance shows up next to the other
 
 | Command | |
 |---|---|
-| `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http --addr 127.0.0.1:8090` serves Streamable HTTP |
+| `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http` serves Streamable HTTP, see [HTTP](#http) |
 | `ymcp setup` | Add or edit a profile, sign in and pick MCP clients. `--name`, `--clients cursor,zed`, `--all`, `--reauth` and `--remove` skip the questions |
 | `ymcp auth` | Set or replace the URL, login and password of a profile. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
@@ -125,6 +125,22 @@ Environment variables override the stored values of the profile in use. That's h
 > **Behind a VPN?** MCP clients often pass an `HTTP(S)_PROXY` meant for the internet. Such a proxy resolves an
 > internal YouTrack through public DNS and never reaches it. When the proxy comes from the environment and doesn't
 > lead to YouTrack, ymcp connects directly instead and logs why. An explicitly configured proxy is always used.
+
+### HTTP
+
+`ymcp serve --transport http` serves every profile from one process, each at its own path, over Streamable HTTP:
+
+```sh
+YMCP_HTTP_TOKEN=$(openssl rand -hex 32) ymcp serve --transport http --addr 127.0.0.1:8090
+```
+
+The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-beget`. The default profile
+is also served at `/`. `--profiles a,b` serves only those, and `--profile a` serves just one. A profile that can't sign
+in is skipped with a warning.
+
+With `--token` or `YMCP_HTTP_TOKEN`, every request must carry `Authorization: Bearer <token>`; set that header in
+the client's entry for the URL. Without a token the server is open to anyone who can reach it, so keep it on
+`127.0.0.1` (the default) or set a token; ymcp warns when it listens elsewhere without one.
 
 ### Logs
 
