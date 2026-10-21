@@ -83,6 +83,8 @@ func run(args []string) error {
 		return auth(ctx, rest)
 	case "setup":
 		return setup(ctx, rest)
+	case "update":
+		return selfUpdate(ctx, rest)
 	case "check":
 		return check(ctx)
 	case "call":
