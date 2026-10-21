@@ -5,6 +5,7 @@ package e2e
 import (
 	"fmt"
 	"strings"
+	"time"
 	"testing"
 )
 
@@ -144,15 +145,25 @@ func grantAccess(t *testing.T, user *server, f *fixture, hubID string) {
 	for _, args := range attempts {
 		r := call(t, "call_api", args)
 		if !r.isError {
-			if p := user.call(t, "get_project", map[string]any{"projectKey": f.key}); !p.isError {
-				t.Logf("access granted with POST %s", args["path"])
-				return
-			} else {
-				tried = append(tried, fmt.Sprintf("POST %s: ok, but get_project: %s", args["path"], p.text))
-				continue
+			// Permissions can take a moment to reach YouTrack.
+			var last string
+			for range 15 {
+				p := user.call(t, "get_project", map[string]any{"projectKey": f.key})
+				if !p.isError {
+					t.Logf("access granted with POST %s", args["path"])
+					return
+				}
+				last = p.text
+				time.Sleep(time.Second)
 			}
+			tried = append(tried, fmt.Sprintf("POST %s: ok, but get_project: %s", args["path"], last))
+			continue
 		}
 		tried = append(tried, fmt.Sprintf("POST %s: %s", args["path"], r.text))
+	}
+	for _, fields := range []string{"$type,id,name,users(login)", "ownUsers(login)", "subgroups(name)", "parent(name)"} {
+		r := call(t, "call_api", map[string]any{"method": "GET", "path": "admin/projects/" + f.projectID + "/team", "query": map[string]any{"fields": fields}})
+		tried = append(tried, fmt.Sprintf("team %s: error=%v %s", fields, r.isError, r.text))
 	}
 	t.Fatalf("can't give %s access to %s:\n%s", hubID, f.key, strings.Join(tried, "\n"))
 }
