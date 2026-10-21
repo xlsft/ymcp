@@ -1387,3 +1387,118 @@ func TestCallAPI(t *testing.T) {
 		t.Error("GET with a body accepted")
 	}
 }
+
+func TestChangeIssueAssignee(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/issues/DEMO-7", `{"project":{"id":"0-1","shortName":"DEMO"}}`)
+	api.handle("POST /api/issues/DEMO-7", func(w http.ResponseWriter, r *http.Request) {
+		bodies := api.bodies("/api/issues/DEMO-7")
+		w.Header().Set("Content-Type", "application/json")
+		v, _ := json.Marshal(bodies[len(bodies)-1]["customFields"].([]any)[0].(map[string]any)["value"])
+		fmt.Fprintf(w, `{"customFields":[{"name":"Assignee","$type":"SingleUserIssueCustomField","value":%s}]}`, v)
+	})
+	cs := connect(t, api)
+
+	var out struct{ Assignee any }
+	if isErr, text := call(t, cs, "change_issue_assignee", map[string]any{"issueId": "DEMO-7", "assigneeLogin": "jdoe"}, &out); isErr || out.Assignee != "jdoe" {
+		t.Errorf("assign: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "change_issue_assignee", map[string]any{"issueId": "DEMO-7", "assigneeLogin": nil}, &out); isErr || out.Assignee != nil {
+		t.Errorf("unassign: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "change_issue_assignee", map[string]any{"issueId": "DEMO-7", "assigneeLogin": "mallory"}, nil); !isErr || !strings.Contains(text, "allowed: jdoe, admin") {
+		t.Errorf("not allowed: isErr=%v %q", isErr, text)
+	}
+}
+
+func TestGetProject(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/admin/projects/0-1", `{"id":"0-1","shortName":"DEMO","name":"Demo","leader":{"login":"bob"},"customFields":[{"field":{"name":"State"}}]}`)
+	api.json("GET /api/admin/projects/0-1/timeTrackingSettings", `{"enabled":true,"workItemTypes":[{"id":"w-1","name":"Testing"}]}`)
+	api.json("GET /api/admin/projects/0-2", `{"id":"0-2","shortName":"OPS","name":"Operations","customFields":[]}`)
+	api.handle("GET /api/admin/projects/0-2/timeTrackingSettings", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"error":"Forbidden"}`)
+	})
+	api.json("GET /api/admin/projects/0-2/customFields", `[]`)
+	api.json("GET /api/issues", `[]`)
+	cs := connect(t, api)
+
+	var p struct {
+		Key                  string
+		CustomFields         []string
+		TimeTrackingSettings map[string]any
+	}
+	if isErr, text := call(t, cs, "get_project", map[string]any{"projectKey": "demo"}, &p); isErr {
+		t.Fatal(text)
+	}
+	if p.Key != "DEMO" || strings.Join(p.CustomFields, ",") != "State" || p.TimeTrackingSettings["enabled"] != true {
+		t.Errorf("project = %+v", p)
+	}
+	if isErr, text := call(t, cs, "get_project", map[string]any{"projectKey": "OPS"}, &p); isErr || p.TimeTrackingSettings["error"] == nil {
+		t.Errorf("forbidden time tracking: isErr=%v %q %+v", isErr, text, p)
+	}
+	if isErr, _ := call(t, cs, "get_project", map[string]any{"projectKey": "NOPE"}, nil); !isErr {
+		t.Error("unknown project accepted")
+	}
+}
+
+func TestFindUser(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handle("GET /api/users", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("query") {
+		case "bob":
+			io.WriteString(w, `[{"login":"bobby","fullName":"Bobby"},{"login":"bob","fullName":"Bob","email":"bob@x","profiles":{"general":{"timezone":{"id":"Europe/Berlin"}}}}]`)
+		case "rob":
+			io.WriteString(w, `[{"login":"robert","fullName":"Robert"},{"login":"robin","fullName":"Robin"}]`)
+		case "solo":
+			io.WriteString(w, `[{"login":"solo.han","fullName":"Han"}]`)
+		default:
+			io.WriteString(w, `[]`)
+		}
+	})
+	cs := connect(t, api)
+
+	var u user
+	if isErr, text := call(t, cs, "find_user", map[string]any{"loginOrEmail": "bob"}, &u); isErr || u != (user{Login: "bob", FullName: "Bob", Email: "bob@x", TimeZone: "Europe/Berlin"}) {
+		t.Errorf("exact: isErr=%v %q %+v", isErr, text, u)
+	}
+	if isErr, text := call(t, cs, "find_user", map[string]any{"loginOrEmail": "solo"}, &u); isErr || u.Login != "solo.han" {
+		t.Errorf("single: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "find_user", map[string]any{"loginOrEmail": "me"}, &u); isErr || u.Login != "alice" {
+		t.Errorf("me: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "find_user", map[string]any{"loginOrEmail": "rob"}, nil); !isErr || !strings.Contains(text, "robert (Robert), robin (Robin)") {
+		t.Errorf("ambiguous: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "find_user", map[string]any{"loginOrEmail": "ghost"}, nil); !isErr || !strings.Contains(text, "no user matches") {
+		t.Errorf("missing: isErr=%v %q", isErr, text)
+	}
+}
+
+func TestFindTagsAndAttachmentList(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/tags", `[{"id":"6-1","name":"Backend","owner":{"login":"bob"}},{"id":"6-2","name":"frontend"}]`)
+	api.json("GET /api/issues/DEMO-7/attachments", `[{"id":"12-1","name":"a.txt","size":3,"mimeType":"text/plain","author":{"login":"bob"},"created":1767225600000}]`)
+	cs := connect(t, api)
+
+	var tags struct {
+		Tags  []apiTag
+		Total int
+	}
+	if isErr, text := call(t, cs, "find_tags", map[string]any{"nameContains": "END"}, &tags); isErr || tags.Total != 2 {
+		t.Errorf("find_tags: isErr=%v %q", isErr, text)
+	}
+	var list struct {
+		Attachments []map[string]any
+	}
+	if isErr, text := call(t, cs, "get_issue_attachments", map[string]any{"issueId": "DEMO-7"}, &list); isErr || len(list.Attachments) != 1 || list.Attachments[0]["author"] != "bob" {
+		t.Errorf("attachments: isErr=%v %q", isErr, text)
+	}
+	if isErr, text := call(t, cs, "get_attachment", map[string]any{"issueId": "DEMO-7", "attachment": "zzz"}, nil); !isErr || !strings.Contains(text, "a.txt (12-1)") {
+		t.Errorf("unknown attachment: isErr=%v %q", isErr, text)
+	}
+}

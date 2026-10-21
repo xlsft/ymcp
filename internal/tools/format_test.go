@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFlattenFields(t *testing.T) {
@@ -74,5 +75,40 @@ func TestMatchTagPrefersOwnTag(t *testing.T) {
 	}
 	if _, err := matchTag(tags, "zzz", "alice"); err == nil || !strings.Contains(err.Error(), "available tags: Star (6-1), Star (6-2), backend (6-3)") {
 		t.Errorf("not found = %v", err)
+	}
+}
+
+func TestParsersAndDates(t *testing.T) {
+	for in, want := range map[string]string{
+		"2026-01-02":           "2026-01-02T12:00:00Z",
+		"2026-01-02T03:04:05Z": "2026-01-02T03:04:05Z",
+	} {
+		got, err := parseWorkDate(in)
+		if err != nil || got.UTC().Format(time.RFC3339) != want {
+			t.Errorf("parseWorkDate(%q) = %v, %v", in, got.UTC(), err)
+		}
+	}
+	for _, in := range []string{"2026-01-02 10:15:00", "2026-01-02T10:15:00", "2026-01-02 10:15"} {
+		if got, err := parseWorkDate(in); err != nil || got.Hour() != 10 || got.Minute() != 15 {
+			t.Errorf("parseWorkDate(%q) = %v, %v", in, got, err)
+		}
+	}
+	if _, err := parseWorkDate("yesterday"); err == nil {
+		t.Error("bad date accepted")
+	}
+	if n, err := toNumber("4.5"); err != nil || n != 4.5 {
+		t.Errorf("toNumber string = %v, %v", n, err)
+	}
+	if n, err := toNumber(json.Number("7")); err != nil || n != 7 {
+		t.Errorf("toNumber json.Number = %v, %v", n, err)
+	}
+	if _, err := toNumber(true); err == nil {
+		t.Error("toNumber(bool) accepted")
+	}
+	if asDate(float64(1767225600000)) != "2026-01-01T00:00:00Z" || asDate("x") != "x" {
+		t.Error("asDate")
+	}
+	if formatMinutes(0) != "0m" || formatMinutes(45) != "45m" || formatMinutes(120) != "2h" || formatMinutes(135) != "2h 15m" {
+		t.Error("formatMinutes")
 	}
 }
