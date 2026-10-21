@@ -1,0 +1,35 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * *"
+
+permissions:
+  contents: read
+
+# The tests share one YouTrack instance, so runs never overlap.
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    # Secrets aren't available to pull requests from forks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: go test -tags e2e
+        env:
+          YOUTRACK_E2E_ENDPOINT: ${{ secrets.YOUTRACK_E2E_ENDPOINT }}
+          YOUTRACK_E2E_LOGIN: ${{ secrets.YOUTRACK_E2E_LOGIN }}
+          YOUTRACK_E2E_PASSWORD: ${{ secrets.YOUTRACK_E2E_PASSWORD }}
+        run: go test -tags e2e -count=1 -v ./e2e
