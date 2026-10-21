@@ -1294,3 +1294,48 @@ func TestVcsChanges(t *testing.T) {
 		t.Errorf("changes =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestTagAndSavedSearchAdmin(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("GET /api/tags", `[{"id":"6-1","name":"backend","owner":{"login":"bob"}},{"id":"6-2","name":"backend","owner":{"login":"alice"}}]`)
+	api.json("POST /api/tags", `{"id":"6-3","name":"new"}`)
+	api.json("POST /api/tags/6-2", `{"id":"6-2","name":"api"}`)
+	api.json("GET /api/savedQueries", `[{"id":"11-1","name":"Mine","query":"for: me","owner":{"login":"bob"}},{"id":"11-2","name":"mine","query":"for: me","owner":{"login":"alice"}}]`)
+	api.json("POST /api/savedQueries", `{"id":"11-3","name":"Bugs","query":"Type: Bug"}`)
+	api.json("POST /api/savedQueries/11-2", `{"id":"11-2","name":"mine","query":"for: me #Unresolved"}`)
+	var mu sync.Mutex
+	var deleted []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		deleted = append(deleted, r.URL.Path)
+		mu.Unlock()
+	}
+	api.handle("DELETE /api/tags/6-2", record)
+	api.handle("DELETE /api/savedQueries/11-2", record)
+	cs := connect(t, api)
+
+	for _, st := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"create_tag", map[string]any{"name": "new"}},
+		{"update_tag", map[string]any{"tag": "backend", "name": "api"}},
+		{"delete_tag", map[string]any{"tag": "backend"}},
+		{"create_saved_search", map[string]any{"name": "Bugs", "query": "Type: Bug"}},
+		{"update_saved_search", map[string]any{"search": "MINE", "query": "for: me #Unresolved"}},
+		{"delete_saved_search", map[string]any{"search": "mine"}},
+	} {
+		if isErr, text := call(t, cs, st.tool, st.args, nil); isErr {
+			t.Fatalf("%s: %s", st.tool, text)
+		}
+	}
+	if b := api.bodies("/api/tags/6-2"); len(b) != 1 || b[0]["name"] != "api" {
+		t.Errorf("rename hit the wrong tag: %v", b)
+	}
+	if b := api.bodies("/api/savedQueries/11-2"); len(b) != 1 || b[0]["query"] != "for: me #Unresolved" {
+		t.Errorf("saved search update = %v", b)
+	}
+	if strings.Join(deleted, ",") != "/api/tags/6-2,/api/savedQueries/11-2" {
+		t.Errorf("deleted = %v", deleted)
+	}
+}
