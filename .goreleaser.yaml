@@ -13,6 +13,8 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{ .Version }}
+    # Reproducible: the same commit builds byte-identical binaries.
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: ymcp
@@ -22,9 +24,17 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    # Archives carry the commit's time, not the build's, so they and their
+    # checksums come out the same for every build of a commit.
+    builds_info:
+      mtime: "{{ .CommitDate }}"
     files:
-      - README.md
-      - LICENSE*
+      - src: README.md
+        info:
+          mtime: "{{ .CommitDate }}"
+      - src: LICENSE*
+        info:
+          mtime: "{{ .CommitDate }}"
 
 checksum:
   name_template: checksums.txt
