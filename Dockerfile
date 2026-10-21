@@ -11,7 +11,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/ymcp ./cmd/ymcp
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION#v}" -o /out/ymcp ./cmd/ymcp
 RUN mkdir -p /out/config
 
 FROM gcr.io/distroless/static-debian12:nonroot
