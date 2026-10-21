@@ -20,8 +20,13 @@ type createIssueIn struct {
 	ParentIssue  string         `json:"parentIssue,omitempty" jsonschema:"ID of the parent issue; the new issue becomes its subtask"`
 }
 
+type createDraftIssueIn struct {
+	Project string `json:"project" jsonschema:"Project key, e.g. DEMO"`
+	Summary string `json:"summary" jsonschema:"Draft summary"`
+}
+
 type updateIssueIn struct {
-	IssueID      string         `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	IssueID      string         `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123, or draft ID, e.g. 3-22"`
 	Summary      *string        `json:"summary,omitempty" jsonschema:"New summary"`
 	Description  *string        `json:"description,omitempty" jsonschema:"New description, plain text or Markdown"`
 	CustomFields map[string]any `json:"customFields,omitempty" jsonschema:"Custom fields to change, keyed by exact field name from get_issue_fields_schema. null clears a field."`
@@ -48,6 +53,13 @@ func (t *toolset) registerIssueEdit(s *mcp.Server) {
 			"If the project is not known, ask the user. Returns the issue ID and URL.",
 		Annotations: mutating("Create issue", false),
 	}, t.createIssue)
+
+	add(s, &mcp.Tool{
+		Name: "create_draft_issue",
+		Description: "Creates an issue draft visible only to the current user. Fill it in with update_issue " +
+			"using the returned draft ID. Returns the draft ID (e.g. 3-22) and URL.",
+		Annotations: mutating("Create draft issue", false),
+	}, t.createDraftIssue)
 
 	add(s, &mcp.Tool{
 		Name: "update_issue",
@@ -115,7 +127,25 @@ func (t *toolset) createIssue(ctx context.Context, in createIssueIn) (any, error
 	return out, nil
 }
 
+func (t *toolset) createDraftIssue(ctx context.Context, in createDraftIssueIn) (any, error) {
+	p, err := t.resolveProject(ctx, in.Project)
+	if err != nil {
+		return nil, err
+	}
+	var draft struct {
+		ID string `json:"id"`
+	}
+	body := map[string]any{"project": map[string]any{"id": p.ID}, "summary": in.Summary}
+	if err := t.yt.Post(ctx, "admin/users/me/drafts", url.Values{"fields": {"id"}}, body, &draft); err != nil {
+		return nil, err
+	}
+	return map[string]any{"draftId": draft.ID, "url": t.issueURL(draft.ID)}, nil
+}
+
 func (t *toolset) updateIssue(ctx context.Context, in updateIssueIn) (any, error) {
+	if isDraft(in.IssueID) && (in.Subscription != nil || in.Vote != nil) {
+		return nil, fmt.Errorf("drafts can't be starred or voted for")
+	}
 	body := map[string]any{}
 	var changed []string
 	if in.Summary != nil {
@@ -137,7 +167,7 @@ func (t *toolset) updateIssue(ctx context.Context, in updateIssueIn) (any, error
 		}
 	}
 	if len(body) > 0 {
-		if err := t.yt.Post(ctx, "issues/"+url.PathEscape(in.IssueID), url.Values{"fields": {"idReadable"}}, body, nil); err != nil {
+		if err := t.yt.Post(ctx, issuePath(in.IssueID), url.Values{"fields": {"id"}}, body, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -172,10 +202,21 @@ func (t *toolset) changeIssueAssignee(ctx context.Context, in changeIssueAssigne
 		CustomFields []customField `json:"customFields"`
 	}
 	q := url.Values{"fields": {"customFields(" + customFieldValueFields + ")"}, "customFields": {"Assignee"}}
-	if err := t.yt.Post(ctx, "issues/"+url.PathEscape(in.IssueID), q, map[string]any{"customFields": fields}, &updated); err != nil {
+	if err := t.yt.Post(ctx, issuePath(in.IssueID), q, map[string]any{"customFields": fields}, &updated); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": in.IssueID, "assignee": flattenFields(updated.CustomFields)["Assignee"]}, nil
+}
+
+// isDraft reports whether id is a draft's database ID rather than a readable issue ID.
+func isDraft(id string) bool { return dbID.MatchString(id) }
+
+// issuePath is the REST path of an issue or, for draft IDs, of the current user's draft.
+func issuePath(id string) string {
+	if isDraft(id) {
+		return "admin/users/me/drafts/" + url.PathEscape(id)
+	}
+	return "issues/" + url.PathEscape(id)
 }
 
 // issueProject returns the project an issue belongs to.
@@ -183,7 +224,7 @@ func (t *toolset) issueProject(ctx context.Context, issueID string) (apiProjectR
 	var is struct {
 		Project apiProjectRef `json:"project"`
 	}
-	err := t.yt.Get(ctx, "issues/"+url.PathEscape(issueID), url.Values{"fields": {"project(id,shortName)"}}, &is)
+	err := t.yt.Get(ctx, issuePath(issueID), url.Values{"fields": {"project(id,shortName)"}}, &is)
 	return is.Project, err
 }
 

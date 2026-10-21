@@ -70,6 +70,9 @@ const (
 )
 
 func (t *toolset) issueURL(id string) string {
+	if isDraft(id) {
+		return t.yt.BaseURL() + "/newIssue?draftId=" + url.QueryEscape(id)
+	}
 	return t.yt.BaseURL() + "/issue/" + id
 }
 
@@ -93,7 +96,7 @@ type issueBrief struct {
 }
 
 type getIssueIn struct {
-	IssueID             string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123"`
+	IssueID             string `json:"issueId" jsonschema:"Issue ID, e.g. DEMO-123, or draft ID, e.g. 3-22"`
 	RecentCommentsCount *int   `json:"recentCommentsCount,omitempty" jsonschema:"How many latest comments to include. Default 5."`
 }
 
@@ -189,7 +192,7 @@ func (t *toolset) searchIssues(ctx context.Context, in searchIssuesIn) (any, err
 
 func (t *toolset) getIssue(ctx context.Context, in getIssueIn) (any, error) {
 	var is apiIssue
-	if err := t.yt.Get(ctx, "issues/"+url.PathEscape(in.IssueID), url.Values{"fields": {issueFullFields}}, &is); err != nil {
+	if err := t.yt.Get(ctx, issuePath(in.IssueID), url.Values{"fields": {issueFullFields}}, &is); err != nil {
 		return nil, err
 	}
 

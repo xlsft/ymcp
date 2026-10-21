@@ -390,3 +390,32 @@ func TestLogWork(t *testing.T) {
 		t.Error("zero duration should be rejected")
 	}
 }
+
+func TestDraftIssue(t *testing.T) {
+	api := newFakeAPI(t)
+	api.json("POST /api/admin/users/me/drafts", `{"id":"3-22"}`)
+	api.json("GET /api/admin/users/me/drafts/3-22", `{"project":{"id":"0-1","shortName":"DEMO"}}`)
+	api.json("POST /api/admin/users/me/drafts/3-22", `{"id":"3-22"}`)
+	cs := connect(t, api)
+
+	var draft struct{ DraftID, URL string }
+	if isErr, text := call(t, cs, "create_draft_issue", map[string]any{"project": "DEMO", "summary": "idea"}, &draft); isErr {
+		t.Fatal(text)
+	}
+	if draft.DraftID != "3-22" || !strings.HasSuffix(draft.URL, "/newIssue?draftId=3-22") {
+		t.Errorf("draft = %+v", draft)
+	}
+	if b := api.bodies("/api/admin/users/me/drafts"); len(b) != 1 || b[0]["summary"] != "idea" {
+		t.Errorf("create body = %v", b)
+	}
+
+	if isErr, text := call(t, cs, "update_issue", map[string]any{"issueId": "3-22", "description": "more", "customFields": map[string]any{"State": "Open"}}, nil); isErr {
+		t.Fatal(text)
+	}
+	if b := api.bodies("/api/admin/users/me/drafts/3-22"); len(b) != 1 || b[0]["description"] != "more" {
+		t.Errorf("update body = %v", b)
+	}
+	if isErr, _ := call(t, cs, "update_issue", map[string]any{"issueId": "3-22", "vote": true}, nil); !isErr {
+		t.Error("voting for a draft should fail")
+	}
+}
