@@ -51,6 +51,7 @@ Run `ymcp setup` again at any time to add or remove clients.
 | `ymcp auth` | Set or replace the URL, login and password. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
+| `ymcp logs` | Show what the server did; `-f` follows the log live, `-n 200` shows more lines |
 | `ymcp update` | Replace the binary with the latest release (`--check` only reports) |
 | `ymcp version` | Print the version |
 
@@ -108,6 +109,27 @@ Environment variables override the stored values. That's handy for CI or for sev
 
 > **Behind a VPN?** If an outbound proxy is set in your environment, requests may bypass the internal DNS.
 > Set the proxy to `none`. When something other than YouTrack answers, ymcp says so instead of failing with a JSON error.
+
+### Logs
+
+The server logs its start, every client that connects and every tool call. Each line has the arguments, how long the
+call took and any error. Sign-ins are logged too. The log goes to stderr, which clients like Claude Desktop keep in
+their own MCP logs. It is also appended to a file, so you can watch it while a client runs ymcp:
+
+```sh
+ymcp logs -f
+```
+
+The file is `~/Library/Logs/ymcp/ymcp.log` on macOS, `~/.local/state/ymcp/ymcp.log` on Linux and
+`%LOCALAPPDATA%\ymcp\logs\ymcp.log` on Windows. It rotates at 5 MB.
+
+| Setting | |
+|---|---|
+| `ymcp -v serve` or `YMCP_LOG_LEVEL=debug` | Also log every YouTrack and Hub request with status and timing |
+| `YMCP_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error` |
+| `YMCP_LOG_FILE` | Another path for the file, or `off` |
+
+To log at debug level from a client, add `"env": {"YMCP_LOG_LEVEL": "debug"}` to its ymcp entry.
 
 ### Supported clients
 
