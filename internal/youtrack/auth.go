@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,6 +38,9 @@ type hubAuth struct {
 	http     *http.Client // no redirects, own cookie jar
 	now      func() time.Time
 	log      *slog.Logger
+	// bypassProxy, when set, switches the environment's proxy off; nil when
+	// the proxy was configured explicitly.
+	bypassProxy *atomic.Bool
 
 	mu        sync.Mutex
 	hubURL    *url.URL
@@ -128,10 +132,34 @@ func (a *hubAuth) HubURL(ctx context.Context) (*url.URL, error) {
 
 // discover reads the Hub location and the YouTrack service ID from the
 // public frontend config.
+//
+// An HTTP(S)_PROXY meant for the internet often can't reach a YouTrack on
+// the internal network: it resolves the name publicly and gets a parking
+// page or an error instead. When that happens with the environment's proxy,
+// discover retries directly and, if that works, stays direct.
 func (a *hubAuth) discover(ctx context.Context) error {
 	if a.serviceID != "" {
 		return nil
 	}
+	err := a.discoverOnce(ctx)
+	if err == nil || a.bypassProxy == nil || a.bypassProxy.Load() {
+		return err
+	}
+	proxy, _ := envProxy(&http.Request{URL: a.baseURL})
+	if proxy == nil {
+		return err
+	}
+	a.bypassProxy.Store(true)
+	a.http.CloseIdleConnections()
+	if directErr := a.discoverOnce(ctx); directErr != nil {
+		a.bypassProxy.Store(false)
+		return fmt.Errorf("%w; directly, without the proxy %s: %v", err, proxy.Host, directErr)
+	}
+	a.log.Info("the proxy from HTTP(S)_PROXY doesn't reach YouTrack; connecting directly", "proxy", proxy.Host)
+	return nil
+}
+
+func (a *hubAuth) discoverOnce(ctx context.Context) error {
 	u := a.baseURL.JoinPath("api", "config")
 	u.RawQuery = "fields=ring(url,serviceId)"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

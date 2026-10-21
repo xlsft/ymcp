@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -61,9 +62,18 @@ func New(opts Options) (*Client, error) {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = dialIPv4First
+	var bypass *atomic.Bool
 	switch opts.Proxy {
 	case "":
-		transport.Proxy = http.ProxyFromEnvironment
+		// The environment's proxy, unless it turns out not to reach YouTrack
+		// (see hubAuth.discover).
+		bypass = new(atomic.Bool)
+		transport.Proxy = func(r *http.Request) (*url.URL, error) {
+			if bypass.Load() {
+				return nil, nil
+			}
+			return envProxy(r)
+		}
 	case "none", "direct":
 		transport.Proxy = nil
 	default:
@@ -84,6 +94,7 @@ func New(opts Options) (*Client, error) {
 	}
 	auth := newHubAuth(u, opts.Login, opts.Password, transport, timeout)
 	auth.log = logger
+	auth.bypassProxy = bypass
 	return &Client{
 		baseURL: u,
 		auth:    auth,
@@ -91,6 +102,9 @@ func New(opts Options) (*Client, error) {
 		log:     logger,
 	}, nil
 }
+
+// envProxy finds the proxy from HTTP(S)_PROXY and NO_PROXY; tests replace it.
+var envProxy = http.ProxyFromEnvironment
 
 // dialIPv4First connects over IPv4 first and falls back to dual stack.
 //

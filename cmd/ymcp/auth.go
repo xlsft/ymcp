@@ -131,7 +131,7 @@ func credentialsForm(cfg *config.Config) *huh.Form {
 				Validate(nonEmpty("password")),
 			huh.NewInput().
 				Title("Proxy").
-				Description(`Empty: use HTTP(S)_PROXY · "none": connect directly · or a proxy URL`).
+				Description(`Empty: HTTP(S)_PROXY, or direct if it can't reach YouTrack · "none": always direct · or a proxy URL`).
 				Value(&cfg.Proxy),
 		),
 	).WithTheme(huh.ThemeBase16())

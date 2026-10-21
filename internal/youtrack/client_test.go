@@ -1,12 +1,18 @@
 package youtrack
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,5 +214,57 @@ func TestDownloadAndUpload(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Name != "a.txt" || out[0].Size != 5 {
 		t.Errorf("upload = %+v", out)
+	}
+}
+
+// parkingProxy answers every proxied request like a domain parking page.
+func parkingProxy(t *testing.T) (*url.URL, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("<html>lander</html>"))
+	}))
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL)
+	return u, &hits
+}
+
+func TestEnvProxyThatMissesYouTrackIsBypassed(t *testing.T) {
+	proxy, hits := parkingProxy(t)
+	orig := envProxy
+	envProxy = func(*http.Request) (*url.URL, error) { return proxy, nil }
+	t.Cleanup(func() { envProxy = orig })
+
+	f := youtracktest.New(t, http.HandlerFunc(meHandler))
+	var logs bytes.Buffer
+	c, err := New(Options{BaseURL: f.URL, Login: youtracktest.Login, Password: youtracktest.Password,
+		Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var me struct{ Login string }
+	if err := c.Get(context.Background(), "users/me", nil, &me); err != nil {
+		t.Fatal(err)
+	}
+	if me.Login != "alice" || hits.Load() != 1 {
+		t.Errorf("login=%q proxy hits=%d, want alice and one probe through the proxy", me.Login, hits.Load())
+	}
+	if !strings.Contains(logs.String(), "connecting directly") {
+		t.Errorf("fallback not logged: %s", logs.String())
+	}
+}
+
+func TestExplicitProxyIsNotBypassed(t *testing.T) {
+	proxy, _ := parkingProxy(t)
+	f := youtracktest.New(t, http.HandlerFunc(meHandler))
+	c, err := New(Options{BaseURL: f.URL, Login: youtracktest.Login, Password: youtracktest.Password, Proxy: proxy.String()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(context.Background(), "users/me", nil, nil); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Errorf("err = %v, want the proxy's 404", err)
 	}
 }
