@@ -268,3 +268,20 @@ func TestExplicitProxyIsNotBypassed(t *testing.T) {
 		t.Errorf("err = %v, want the proxy's 404", err)
 	}
 }
+
+func TestNormalizeURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"yt.example.com":         "https://yt.example.com",
+		" yt.example.com/ ":      "https://yt.example.com",
+		"http://yt.local:8080/":  "http://yt.local:8080",
+		"https://yt.example.com": "https://yt.example.com",
+		"":                       "",
+	} {
+		if got := NormalizeURL(in); got != want {
+			t.Errorf("NormalizeURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if _, err := New(Options{BaseURL: "yt.example.com", Login: "a", Password: "b"}); err != nil {
+		t.Errorf("host-only URL rejected: %v", err)
+	}
+}

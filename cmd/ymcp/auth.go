@@ -66,7 +66,7 @@ func authenticate(ctx context.Context, cfg config.Config, ask bool) (config.Conf
 	if !cfg.Complete() {
 		return cfg, errors.New("URL, login and password are required (run in a terminal, or pass --url, --login and --password-stdin)")
 	}
-	cfg.URL = strings.TrimRight(strings.TrimSpace(cfg.URL), "/")
+	cfg.URL = youtrack.NormalizeURL(cfg.URL)
 
 	var me user
 	var verifyErr error
@@ -114,7 +114,7 @@ func credentialsForm(cfg *config.Config) *huh.Form {
 				Placeholder("https://youtrack.example.com").
 				Value(&cfg.URL).
 				Validate(func(s string) error {
-					u, err := url.Parse(strings.TrimSpace(s))
+					u, err := url.Parse(youtrack.NormalizeURL(s))
 					if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 						return errors.New("enter a full URL, e.g. https://youtrack.example.com")
 					}

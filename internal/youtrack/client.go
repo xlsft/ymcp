@@ -51,7 +51,7 @@ func New(opts Options) (*Client, error) {
 	if opts.Login == "" || opts.Password == "" {
 		return nil, fmt.Errorf("youtrack: login and password are required")
 	}
-	u, err := url.Parse(strings.TrimRight(opts.BaseURL, "/"))
+	u, err := url.Parse(NormalizeURL(opts.BaseURL))
 	if err != nil {
 		return nil, fmt.Errorf("youtrack: parse base URL: %w", err)
 	}
@@ -101,6 +101,16 @@ func New(opts Options) (*Client, error) {
 		http:    &http.Client{Transport: transport, Timeout: timeout},
 		log:     logger,
 	}, nil
+}
+
+// NormalizeURL trims an instance URL and adds https:// when only a host
+// (youtrack.example.com) was given.
+func NormalizeURL(raw string) string {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw != "" && !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	return raw
 }
 
 // envProxy finds the proxy from HTTP(S)_PROXY and NO_PROXY; tests replace it.
