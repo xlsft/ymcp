@@ -9,8 +9,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its older CI. Runs called by Release
+# get a group of their own: sharing ci-refs/heads/main let a newer release
+# cancel an older one's CI and then wait behind its stuck jobs.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-run-{0}', github.run_id) }}
   cancel-in-progress: true
 
 jobs:
