@@ -274,20 +274,55 @@ func sweep() {
 	}
 }
 
-// sweepUsers deletes YouTrack accounts of earlier runs, which made a user
-// per run: deleting them in Hub left them in YouTrack, taking up seats of
-// the license. Best effort, and not part of the leftovers check.
+// sweepUsers frees the license seats taken by earlier runs, which made a
+// user per run: deleting them in Hub left them in YouTrack. It deletes
+// them, handing their content to the admin, or failing that bans them,
+// since banned users don't count. Best effort, not in the leftovers check.
 func sweepUsers() {
 	t := &sweepT{}
-	var users []struct{ ID, Login string }
-	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login", "query": marker + "-user-", "$top": -1}})
+	var me struct{ ID, Login string }
+	json.Unmarshal([]byte(call(t, "call_api", map[string]any{"method": "GET", "path": "users/me", "query": map[string]any{"fields": "id,login"}}).text), &me)
+	var users []struct {
+		ID, Login string
+		Banned    bool
+	}
+	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login,banned", "query": marker + "-user-", "$top": -1}})
 	json.Unmarshal([]byte(r.text), &users)
 	for _, u := range users {
 		if !strings.HasPrefix(u.Login, marker+"-user-") {
 			continue
 		}
-		d := call(t, "call_api", map[string]any{"method": "DELETE", "path": "users/" + u.ID})
-		fmt.Printf("e2e: sweep YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
+		attempts := []map[string]any{
+			{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.ID}},
+			{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.Login}},
+		}
+		if !u.Banned {
+			attempts = append(attempts, map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
+		}
+		for _, args := range attempts {
+			d := call(t, "call_api", args)
+			fmt.Printf("e2e: sweep YouTrack user %s: %s %v: error=%v %s\n", u.Login, args["method"], args["query"], d.isError, shortText(d.text))
+			if !d.isError {
+				break
+			}
+		}
+	}
+}
+
+// unbanMember lifts a ban YouTrack put on the member account when the
+// license had no seat left for it.
+func unbanMember(t *testing.T) {
+	t.Helper()
+	var users []struct {
+		ID, Login string
+		Banned    bool
+	}
+	api(t, "GET", "users", map[string]any{"fields": "id,login,banned", "query": memberLogin}, nil, &users)
+	for _, u := range users {
+		if u.Login == memberLogin && u.Banned {
+			r := call(t, "call_api", map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": false}})
+			t.Logf("unbanning %s in YouTrack: error=%v %s", memberLogin, r.isError, shortText(r.text))
+		}
 	}
 }
 

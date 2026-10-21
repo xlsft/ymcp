@@ -64,6 +64,7 @@ func TestRegularUser(t *testing.T) {
 	login := memberLogin
 	hubID := ensureMember(t)
 
+	unbanMember(t)
 	f := newFixture(t)
 	user, err := startServer("user", login, memberPassword())
 	if err != nil {
