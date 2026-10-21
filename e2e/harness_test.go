@@ -275,12 +275,15 @@ func sweep() {
 }
 
 // sweepUsers frees license seats taken by marked accounts other than the
-// member: earlier runs made a user per run, and deleting them in Hub left
-// them in YouTrack. Deleting them there needs a Hub-scoped token, so it
-// bans them; banned users don't count. Best effort, not in the leftovers
-// check.
+// member. It deletes them in YouTrack, handing their content to the admin,
+// which needs the Hub-scoped token ymcp fetches when asked, and bans those
+// it can't delete; banned users don't count. Accounts already gone from
+// Hub linger in YouTrack banned and can't be deleted, so banned ones are
+// left alone. Best effort, not part of the leftovers check.
 func sweepUsers() {
 	t := &sweepT{}
+	var me struct{ ID string }
+	json.Unmarshal([]byte(call(t, "call_api", map[string]any{"method": "GET", "path": "users/me", "query": map[string]any{"fields": "id"}}).text), &me)
 	var users []struct {
 		ID, Login string
 		Banned    bool
@@ -291,8 +294,12 @@ func sweepUsers() {
 		if !strings.HasPrefix(u.Login, marker) || u.Login == memberLogin || u.Banned {
 			continue
 		}
-		d := call(t, "call_api", map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
-		fmt.Printf("e2e: ban YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
+		d := call(t, "call_api", map[string]any{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.ID}})
+		fmt.Printf("e2e: delete YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
+		if d.isError {
+			b := call(t, "call_api", map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
+			fmt.Printf("e2e: ban YouTrack user %s: error=%v\n", u.Login, b.isError)
+		}
 	}
 }
 
