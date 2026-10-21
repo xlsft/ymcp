@@ -41,7 +41,11 @@ jobs:
         with:
           go-version-file: go.mod
       - name: go test
-        run: go test -race -count=1 -coverprofile=coverage.out ./... | tee test.out
+        # pipefail: the default shell would let tee hide a failing go test.
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -race -count=1 -coverprofile=coverage.out ./... | tee test.out
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest'
         run: |
