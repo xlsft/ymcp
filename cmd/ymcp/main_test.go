@@ -1,0 +1,110 @@
+package main
+
+import (
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/zalando/go-keyring"
+
+	"github.com/xlsft/ymcp/internal/youtrack/youtracktest"
+)
+
+// captureStdout runs f and returns what it printed to stdout.
+func captureStdout(t *testing.T, f func() error) (string, error) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string)
+	go func() {
+		data, _ := io.ReadAll(r)
+		done <- string(data)
+	}()
+	ferr := f()
+	w.Close()
+	os.Stdout = old
+	return <-done, ferr
+}
+
+// isolate points config, log and credentials at a temp dir.
+func isolate(t *testing.T) string {
+	t.Helper()
+	keyring.MockInit()
+	dir := t.TempDir()
+	t.Setenv("YMCP_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("YMCP_LOG_FILE", filepath.Join(dir, "ymcp.log"))
+	t.Setenv("YMCP_LOG_LEVEL", "")
+	for _, k := range []string{"YOUTRACK_URL", "YOUTRACK_LOGIN", "YOUTRACK_PASSWORD", "YOUTRACK_PROXY"} {
+		t.Setenv(k, "")
+	}
+	return dir
+}
+
+func TestRunVersionHelpAndUnknown(t *testing.T) {
+	isolate(t)
+	out, err := captureStdout(t, func() error { return run([]string{"version"}) })
+	if err != nil || out != "ymcp dev\n" {
+		t.Errorf("version = %q, %v", out, err)
+	}
+	out, err = captureStdout(t, func() error { return run([]string{"help"}) })
+	if err != nil || !strings.Contains(out, "Commands:") {
+		t.Errorf("help = %q, %v", out, err)
+	}
+	if err := run([]string{"nope"}); err == nil || !strings.Contains(err.Error(), `unknown command "nope"`) {
+		t.Errorf("unknown command err = %v", err)
+	}
+}
+
+func TestCheckWithoutConfig(t *testing.T) {
+	isolate(t)
+	if err := run([]string{"check"}); err == nil || !strings.Contains(err.Error(), "ymcp auth") {
+		t.Errorf("err = %v, want a hint to run ymcp auth", err)
+	}
+}
+
+func TestCallAgainstFakeYouTrack(t *testing.T) {
+	dir := isolate(t)
+	f := youtracktest.New(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"login":"alice","fullName":"Alice"}`))
+	}))
+	envFile := filepath.Join(dir, ".env")
+	os.WriteFile(envFile, []byte("YOUTRACK_URL="+f.URL+"\nYOUTRACK_LOGIN="+youtracktest.Login+"\nYOUTRACK_PASSWORD="+youtracktest.Password+"\n"), 0o600)
+	t.Setenv("YOUTRACK_PROXY", "none")
+	// --env only fills variables that aren't set; isolate set them empty.
+	for _, k := range []string{"YOUTRACK_URL", "YOUTRACK_LOGIN", "YOUTRACK_PASSWORD"} {
+		os.Unsetenv(k)
+	}
+
+	out, err := captureStdout(t, func() error { return run([]string{"--env", envFile, "call", "get_current_user"}) })
+	if err != nil || !strings.Contains(out, `"login": "alice"`) {
+		t.Fatalf("call = %q, %v", out, err)
+	}
+	log, _ := os.ReadFile(filepath.Join(dir, "ymcp.log"))
+	for _, want := range []string{"signed in", "tool=get_current_user", "pid="} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("log lacks %q:\n%s", want, log)
+		}
+	}
+
+	out, err = captureStdout(t, func() error { return run([]string{"check"}) })
+	if err != nil || !strings.Contains(out, "logged in to "+f.URL+" as alice") {
+		t.Errorf("check = %q, %v", out, err)
+	}
+	if _, err := captureStdout(t, func() error { return run([]string{"call", "nope"}) }); err == nil {
+		t.Error("unknown tool accepted")
+	}
+	if err := run([]string{"call", "get_current_user", "{not json"}); err == nil {
+		t.Error("bad JSON arguments accepted")
+	}
+	if err := run([]string{"call"}); err == nil {
+		t.Error("call without a tool accepted")
+	}
+}
