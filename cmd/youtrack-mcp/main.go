@@ -36,9 +36,10 @@ func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	yt, err := youtrack.New(youtrack.Options{
-		BaseURL: os.Getenv("YOUTRACK_URL"),
-		Token:   os.Getenv("YOUTRACK_TOKEN"),
-		Proxy:   os.Getenv("YOUTRACK_PROXY"),
+		BaseURL:  os.Getenv("YOUTRACK_URL"),
+		Login:    os.Getenv("YOUTRACK_LOGIN"),
+		Password: os.Getenv("YOUTRACK_PASSWORD"),
+		Proxy:    os.Getenv("YOUTRACK_PROXY"),
 	})
 	if err != nil {
 		return err

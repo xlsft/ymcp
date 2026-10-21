@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-// Client talks to a single YouTrack instance on behalf of one token.
+// Client talks to a single YouTrack instance on behalf of one user.
 type Client struct {
 	baseURL *url.URL
-	token   string
+	auth    *hubAuth
 	http    *http.Client
 }
 
@@ -25,8 +25,9 @@ type Options struct {
 	// BaseURL is the instance root, e.g. https://youtrack.example.com.
 	// A trailing /api is tolerated.
 	BaseURL string
-	// Token is a permanent token (perm:...).
-	Token string
+	// Login and Password of the YouTrack (Hub) account, LDAP included.
+	Login    string
+	Password string
 	// Proxy selects the outbound proxy: "" honours HTTP(S)_PROXY,
 	// "none" connects directly, anything else is used as the proxy URL.
 	Proxy string
@@ -39,8 +40,8 @@ func New(opts Options) (*Client, error) {
 	if opts.BaseURL == "" {
 		return nil, fmt.Errorf("youtrack: base URL is required")
 	}
-	if opts.Token == "" {
-		return nil, fmt.Errorf("youtrack: token is required")
+	if opts.Login == "" || opts.Password == "" {
+		return nil, fmt.Errorf("youtrack: login and password are required")
 	}
 	u, err := url.Parse(strings.TrimRight(opts.BaseURL, "/"))
 	if err != nil {
@@ -71,7 +72,7 @@ func New(opts Options) (*Client, error) {
 	}
 	return &Client{
 		baseURL: u,
-		token:   opts.Token,
+		auth:    newHubAuth(u, opts.Login, opts.Password, transport, timeout),
 		http:    &http.Client{Transport: transport, Timeout: timeout},
 	}, nil
 }
@@ -105,34 +106,21 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	u.Path = u.Path + "/api/" + strings.TrimLeft(path, "/")
 	u.RawQuery = query.Encode()
 
-	var rdr io.Reader
+	var payload []byte
 	if body != nil {
-		buf, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if payload, err = json.Marshal(body); err != nil {
 			return fmt.Errorf("youtrack: encode body: %w", err)
 		}
-		rdr = bytes.NewReader(buf)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), rdr)
+	resp, data, err := c.send(ctx, method, &u, payload)
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		// The token may have been revoked before its expiry; log in again once.
+		resp, data, err = c.send(ctx, method, &u, payload)
+	}
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("youtrack: %s %s: %w", method, u.Path, err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("youtrack: read response: %w", err)
 	}
 	if resp.StatusCode/100 != 2 {
 		e := &Error{Status: resp.StatusCode, Body: string(data)}
@@ -154,6 +142,41 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		return fmt.Errorf("youtrack: decode response: %w", err)
 	}
 	return nil
+}
+
+// send makes one authenticated attempt and returns the full response body.
+func (c *Client) send(ctx context.Context, method string, u *url.URL, payload []byte) (*http.Response, []byte, error) {
+	token, err := c.auth.Token(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rdr io.Reader
+	if payload != nil {
+		rdr = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), rdr)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("youtrack: %s %s: %w", method, u.Path, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("youtrack: read response: %w", err)
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		c.auth.Invalidate(token)
+	}
+	return resp, data, nil
 }
 
 // Get is Do with GET.
