@@ -1,182 +1,149 @@
-# ymcp
+<p align="center">
+  <img src="docs/banner.svg" alt="ymcp — It’s fun to fetch with the YMCP" width="100%">
+</p>
 
-Внешний MCP-сервер для self-hosted YouTrack на Go. Запускается локально, ходит в YouTrack
-по REST API от имени пользователя (логин + пароль) и повторяет набор инструментов
-встроенного MCP-сервера YouTrack: те же имена, параметры и лимиты пагинации.
+<p align="center">
+  <a href="https://github.com/xlsft/ymcp/actions/workflows/ci.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
+</p>
 
-Статус: **PoC**. Реализованы все 23 инструмента официального набора и 14 дополнительных: удаление,
-списанное время, agile-доски и спринты. Всё проверено на живом инстансе, кроме пишущих инструментов спринтов.
+**ymcp** is a local [MCP](https://modelcontextprotocol.io) server for [YouTrack](https://www.jetbrains.com/youtrack/),
+including self-hosted instances behind a VPN. It speaks for you with your **login and password**, ships every tool of
+YouTrack’s built-in MCP server under the same names, and adds the ones it lacks: deleting things, sprints, attachments,
+history, time reports, commands and more.
 
-## Инструменты официального набора
+- **55 tools**: the 23 built-in ones, same names, arguments and limits, plus 32 extras
+- **Signs in like the web UI**, so there is no admin-issued token or OAuth client; the password lives in your system keychain
+- **Works without admin rights**: field schemas, groups and comments fall back to what a regular user can read
+- **One-command install** that registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and 8 more clients
+- **Single static binary** for macOS, Linux and Windows, with `ymcp update` built in
 
-| Инструмент | Статус | Что делает |
-|---|---|---|
-| `search_issues` | ✅ | Поиск задач на языке запросов YouTrack, до 20 на страницу |
-| `get_issue` | ✅ | Полная карточка задачи, последние комментарии, связи, вложения |
-| `get_issue_comments` | ✅ | Комментарии задачи, до 10 на страницу |
-| `add_issue_comment` | ✅ | Добавить комментарий (Markdown), можно с ограниченной видимостью |
-| `get_issue_fields_schema` | ✅ | JSON Schema кастомных полей проекта с допустимыми значениями |
-| `create_issue` | ✅ | Создать задачу; поля задаются по имени, `parentIssue` делает её подзадачей, `permittedUsers`/`permittedGroups` ограничивают видимость |
-| `update_issue` | ✅ | Изменить summary, description, поля, звёздочку и голос |
-| `change_issue_assignee` | ✅ | Сменить исполнителя, `null` снимает исполнителя |
-| `find_projects` | ✅ | Найти проекты по подстроке имени или ключа |
-| `get_project` | ✅ | Детали проекта, типы работ и настройки тайм-трекинга |
-| `find_user` | ✅ | Найти пользователя по логину или email (`me` вернёт текущего) |
-| `get_current_user` | ✅ | Текущий пользователь |
-| `get_saved_issue_searches` | ✅ | Избранные сохранённые поиски текущего пользователя |
-| `manage_issue_tags` | ✅ | Добавить или снять тег по ID или имени; если тег не найден, ошибка подскажет похожие |
-| `link_issues` | ✅ | Связать две задачи (`subtask of`, `relates to`, `depends on`…), вернуть счётчики связей |
-| `log_work` | ✅ | Списать время: минуты, дата, тип работы и атрибуты по имени |
-| `create_draft_issue` | ✅ | Черновик задачи, виден только автору; дальше заполняется через `update_issue` по ID черновика |
-| `find_user_groups` | ✅ | Найти группы и команды проектов по подстроке имени |
-| `get_user_group_members` | ✅ | Участники группы или команды проекта (через Hub API) |
-| `create_article` | ✅ | Статья базы знаний: родитель, ограниченная видимость по логинам и группам |
-| `update_article` | ✅ | Изменить заголовок, текст (замена или дописывание в конец) или родителя |
-| `get_article` | ✅ | Статья с подстатьями, тегами и видимостью; длинный текст читается кусками по строкам |
-| `search_articles` | ✅ | Поиск по базе знаний со строками, где встретились слова запроса |
+## Install
 
-Кастомные поля передаются по отображаемому имени: `{"State": "Open", "Fix versions": ["1.0"]}`.
-Сервер сам подбирает нужный `$type` (`StateIssueCustomField`, `MultiVersionIssueCustomField` и т. д.)
-и проверяет значение по бандлу проекта. Даты принимаются как `yyyy-MM-dd` или RFC 3339,
-а периоды — как `1w 2d 4h`.
+macOS / Linux:
 
-## Дополнительные инструменты
+```sh
+curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh
+```
 
-Во встроенном MCP YouTrack их нет. У удаляющих инструментов стоит `destructiveHint`, поэтому клиент
-спрашивает подтверждение перед вызовом.
+Windows (PowerShell):
 
-| Инструмент | Что делает |
+```powershell
+irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
+```
+
+The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, which:
+
+1. asks for your YouTrack URL, login and password, and verifies them before saving anything;
+2. lists the MCP clients found on your machine, with a checkbox for each;
+3. registers ymcp as the `youtrack` stdio server in the clients you pick, and removes it from the ones you uncheck.
+
+Run `ymcp setup` again at any time to add or remove clients.
+
+## Commands
+
+| Command | |
 |---|---|
-| `delete_issue` | Удалить задачу или черновик вместе с комментариями, вложениями и списанным временем |
-| `delete_issue_comment` | Удалить комментарий: по умолчанию мягко, как в UI (можно восстановить), а с `permanent` навсегда |
-| `delete_article` | Удалить статью базы знаний |
-| `unlink_issues` | Убрать связь между задачами, аргументы как у `link_issues` |
-| `get_issue_work_items` | Записи списанного времени задачи и сумма в минутах |
-| `delete_work_item` | Удалить запись списанного времени |
-| `find_agile_boards` | Найти доски по имени или ключу проекта |
-| `get_agile_board` | Колонки, поле оценки, настройки спринтов, текущий и последние спринты доски |
-| `get_sprint` | Спринт (по умолчанию текущий) с задачами и полями доски: колонка, исполнитель, оценка |
-| `create_sprint`, `update_sprint` | Создать спринт, изменить имя, цель, даты, архивировать |
-| `add_issue_to_sprint`, `remove_issue_from_sprint` | Добавить задачу в спринт или убрать из него |
-| `delete_sprint` | Удалить спринт; его задачи остаются |
+| `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http --addr 127.0.0.1:8090` serves Streamable HTTP |
+| `ymcp setup` | Sign in and pick MCP clients. `--clients cursor,zed`, `--all` and `--reauth` skip the questions |
+| `ymcp auth` | Set or replace the URL, login and password. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
+| `ymcp check` | Sign in and print who you are |
+| `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
+| `ymcp update` | Replace the binary with the latest release (`--check` only reports) |
+| `ymcp version` | Print the version |
 
-Доску можно указать по имени или ID (`195-13`), спринт — по имени, ID или `current`.
+## Tools
 
-## Права обычного пользователя
+### Built-in YouTrack MCP set
 
-Сервер работает с правами учётки и старается не падать там, где у неё не хватает прав админа:
-
-- схема кастомных полей собирается из задач проекта, если настройки проекта недоступны;
-- группы и их участники читаются из Hub, если `/api/groups` закрыт;
-- комментарии удаляются мягко: для `DELETE` нужно право Delete Comment.
-
-Некоторые ограничения обойти нельзя. Например, без права Delete Article `delete_article` вернёт 403.
-
-## Сборка
-
-Нужен Go 1.26+.
-
-```bash
-go build -o bin/ymcp ./cmd/ymcp
-```
-
-## Настройка
-
-```bash
-cp .env.example .env
-```
-
-| Переменная | Описание |
+| Area | Tools |
 |---|---|
-| `YOUTRACK_URL` | Адрес инстанса без `/api`, например `https://youtrack.example.com` |
-| `YOUTRACK_LOGIN` | Логин в YouTrack/Hub; LDAP-учётки тоже работают |
-| `YOUTRACK_PASSWORD` | Пароль |
-| `YOUTRACK_PROXY` | Пусто — брать `HTTP(S)_PROXY` из окружения, `none` — ходить напрямую, иначе URL прокси |
+| Issues | `search_issues`, `get_issue`, `create_issue`, `create_draft_issue`, `update_issue`, `change_issue_assignee`, `get_issue_fields_schema` |
+| Comments, tags, links, time | `add_issue_comment`, `get_issue_comments`, `manage_issue_tags`, `link_issues`, `log_work`, `get_saved_issue_searches` |
+| Knowledge base | `search_articles`, `get_article`, `create_article`, `update_article` |
+| Projects and people | `find_projects`, `get_project`, `find_user`, `get_current_user`, `find_user_groups`, `get_user_group_members` |
 
-`.env` есть в `.gitignore`. Перед подключением к клиенту проверь, что вход работает:
+Custom fields are set by their display name, e.g. `{"State": "In Progress", "Fix versions": ["2.1"]}`. ymcp looks up
+the field type and checks the value against the project before sending it. That includes the allowed assignees, so a
+wrong value comes back with the list of valid ones.
 
-```bash
-./bin/ymcp --env .env check
-```
+### Extras
 
-Если вход прошёл, команда выведет `ok: logged in to … as …`.
+| Area | Tools |
+|---|---|
+| Delete and undo | `delete_issue`, `delete_issue_comment`, `restore_issue_comment`, `delete_article`, `delete_work_item`, `unlink_issues` |
+| Agile boards and sprints | `find_agile_boards`, `get_agile_board`, `get_sprint`, `create_sprint`, `update_sprint`, `add_issue_to_sprint`, `remove_issue_from_sprint`, `delete_sprint` |
+| History and reports | `get_issue_activities`, `count_issues`, `get_time_report`, `get_issue_work_items` |
+| Bulk changes | `apply_command`: any command from the YouTrack command dialog, on issues or a query (up to 100), validated first, with `dryRun` |
+| Attachments | `get_issue_attachments`, `get_attachment` (text inline, images as images, other files saved locally), `add_attachment`, `delete_attachment` |
+| Comments | `update_issue_comment` |
+| VCS | `get_issue_vcs_changes`: commits and pull requests from GitHub, GitLab, Bitbucket, Gitea or TeamCity integrations |
+| Tags and saved searches | `find_tags`, `create_tag`, `update_tag`, `delete_tag`, `create_saved_search`, `update_saved_search`, `delete_saved_search` |
 
-Любой инструмент можно вызвать разово через тот же MCP-путь, которым пользуется клиент.
-Результат печатается в stdout, а если инструмент вернул ошибку, код выхода будет 1:
+Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
-```bash
-./bin/ymcp --env .env call find_projects '{"nameContains":""}'
-./bin/ymcp --env .env call search_issues '{"query":"for: me #Unresolved","limit":5}'
-./bin/ymcp --env .env call get_user_group_members '{"group":"All Users","limit":3}'
-```
+## Configuration
 
-### Сеть: VPN, корпоративный DNS и прокси
+`ymcp auth` stores the URL, login and proxy in `<config dir>/ymcp/config.json`, a file only you can read:
 
-YouTrack доступен только из внутренней сети, то есть через VPN или офисный Wi-Fi. Снаружи
-его домен может резолвиться в публичную заглушку. Если в окружении задан
-`HTTPS_PROXY`, который ведёт наружу, запросы уйдут мимо внутреннего DNS. В этом случае поставь
-`YOUTRACK_PROXY=none`. Если вместо JSON пришла HTML-страница, сервер так и сообщит:
-`unexpected "text/html" response … (check URL, VPN and proxy settings)`.
+- macOS: `~/Library/Application Support`
+- Linux: `~/.config`
+- Windows: `%APPDATA%`
 
-## Подключение к клиентам
+The password goes to the system keychain: Keychain on macOS, Secret Service on Linux, Credential Manager on Windows.
+It falls back to the config file only where no keychain exists.
 
-**Claude Code:**
+Environment variables override the stored values. That's handy for CI or for several instances:
 
-```bash
-claude mcp add youtrack -- /abs/path/bin/ymcp --env /abs/path/.env
-```
+| Variable | |
+|---|---|
+| `YOUTRACK_URL` | Instance root, e.g. `https://youtrack.example.com` (no `/api`) |
+| `YOUTRACK_LOGIN`, `YOUTRACK_PASSWORD` | YouTrack or Hub account, LDAP included |
+| `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY`, `none` to connect directly, or a proxy URL |
+| `YMCP_CONFIG` | Path of the config file |
 
-**Claude Desktop, Cursor и другие клиенты с JSON-конфигом:**
+`--env FILE` loads these variables from a dotenv file (see [`.env.example`](.env.example)).
+
+> **Behind a VPN?** If an outbound proxy is set in your environment, requests may bypass the internal DNS.
+> Set the proxy to `none`. When something other than YouTrack answers, ymcp says so instead of failing with a JSON error.
+
+### Supported clients
+
+Claude Code · Claude Desktop · Cursor · VS Code (Copilot) · Windsurf · Devin Desktop · Zed · Codex · Gemini CLI ·
+Antigravity · JetBrains Junie · Cline · LM Studio · opencode
+
+ymcp edits each client's config in place and keeps your other servers, keys and comments. It leaves a
+`.ymcp.bak` copy next to the original. For any other client, register a stdio server named `youtrack` that runs
+the `ymcp` binary with no arguments:
 
 ```json
-{
-  "mcpServers": {
-    "youtrack": {
-      "command": "/abs/path/bin/ymcp",
-      "args": ["--env", "/abs/path/.env"]
-    }
-  }
-}
+{ "mcpServers": { "youtrack": { "command": "/path/to/ymcp", "args": [] } } }
 ```
 
-**Streamable HTTP** (сервер слушает только localhost):
+## How sign-in works
 
-```bash
-./bin/ymcp --env .env serve --transport http --addr 127.0.0.1:8090
-```
+YouTrack’s OAuth password grant needs a service secret, and regular users don't have one. So ymcp signs in the
+same way the YouTrack web app does:
 
-Глобальный флаг `-v` включает подробные логи. Логи всегда пишутся в stderr, потому что stdout занят stdio-транспортом.
+1. Read the Hub location and YouTrack service ID from the public `/api/config`.
+2. Submit the Hub login form and keep the session cookie.
+3. Run the implicit OAuth flow of the YouTrack web client and take the bearer token from the redirect.
 
-## Как устроена аутентификация
+Expired tokens are renewed from the session without resending the password. The password is sent again only when the
+session itself has expired. A separate Hub-scoped token is fetched lazily for the Hub API, which group members need.
+Two-factor authentication is not supported yet.
 
-В Hub для password grant нужен secret сервиса, а у обычного пользователя его нет. Поэтому
-сервер входит так же, как веб-интерфейс YouTrack:
+## Development
 
-1. Читает адрес Hub и ID сервиса YouTrack из публичного `GET /api/config`.
-2. Отправляет логин и пароль в форму входа Hub (`/hub/api/rest/oauth2/interactive/login`) и получает cookie сессии Hub.
-3. Проходит implicit OAuth flow веб-клиента YouTrack и забирает access token из фрагмента редиректа на `/oauth`.
-4. Когда токен истекает (обычно через час), берёт новый по cookie сессии (`request_credentials=silent`) без повторной отправки пароля. Пароль отправляется заново только если сессия умерла. Если API ответил 401, сервер один раз входит заново.
-
-Состав групп есть только в Hub API. Поэтому для `get_user_group_members` сервер получает в той же
-сессии второй токен со scope Hub (`0-0-0-0-0`). Запрашивается он только при первом вызове, так что
-если Hub его не выдаст, это затронет только этот инструмент.
-
-Пароль хранится только в памяти процесса. Двухфакторная аутентификация (TOTP) пока
-не поддерживается.
-
-## Разработка
-
-```bash
+```sh
+go build -o bin/ymcp ./cmd/ymcp
 go test -race ./...
+./bin/ymcp --env .env call get_current_user
 ```
 
-Тесты не ходят в сеть. `internal/youtrack/youtracktest` эмулирует YouTrack и Hub целиком: форму
-входа, OAuth-редиректы, выдачу и отзыв токенов. Тесты инструментов вызывают их через
-in-memory MCP-клиент и проверяют, какие REST-запросы в итоге уходят в YouTrack.
+Tests never touch the network. [`internal/youtrack/youtracktest`](internal/youtrack/youtracktest) emulates YouTrack
+and Hub, including the login form, the OAuth redirects and token revocation. The tool tests call every tool through an
+in-memory MCP client and assert on the REST requests it sends.
 
-```
-cmd/ymcp/          точка входа, флаги, загрузка .env
-internal/youtrack/         REST-клиент и вход через Hub
-internal/youtrack/youtracktest/  фейковый YouTrack + Hub для тестов
-internal/tools/            MCP-инструменты
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow.
