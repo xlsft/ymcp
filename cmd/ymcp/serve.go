@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -192,7 +193,11 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 		if err != nil {
 			return err
 		}
-		base := "http://" + ln.Addr().String()
+		// Log the address as given, unless the port was left to the system.
+		base := "http://" + *addr
+		if _, port, _ := net.SplitHostPort(*addr); port == "0" {
+			base = "http://" + ln.Addr().String()
+		}
 		handler, served, err := httpHandler(base, *token, *only, logger)
 		if err != nil {
 			ln.Close()
@@ -206,7 +211,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 			logger.Warn("serving without a token on a non-loopback address: anyone who reaches it acts as these YouTrack accounts; set --token or YMCP_HTTP_TOKEN")
 		}
 		logger.Info("ymcp started", "version", version, "transport", "http", "addr", base, "auth", auth,
-			"profiles", strings.Join(served, ", "), "log", logPath)
+			"profiles", strings.Join(served, ", "), "log", cmp.Or(logPath, "off"))
 		defer logger.Info("ymcp stopped")
 
 		httpSrv := &http.Server{Handler: handler}
