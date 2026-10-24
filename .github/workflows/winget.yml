@@ -2,14 +2,14 @@ name: winget
 
 # Validates and installs the winget manifest a release pushed to the
 # xlsft/winget-pkgs fork, on Windows, the way winget-pkgs reviewers ask, then
-# ticks the checklist of the release's winget-pkgs pull request (see
-# .github/scripts/winget-checklist.sh). Release calls it for every new
-# version; run it by hand for an existing one:
+# finishes the release's winget-pkgs pull request: ticks its checklist and
+# leaves the CLA and validation comments (see .github/scripts/winget-pr.sh).
+# Release calls it for every new version; run it by hand for an existing one:
 #
 #   gh workflow run winget.yml -f version=0.9.2
 #
-# Ticking the checklist needs the YMCP_PACKAGES_TOKEN secret, the token that
-# opened the pull request; without it that job is skipped.
+# Editing the pull request needs the YMCP_PACKAGES_TOKEN secret, the token
+# that opened it; without it that job is skipped.
 on:
   workflow_call:
     inputs:
@@ -69,18 +69,20 @@ jobs:
           ymcp version
           if ((ymcp version) -notmatch [regex]::Escape($env:VERSION)) { throw "installed ymcp reports another version" }
 
-  checklist:
+  pull-request:
     needs: check
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Tick the pull request checklist
-        env:
-          GH_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "No YMCP_PACKAGES_TOKEN; checklist left as is" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          .github/scripts/winget-checklist.sh "$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Tick the checklist
+        if: env.GH_TOKEN != ''
+        run: .github/scripts/winget-pr.sh checklist "$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Leave the CLA and validation comments
+        if: env.GH_TOKEN != ''
+        run: .github/scripts/winget-pr.sh comments "$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: No token
+        if: env.GH_TOKEN == ''
+        run: echo "No YMCP_PACKAGES_TOKEN; the pull request is left as is" >> "$GITHUB_STEP_SUMMARY"
