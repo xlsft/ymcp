@@ -6,10 +6,12 @@
 # With DRY_RUN=1 it prints the checklist it would set instead of editing.
 #
 # GoReleaser copies the winget-pkgs pull request template with every box
-# empty, and the policy bot labels the pull request Needs-CLA until the CLA
-# box is ticked, even when the license/cla check passes. Run it only after
-# the manifest was validated and installed (the winget workflow does both);
-# the box about other open pull requests is ticked only when there are none.
+# empty, and reviewers ask for it filled in. Run it only after the manifest
+# was validated and installed (the winget workflow does both); the box about
+# other open pull requests is ticked only when there are none. The boxes don't
+# clear Needs-CLA: the policy bot adds it to a first-time contributor's pull
+# request and removes it on the author's "@microsoft-github-policy-service
+# agree" comment.
 set -euo pipefail
 
 version=${1#v}

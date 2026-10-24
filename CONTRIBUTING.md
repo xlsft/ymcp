@@ -78,7 +78,8 @@ Releases are automatic; nobody tags by hand. Each also updates the Homebrew cask
 [xlsft/homebrew-tap](https://github.com/xlsft/homebrew-tap), the Scoop manifest in
 [xlsft/scoop-bucket](https://github.com/xlsft/scoop-bucket), and opens a pull request to microsoft/winget-pkgs from
 the xlsft/winget-pkgs fork. The `winget` workflow then validates and installs that manifest on Windows and
-ticks the pull request's checklist, which the winget-pkgs policy bot reads for the CLA. That needs the `YMCP_PACKAGES_TOKEN` secret, a token that can push to those repositories
+ticks the pull request's checklist. Until a first package is merged there, the policy bot labels each pull request
+Needs-CLA; the author clears it by commenting `@microsoft-github-policy-service agree`. That needs the `YMCP_PACKAGES_TOKEN` secret, a token that can push to those repositories
 and open pull requests; without it the release skips them. Every push to `main` runs the Release workflow: CI and the E2E suite
 first, then [`.github/scripts/next-version.sh`](.github/scripts/next-version.sh) picks the next
 [SemVer](https://semver.org) version from the commit messages since the last tag:
