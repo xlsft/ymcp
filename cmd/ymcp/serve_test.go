@@ -163,14 +163,14 @@ func TestRedactMasksSecrets(t *testing.T) {
 func TestToolSelection(t *testing.T) {
 	cfg := config.Config{Tools: []string{"projects"}}
 	enabled, summary, err := toolSelection("", cfg)
-	if err != nil || len(enabled) != 2 || summary != "2 of 56: projects" {
+	if err != nil || len(enabled) != 2 || summary != "2 of 58: projects" {
 		t.Errorf("profile tools: %v %q %v", enabled, summary, err)
 	}
 	enabled, summary, err = toolSelection("-api", cfg)
-	if err != nil || enabled["call_api"] || summary != "55 of 56: -api" {
+	if err != nil || enabled["call_api"] || summary != "57 of 58: -api" {
 		t.Errorf("--tools overrides the profile: %d %q %v", len(enabled), summary, err)
 	}
-	if enabled, summary, _ := toolSelection("", config.Config{}); enabled != nil || summary != "all 56" {
+	if enabled, summary, _ := toolSelection("", config.Config{}); enabled != nil || summary != "all 58" {
 		t.Errorf("default: %v %q", enabled, summary)
 	}
 	if _, _, err := toolSelection("nope", cfg); err == nil {

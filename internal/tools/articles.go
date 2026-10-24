@@ -90,8 +90,9 @@ func (t *toolset) registerArticles(s *mcp.Server) {
 	}, t.createArticle)
 
 	add(s, &mcp.Tool{
-		Name:        "update_article",
-		Description: "Changes the title, content or parent of an article. With append, content is added to the end. Returns the article ID and URL.",
+		Name: "update_article",
+		Description: "Changes the title, content or parent of an article. With append, content is added to the end. " +
+			"To change part of the content, use edit_article_content instead of resending it. Returns the article ID and URL.",
 		Annotations: mutating("Update article", false),
 	}, t.updateArticle)
 

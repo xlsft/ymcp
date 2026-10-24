@@ -16,7 +16,7 @@ including self-hosted instances behind a VPN. It speaks for you with your **logi
 YouTrack’s built-in MCP server under the same names, and adds the ones it lacks: deleting things, sprints, attachments,
 history, time reports, commands and more.
 
-- **56 tools**: the 23 built-in ones, same names, arguments and limits, plus 33 extras
+- **58 tools**: the 23 built-in ones, same names, arguments and limits, plus 35 extras
 - **Signs in like the web UI**, so there is no admin-issued token or OAuth client; the password lives in your system keychain
 - **Works without admin rights**: field schemas, groups and comments fall back to what a regular user can read
 - **One-command install** that registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and 8 more clients
@@ -121,6 +121,7 @@ wrong value comes back with the list of valid ones.
 | Bulk changes | `apply_command`: any command from the YouTrack command dialog, on issues or a query (up to 100), validated first, with `dryRun` |
 | Attachments | Of issues and knowledge base articles: `get_issue_attachments`, `get_attachment` (text inline, images as images, other files saved locally), `add_attachment` (several files at once), `delete_attachment` |
 | Comments | `update_issue_comment` |
+| Partial text edits | `edit_issue_description`, `edit_article_content`: exact find-and-replace in a description or article, so a small change doesn't resend the whole text |
 | VCS | `get_issue_vcs_changes`: commits and pull requests from GitHub, GitLab, Bitbucket, Gitea or TeamCity integrations |
 | Tags and saved searches | `find_tags`, `create_tag`, `update_tag`, `delete_tag`, `create_saved_search`, `update_saved_search`, `delete_saved_search` |
 | Escape hatch | `call_api`: any YouTrack or Hub REST endpoint as you, for whatever the other tools don't cover |
@@ -151,7 +152,7 @@ A prompt is offered only when the tools it needs are served (see below).
 
 ### Choosing tools
 
-All 56 tools take room in the model's context. A profile can serve only some groups of them: pick them in
+All 58 tools take room in the model's context. A profile can serve only some groups of them: pick them in
 `ymcp setup`, or pass `--tools` (or `YMCP_TOOLS`) to `serve`, which wins over the profile.
 
 | Group | Tools |
@@ -170,7 +171,7 @@ All 56 tools take room in the model's context. A profile can serve only some gro
 
 A selection mixes groups and tool names, and `-` removes one: `issues,comments,articles,-delete_issue`. Removals
 alone start from everything, e.g. `-api,-agile`. The start-up log shows what is served, e.g.
-`tools="18 of 56: issues, comments, -delete_issue"`.
+`tools="19 of 58: issues, comments, -delete_issue"`.
 
 ## Configuration
 
@@ -330,7 +331,7 @@ Unit tests never touch the network. [`internal/youtrack/youtracktest`](internal/
 YouTrack and Hub, including the login form, the OAuth redirects and token revocation. The tool tests call tools through
 an in-memory MCP client and check the REST requests they send.
 
-E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack. They call all 56 tools on a
+E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack. They call all 58 tools on a
 throwaway project and delete everything they create. They run in CI on every push and nightly.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow.

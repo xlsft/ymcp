@@ -68,7 +68,7 @@ func TestSelect(t *testing.T) {
 		t.Errorf("listed = %v", names)
 	}
 	got, _ = Select([]string{"-api", "-delete_issue"})
-	if got["call_api"] || got["delete_issue"] || !got["search_issues"] || len(got) != 54 {
+	if got["call_api"] || got["delete_issue"] || !got["search_issues"] || len(got) != 56 {
 		t.Errorf("removals only: %d tools", len(got))
 	}
 	if _, err := Select([]string{"issues", "nope"}); err == nil || !strings.Contains(err.Error(), "groups: issues, comments") {

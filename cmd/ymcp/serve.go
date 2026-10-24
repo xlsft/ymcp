@@ -304,7 +304,7 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 
 // toolSelection picks the tools to serve: spec (from --tools or
 // YMCP_TOOLS) when set, else the profile's. It also describes the choice
-// for the start-up log, e.g. "23 of 56: issues, comments".
+// for the start-up log, e.g. "25 of 58: issues, comments".
 func toolSelection(spec string, cfg config.Config) (map[string]bool, string, error) {
 	items := cfg.Tools
 	if spec != "" {
