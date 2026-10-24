@@ -21,10 +21,19 @@ func TestApplyEdits(t *testing.T) {
 		{name: "delete", edits: []textEdit{{OldText: "\n## Notes\n\nTODO\nTODO\n"}}, want: "# Setup\n\nRun make.\n", n: 1},
 		{name: "replace all", edits: []textEdit{{OldText: "TODO", NewText: "done", ReplaceAll: true}},
 			want: "# Setup\n\nRun make.\n\n## Notes\n\ndone\ndone\n", n: 2},
-		{name: "ambiguous", edits: []textEdit{{OldText: "TODO", NewText: "done"}}, err: "occurs 2 times"},
+		{name: "ambiguous", edits: []textEdit{{OldText: "TODO", NewText: "done"}}, err: "matches 2 times"},
 		{name: "missing", edits: []textEdit{{OldText: "Run make.", NewText: "x"}, {OldText: "nope", NewText: "y"}}, err: "edit 2: oldText not found"},
 		{name: "empty old", edits: []textEdit{{NewText: "x"}}, err: "oldText is empty"},
 		{name: "none", err: "no edits"},
+		{name: "regexp groups", edits: []textEdit{{OldText: `Run (\w+)\.`, NewText: "Run `$1`.", Regexp: true}},
+			want: "# Setup\n\nRun `make`.\n\n## Notes\n\nTODO\nTODO\n", n: 1},
+		{name: "regexp multiline all", edits: []textEdit{{OldText: `(?m)^TODO$`, NewText: "- [ ] todo", Regexp: true, ReplaceAll: true}},
+			want: "# Setup\n\nRun make.\n\n## Notes\n\n- [ ] todo\n- [ ] todo\n", n: 2},
+		{name: "regexp section", edits: []textEdit{{OldText: `(?s)## Notes\n.*`, NewText: "## Notes\n\nnone\n", Regexp: true}},
+			want: "# Setup\n\nRun make.\n\n## Notes\n\nnone\n", n: 1},
+		{name: "regexp ambiguous", edits: []textEdit{{OldText: `(?i)todo`, NewText: "x", Regexp: true}}, err: "matches 2 times"},
+		{name: "regexp no match", edits: []textEdit{{OldText: `^Run`, NewText: "x", Regexp: true}}, err: "pattern matches nothing"},
+		{name: "regexp invalid", edits: []textEdit{{OldText: `(`, NewText: "x", Regexp: true}}, err: "missing closing )"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, n, err := applyEdits(text, tc.edits)
@@ -71,7 +80,7 @@ func TestEditIssueDescriptionFailsWithoutWriting(t *testing.T) {
 	isErr, text := call(t, cs, "edit_issue_description", map[string]any{
 		"issueId": "3-22", "edits": []map[string]any{{"oldText": "a", "newText": "b"}},
 	}, nil)
-	if !isErr || !strings.Contains(text, "occurs 2 times") {
+	if !isErr || !strings.Contains(text, "matches 2 times") {
 		t.Errorf("isErr = %v, text = %s", isErr, text)
 	}
 	if bodies := api.bodies("/api/users/me/drafts/3-22"); len(bodies) != 0 {
