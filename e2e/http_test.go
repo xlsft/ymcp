@@ -141,7 +141,7 @@ func checkHTTP(t *testing.T, base, token string, logs func() string) {
 		login string
 		tools int
 	}{
-		"e2e-admin":  {os.Getenv("YOUTRACK_E2E_LOGIN"), 56},
+		"e2e-admin":  {os.Getenv("YOUTRACK_E2E_LOGIN"), 58},
 		"e2e-member": {memberLogin, 6},
 	} {
 		ctx := context.Background()
@@ -165,7 +165,7 @@ func checkHTTP(t *testing.T, base, token string, logs func() string) {
 			t.Errorf("%s signed in as %q, want %q", profile, me.Login, want.login)
 		}
 	}
-	for _, line := range []string{"profile=e2e-admin", "profile=e2e-member", `tools="6 of 56: people, projects"`, `auth="bearer token"`} {
+	for _, line := range []string{"profile=e2e-admin", "profile=e2e-member", `tools="6 of 58: people, projects"`, `auth="bearer token"`} {
 		if !strings.Contains(logs(), line) {
 			t.Errorf("log lacks %s", line)
 		}

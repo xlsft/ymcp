@@ -345,9 +345,11 @@ func TestScenarios(t *testing.T) {
 		must(t, "create_draft_issue", map[string]any{"project": f.key, "summary": marker + " draft"}, &draft)
 		t.Cleanup(func() { call(t, "delete_issue", map[string]any{"issueId": draft.DraftID}) })
 		must(t, "update_issue", map[string]any{"issueId": draft.DraftID, "description": "draft body"}, nil)
+		must(t, "edit_issue_description", map[string]any{"issueId": draft.DraftID,
+			"edits": []map[string]any{{"oldText": "body", "newText": "text"}}}, nil)
 		var got struct{ ID, Description string }
 		must(t, "get_issue", map[string]any{"issueId": draft.DraftID}, &got)
-		if got.ID != draft.DraftID || got.Description != "draft body" {
+		if got.ID != draft.DraftID || got.Description != "draft text" {
 			t.Errorf("draft = %+v", got)
 		}
 		must(t, "delete_issue", map[string]any{"issueId": draft.DraftID}, nil)
@@ -360,13 +362,17 @@ func TestScenarios(t *testing.T) {
 		must(t, "create_article", map[string]any{"project": f.key, "summary": marker + " child", "content": "child",
 			"parentArticle": parentArticle.ID, "permittedUsers": []string{f.me.Login}}, &childArticle)
 		must(t, "update_article", map[string]any{"articleId": parentArticle.ID, "content": "appended " + runID, "append": true}, nil)
+		must(t, "edit_article_content", map[string]any{"articleId": parentArticle.ID,
+			"edits": []map[string]any{{"oldText": "first", "newText": "edited"}, {"oldText": `(?m)^# (\w+)$`, "newText": "# $1!", "regexp": true}}}, nil)
+		mustFail(t, "edit_article_content", map[string]any{"articleId": parentArticle.ID,
+			"edits": []map[string]any{{"oldText": "no such text", "newText": "x"}}}, "not found")
 
 		var got struct {
 			Content       string
 			ChildArticles []struct{ ID string }
 		}
 		must(t, "get_article", map[string]any{"articleId": parentArticle.ID}, &got)
-		if !strings.HasSuffix(got.Content, "appended "+runID) || len(got.ChildArticles) != 1 {
+		if !strings.HasPrefix(got.Content, "# Title!\n\nedited") || !strings.HasSuffix(got.Content, "appended "+runID) || len(got.ChildArticles) != 1 {
 			t.Errorf("article = %+v", got)
 		}
 		var childGot struct{ Visibility map[string][]string }

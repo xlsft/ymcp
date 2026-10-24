@@ -42,6 +42,7 @@ func Register(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool) {
 	t.registerWorkItems(s)
 	t.registerGroups(s)
 	t.registerArticles(s)
+	t.registerTextEdit(s)
 	t.registerDeletes(s)
 	t.registerAgiles(s)
 	t.registerSprints(s)

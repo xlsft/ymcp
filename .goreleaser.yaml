@@ -70,9 +70,9 @@ homebrew_casks:
     hooks:
       post:
         # The binary isn't notarized; let it run without Gatekeeper's prompt.
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ymcp"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/ymcp"]
           end
 
 scoops:

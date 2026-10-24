@@ -17,14 +17,14 @@ type Group struct {
 var Groups = []Group{
 	{"issues", "Issues: search, read, create, edit, link, commands, history", []string{
 		"search_issues", "count_issues", "get_issue", "get_issue_fields_schema", "create_issue", "create_draft_issue",
-		"update_issue", "change_issue_assignee", "delete_issue", "apply_command", "get_issue_activities",
+		"update_issue", "edit_issue_description", "change_issue_assignee", "delete_issue", "apply_command", "get_issue_activities",
 		"link_issues", "unlink_issues", "get_issue_vcs_changes"}},
 	{"comments", "Comments on issues", []string{
 		"get_issue_comments", "add_issue_comment", "update_issue_comment", "restore_issue_comment", "delete_issue_comment"}},
 	{"attachments", "Files on issues and articles", []string{
 		"get_issue_attachments", "get_attachment", "add_attachment", "delete_attachment"}},
 	{"articles", "Knowledge base articles", []string{
-		"search_articles", "get_article", "create_article", "update_article", "delete_article"}},
+		"search_articles", "get_article", "create_article", "update_article", "edit_article_content", "delete_article"}},
 	{"time", "Time tracking and reports", []string{
 		"log_work", "get_issue_work_items", "delete_work_item", "get_time_report"}},
 	{"agile", "Agile boards and sprints", []string{

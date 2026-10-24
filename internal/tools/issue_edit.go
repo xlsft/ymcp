@@ -66,7 +66,7 @@ func (t *toolset) registerIssueEdit(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name: "update_issue",
 		Description: "Updates an issue: summary, description, a subset of custom fields, star (subscription) and vote. " +
-			"Only the given properties change. Returns the issue ID and what was changed.",
+			"Only the given properties change; to change part of the description, use edit_issue_description. Returns the issue ID and what was changed.",
 		Annotations: mutating("Update issue", false),
 	}, t.updateIssue)
 
