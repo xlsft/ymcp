@@ -43,6 +43,7 @@ Global flags:
   --profile KEY  Use this YouTrack profile (YMCP_PROFILE also works); see setup
   --env FILE     Load YOUTRACK_* variables from a dotenv file
   -v             Debug logging, including every YouTrack request (YMCP_LOG_LEVEL also works)
+  --version      Print the version, like the version command
 `
 
 func main() {
@@ -59,10 +60,21 @@ func run(args []string) error {
 	global.SetOutput(io.Discard)
 	envFile := global.String("env", "", "")
 	verbose := global.Bool("v", false, "")
+	showVersion := global.Bool("version", false, "")
 	global.StringVar(&profile, "profile", "", "")
 	if err := global.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Print(usage)
+			return nil
+		}
 		fmt.Fprint(os.Stderr, usage)
 		return err
+	}
+	// Package managers check an install by running ymcp --version, which
+	// must work without a profile.
+	if *showVersion {
+		fmt.Println("ymcp", version)
+		return nil
 	}
 	if *envFile != "" {
 		if err := loadEnvFile(*envFile); err != nil {
@@ -109,10 +121,10 @@ func run(args []string) error {
 		return logs(ctx, rest)
 	case "health":
 		return health(ctx, rest)
-	case "version", "--version":
+	case "version":
 		fmt.Println("ymcp", version)
 		return nil
-	case "help", "-h", "--help":
+	case "help":
 		fmt.Print(usage)
 		return nil
 	default:
