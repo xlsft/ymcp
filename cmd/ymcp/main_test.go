@@ -52,13 +52,17 @@ func isolate(t *testing.T) string {
 
 func TestRunVersionHelpAndUnknown(t *testing.T) {
 	isolate(t)
-	out, err := captureStdout(t, func() error { return run([]string{"version"}) })
-	if err != nil || out != "ymcp dev\n" {
-		t.Errorf("version = %q, %v", out, err)
+	for _, args := range [][]string{{"version"}, {"--version"}, {"-version"}, {"--profile", "nope", "--version"}} {
+		out, err := captureStdout(t, func() error { return run(args) })
+		if err != nil || out != "ymcp dev\n" {
+			t.Errorf("%v = %q, %v", args, out, err)
+		}
 	}
-	out, err = captureStdout(t, func() error { return run([]string{"help"}) })
-	if err != nil || !strings.Contains(out, "Commands:") {
-		t.Errorf("help = %q, %v", out, err)
+	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}} {
+		out, err := captureStdout(t, func() error { return run(args) })
+		if err != nil || !strings.Contains(out, "Commands:") {
+			t.Errorf("%v = %q, %v", args, out, err)
+		}
 	}
 	if err := run([]string{"nope"}); err == nil || !strings.Contains(err.Error(), `unknown command "nope"`) {
 		t.Errorf("unknown command err = %v", err)
