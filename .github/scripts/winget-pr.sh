@@ -17,6 +17,9 @@
 # executable, and ymcp without arguments starts the server and exits 1 with
 # no profile; a comment asks reviewers to validate with --version instead.
 # Each comment is posted once per pull request.
+#
+# Edits go through the REST API: gh pr edit and gh pr comment use GraphQL
+# queries that need read:org, which the public_repo token doesn't have.
 set -euo pipefail
 
 usage="usage: $0 checklist|comments VERSION"
@@ -64,7 +67,7 @@ checklist() {
     echo "$repo#$pr: checklist already ticked"
     return
   fi
-  gh pr edit "$pr" --repo "$repo" --body "$new" >/dev/null
+  gh api -X PATCH "repos/$repo/pulls/$pr" -f body="$new" >/dev/null
   echo "$repo#$pr: checklist ticked"
   gh pr view "$pr" --repo "$repo" --json body -q .body | grep -E '^ *- \[[ x]\]'
 }
@@ -88,7 +91,7 @@ post() {
   elif [ -n "${DRY_RUN:-}" ]; then
     echo "$repo#$pr: would comment: $2"
   else
-    gh pr comment "$pr" --repo "$repo" --body "$2" >/dev/null
+    gh api "repos/$repo/issues/$pr/comments" -f body="$2" >/dev/null
     echo "$repo#$pr: commented: $1"
   fi
 }

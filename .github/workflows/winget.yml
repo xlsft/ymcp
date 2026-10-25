@@ -72,6 +72,10 @@ jobs:
   pull-request:
     needs: check
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # With an explicit shell, a failing script fails the step through tee.
+        shell: bash
     env:
       GH_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
       VERSION: ${{ inputs.version }}
