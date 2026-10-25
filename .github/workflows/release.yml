@@ -93,3 +93,11 @@ jobs:
     with:
       version: ${{ needs.release.outputs.version }}
     secrets: inherit
+
+  winget:
+    needs: release
+    if: needs.release.outputs.version != ''
+    uses: ./.github/workflows/winget.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    secrets: inherit

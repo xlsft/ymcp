@@ -77,7 +77,11 @@ Keep test data recognisable (e.g. a `[ymcp test]` prefix) and delete it afterwar
 Releases are automatic; nobody tags by hand. Each also updates the Homebrew cask in
 [xlsft/homebrew-tap](https://github.com/xlsft/homebrew-tap), the Scoop manifest in
 [xlsft/scoop-bucket](https://github.com/xlsft/scoop-bucket), and opens a pull request to microsoft/winget-pkgs from
-the xlsft/winget-pkgs fork. That needs the `YMCP_PACKAGES_TOKEN` secret, a token that can push to those repositories
+the xlsft/winget-pkgs fork. The `winget` workflow then validates and installs that manifest on Windows and
+finishes the pull request with [`.github/scripts/winget-pr.sh`](.github/scripts/winget-pr.sh): it ticks the
+checklist, posts `@microsoft-github-policy-service agree` while the policy bot's Needs-CLA label is there (the bot adds it
+until a first package is merged), and asks reviewers to validate with `ymcp.exe --version`, since ymcp without
+arguments starts the server and exits 1 with no profile. That needs the `YMCP_PACKAGES_TOKEN` secret, a token that can push to those repositories
 and open pull requests; without it the release skips them. Every push to `main` runs the Release workflow: CI and the E2E suite
 first, then [`.github/scripts/next-version.sh`](.github/scripts/next-version.sh) picks the next
 [SemVer](https://semver.org) version from the commit messages since the last tag:
