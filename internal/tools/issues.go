@@ -161,19 +161,19 @@ func (t *toolset) registerIssues(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "add_issue_comment",
 		Description: "Adds a comment to an issue, optionally visible only to given users and groups. Markdown is supported. Returns the comment ID and URL.",
-		Annotations: mutating("Add issue comment", false),
+		Annotations: changes("Add issue comment"),
 	}, t.addIssueComment)
 
 	add(s, &mcp.Tool{
 		Name:        "update_issue_comment",
 		Description: "Replaces the text of an issue comment. Markdown is supported.",
-		Annotations: mutating("Update issue comment", false),
+		Annotations: sets("Update issue comment"),
 	}, t.updateIssueComment)
 
 	add(s, &mcp.Tool{
 		Name:        "restore_issue_comment",
 		Description: "Restores a comment that was deleted (not permanently) with delete_issue_comment or in the UI.",
-		Annotations: mutating("Restore issue comment", false),
+		Annotations: sets("Restore issue comment"),
 	}, t.restoreIssueComment)
 }
 

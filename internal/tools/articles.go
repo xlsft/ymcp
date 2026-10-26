@@ -86,14 +86,14 @@ func (t *toolset) registerArticles(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "create_article",
 		Description: "Creates a knowledge base article, optionally under a parent article and with limited visibility. Returns the article ID and URL.",
-		Annotations: mutating("Create article", false),
+		Annotations: changes("Create article"),
 	}, t.createArticle)
 
 	add(s, &mcp.Tool{
 		Name: "update_article",
 		Description: "Changes the title, content or parent of an article. With append, content is added to the end. " +
 			"To change part of the content, use edit_article_content instead of resending it. Returns the article ID and URL.",
-		Annotations: mutating("Update article", false),
+		Annotations: changes("Update article"),
 	}, t.updateArticle)
 
 	add(s, &mcp.Tool{

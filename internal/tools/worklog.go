@@ -96,7 +96,7 @@ func (t *toolset) registerWorkItems(s *mcp.Server) {
 		Name: "log_work",
 		Description: "Adds a spent time work item to an issue. Use get_project to see the project's work types " +
 			"and work item attributes. Returns the created work item.",
-		Annotations: mutating("Log work", false),
+		Annotations: changes("Log work"),
 		InputSchema: schemaFor[logWorkIn](func(p map[string]*jsonschema.Schema) {
 			p["durationMinutes"].ExclusiveMinimum = new(float64)
 		}),
@@ -111,7 +111,7 @@ func (t *toolset) registerWorkItems(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "delete_work_item",
 		Description: "Permanently deletes a spent time work item. Work item IDs come from get_issue_work_items.",
-		Annotations: mutating("Delete work item", true),
+		Annotations: removes("Delete work item"),
 	}, t.deleteWorkItem)
 }
 

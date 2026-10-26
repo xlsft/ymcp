@@ -53,27 +53,27 @@ func (t *toolset) registerIssueEdit(s *mcp.Server) {
 		Name: "create_issue",
 		Description: "Creates an issue. Call get_issue_fields_schema first: projects may require fields on creation. " +
 			"If the project is not known, ask the user. Returns the issue ID and URL.",
-		Annotations: mutating("Create issue", false),
+		Annotations: changes("Create issue"),
 	}, t.createIssue)
 
 	add(s, &mcp.Tool{
 		Name: "create_draft_issue",
 		Description: "Creates an issue draft visible only to the current user. Fill it in with update_issue " +
 			"using the returned draft ID. Returns the draft ID (e.g. 3-22) and URL.",
-		Annotations: mutating("Create draft issue", false),
+		Annotations: changes("Create draft issue"),
 	}, t.createDraftIssue)
 
 	add(s, &mcp.Tool{
 		Name: "update_issue",
 		Description: "Updates an issue: summary, description, a subset of custom fields, star (subscription) and vote. " +
 			"Only the given properties change; to change part of the description, use edit_issue_description. Returns the issue ID and what was changed.",
-		Annotations: mutating("Update issue", false),
+		Annotations: sets("Update issue"),
 	}, t.updateIssue)
 
 	add(s, &mcp.Tool{
 		Name:        "change_issue_assignee",
 		Description: "Sets the Assignee of an issue. Pass null to unassign.",
-		Annotations: mutating("Change issue assignee", false),
+		Annotations: sets("Change issue assignee"),
 	}, t.changeIssueAssignee)
 }
 

@@ -839,6 +839,32 @@ func TestDeletes(t *testing.T) {
 	}
 }
 
+func TestEveryToolDeclaresAllHints(t *testing.T) {
+	cs := connect(t, newFakeAPI(t))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		b, err := json.Marshal(tool.Annotations)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var hints map[string]any
+		if err := json.Unmarshal(b, &hints); err != nil {
+			t.Fatal(err)
+		}
+		for _, h := range []string{"readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"} {
+			if _, ok := hints[h].(bool); !ok {
+				t.Errorf("%s: %s = %v, want a boolean", tool.Name, h, hints[h])
+			}
+		}
+		if hints["readOnlyHint"] == true && hints["destructiveHint"] == true {
+			t.Errorf("%s is both read-only and destructive", tool.Name)
+		}
+	}
+}
+
 // fakeComments serves n comments c0..c{n-1} where the one at deleted is
 // marked deleted, honoring $skip and $top like YouTrack.
 func fakeComments(t *testing.T, n, deleted int) http.HandlerFunc {

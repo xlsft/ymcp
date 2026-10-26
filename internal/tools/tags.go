@@ -33,7 +33,7 @@ func (t *toolset) registerTags(s *mcp.Server) {
 		Name: "manage_issue_tags",
 		Description: "Adds a tag to an issue or removes it. The tag is given by ID or name; when no tag matches, " +
 			"the error lists similar tags. Returns the issue ID and its tags after the change.",
-		Annotations: mutating("Manage issue tags", false),
+		Annotations: sets("Manage issue tags"),
 		InputSchema: schemaFor[manageIssueTagsIn](func(p map[string]*jsonschema.Schema) {
 			p["operation"].Enum = enum("add", "remove")
 		}),

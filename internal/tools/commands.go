@@ -38,7 +38,7 @@ func (t *toolset) registerCommands(s *mcp.Server) {
 		Description: "Applies a YouTrack command to one or more issues, the same as the command dialog in the UI: " +
 			"set fields, assign, tag, move to another project, add links, vote, star and more in one line. " +
 			"The command is validated first and nothing is applied if any part is invalid; dryRun only validates and lists suggestions.",
-		Annotations: mutating("Apply command", true),
+		Annotations: anything("Apply command"),
 	}, t.applyCommand)
 }
 

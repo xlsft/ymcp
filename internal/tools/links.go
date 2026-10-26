@@ -68,14 +68,14 @@ func (t *toolset) registerLinks(s *mcp.Server) {
 		Name: "link_issues",
 		Description: "Links two issues. {\"targetIssueId\":\"DEMO-1\",\"linkType\":\"subtask of\",\"issueToLinkId\":\"DEMO-2\"} " +
 			"makes DEMO-1 a subtask of DEMO-2. Returns the number of linked issues per link type of the target.",
-		Annotations: mutating("Link issues", false),
+		Annotations: sets("Link issues"),
 	}, t.linkIssues)
 
 	add(s, &mcp.Tool{
 		Name: "unlink_issues",
 		Description: "Removes a link between two issues; arguments mirror link_issues. " +
 			"{\"targetIssueId\":\"DEMO-1\",\"linkType\":\"subtask of\",\"issueToLinkId\":\"DEMO-2\"} makes DEMO-1 no longer a subtask of DEMO-2.",
-		Annotations: mutating("Unlink issues", true),
+		Annotations: removes("Unlink issues"),
 	}, t.unlinkIssues)
 }
 

@@ -57,33 +57,33 @@ func (t *toolset) registerTagAdmin(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "create_tag",
 		Description: "Creates a tag owned by the current user. Use manage_issue_tags to put it on issues.",
-		Annotations: mutating("Create tag", false),
+		Annotations: changes("Create tag"),
 	}, t.createTag)
 	add(s, &mcp.Tool{
 		Name:        "update_tag",
 		Description: "Renames a tag.",
-		Annotations: mutating("Update tag", false),
+		Annotations: sets("Update tag"),
 	}, t.updateTag)
 	add(s, &mcp.Tool{
 		Name:        "delete_tag",
 		Description: "Permanently deletes a tag and removes it from all issues.",
-		Annotations: mutating("Delete tag", true),
+		Annotations: removes("Delete tag"),
 	}, t.deleteTag)
 
 	add(s, &mcp.Tool{
 		Name:        "create_saved_search",
 		Description: "Saves a search query under a name. It is not added to favorites; pin it in the UI to see it in get_saved_issue_searches.",
-		Annotations: mutating("Create saved search", false),
+		Annotations: changes("Create saved search"),
 	}, t.createSavedSearch)
 	add(s, &mcp.Tool{
 		Name:        "update_saved_search",
 		Description: "Renames a saved search or changes its query.",
-		Annotations: mutating("Update saved search", false),
+		Annotations: sets("Update saved search"),
 	}, t.updateSavedSearch)
 	add(s, &mcp.Tool{
 		Name:        "delete_saved_search",
 		Description: "Permanently deletes a saved search.",
-		Annotations: mutating("Delete saved search", true),
+		Annotations: removes("Delete saved search"),
 	}, t.deleteSavedSearch)
 }
 
