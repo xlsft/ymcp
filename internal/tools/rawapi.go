@@ -30,7 +30,7 @@ func (t *toolset) registerRawAPI(s *mcp.Server) {
 		Description: "Calls any YouTrack (or Hub) REST endpoint as the current user, for what no other tool covers. " +
 			"YouTrack returns only entity IDs unless you pass a fields query, e.g. fields=idReadable,summary,customFields(name,value(name)). " +
 			"Prefer GET; POST and DELETE change data. Reference: https://www.jetbrains.com/help/youtrack/devportal/api-entities.html",
-		Annotations: mutating("Call YouTrack REST API", true),
+		Annotations: anything("Call YouTrack REST API"),
 		InputSchema: schemaFor[callAPIIn](func(p map[string]*jsonschema.Schema) {
 			p["method"].Enum = enum("GET", "POST", "DELETE")
 			p["api"].Enum = enum("youtrack", "hub")

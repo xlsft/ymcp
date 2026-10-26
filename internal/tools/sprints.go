@@ -42,32 +42,32 @@ func (t *toolset) registerSprints(s *mcp.Server) {
 	add(s, &mcp.Tool{
 		Name:        "create_sprint",
 		Description: "Creates a sprint on an agile board that uses sprints. Returns the sprint with its ID and URL.",
-		Annotations: mutating("Create sprint", false),
+		Annotations: changes("Create sprint"),
 	}, t.createSprint)
 
 	add(s, &mcp.Tool{
 		Name:        "update_sprint",
 		Description: "Changes a sprint's name, goal or dates, or archives and restores it. Only the given properties change.",
-		Annotations: mutating("Update sprint", false),
+		Annotations: sets("Update sprint"),
 	}, t.updateSprint)
 
 	add(s, &mcp.Tool{
 		Name:        "add_issue_to_sprint",
 		Description: "Adds an issue to a sprint (the current one by default) of an agile board.",
-		Annotations: mutating("Add issue to sprint", false),
+		Annotations: sets("Add issue to sprint"),
 	}, t.addIssueToSprint)
 
 	add(s, &mcp.Tool{
 		Name:        "remove_issue_from_sprint",
 		Description: "Removes an issue from a sprint (the current one by default) of an agile board. The issue itself is kept.",
-		Annotations: mutating("Remove issue from sprint", false),
+		Annotations: sets("Remove issue from sprint"),
 	}, t.removeIssueFromSprint)
 
 	add(s, &mcp.Tool{
 		Name: "delete_sprint",
 		Description: "Permanently deletes a sprint from an agile board. Its issues are kept but leave the sprint. " +
 			"To keep history, archive it with update_sprint instead.",
-		Annotations: mutating("Delete sprint", true),
+		Annotations: removes("Delete sprint"),
 	}, t.deleteSprint)
 }
 

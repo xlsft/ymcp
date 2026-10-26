@@ -128,12 +128,45 @@ func textResult(v any) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
 }
 
+// readOnly marks a tool that only reads.
 func readOnly(title string) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true, IdempotentHint: true}
+	return hints(title, true, false, true)
 }
 
-func mutating(title string, destructive bool) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{Title: title, DestructiveHint: &destructive}
+// changes marks a tool whose every call changes data again, such as creating
+// an issue or appending to an article.
+func changes(title string) *mcp.ToolAnnotations {
+	return hints(title, false, false, false)
+}
+
+// sets marks a tool that sets data to the given values, so repeating the call
+// changes nothing. YouTrack keeps the history, so it is not destructive.
+func sets(title string) *mcp.ToolAnnotations {
+	return hints(title, false, false, true)
+}
+
+// removes marks a tool that deletes or unlinks; repeating the call changes nothing.
+func removes(title string) *mcp.ToolAnnotations {
+	return hints(title, false, true, true)
+}
+
+// anything marks a tool that can make any change, deletes included.
+func anything(title string) *mcp.ToolAnnotations {
+	return hints(title, false, true, false)
+}
+
+// hints sets all four hints explicitly, since some hosts reject a tool that
+// leaves any out. Every write is open-world: it publishes to a tracker other
+// people read.
+func hints(title string, readOnly, destructive, idempotent bool) *mcp.ToolAnnotations {
+	openWorld := !readOnly
+	return &mcp.ToolAnnotations{
+		Title:           title,
+		ReadOnlyHint:    readOnly,
+		DestructiveHint: &destructive,
+		IdempotentHint:  idempotent,
+		OpenWorldHint:   &openWorld,
+	}
 }
 
 // schemaFor infers the input schema of In and lets tweak refine properties

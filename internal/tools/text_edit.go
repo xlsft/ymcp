@@ -32,14 +32,14 @@ func (t *toolset) registerTextEdit(s *mcp.Server) {
 		Name: "edit_article_content",
 		Description: "Changes part of an article's content by exact find-and-replace, without resending the whole text. " +
 			"Read the article first and copy oldText from it, or set regexp to match a pattern. All edits apply or none do. Returns the article ID, URL and number of replacements.",
-		Annotations: mutating("Edit article content", false),
+		Annotations: changes("Edit article content"),
 	}, t.editArticleContent)
 
 	add(s, &mcp.Tool{
 		Name: "edit_issue_description",
 		Description: "Changes part of an issue's description by exact find-and-replace, without resending the whole text. " +
 			"Read the issue first and copy oldText from it, or set regexp to match a pattern. All edits apply or none do. Returns the issue ID, URL and number of replacements.",
-		Annotations: mutating("Edit issue description", false),
+		Annotations: changes("Edit issue description"),
 	}, t.editIssueDescription)
 }
 

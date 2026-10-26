@@ -28,21 +28,21 @@ func (t *toolset) registerDeletes(s *mcp.Server) {
 		Name: "delete_issue",
 		Description: "Permanently deletes an issue or a draft, with its comments, attachments and work items. " +
 			"This cannot be undone; confirm with the user first.",
-		Annotations: mutating("Delete issue", true),
+		Annotations: removes("Delete issue"),
 	}, t.deleteIssue)
 
 	add(s, &mcp.Tool{
 		Name: "delete_issue_comment",
 		Description: "Deletes a comment from an issue. By default it is marked deleted, as in the UI, and can be restored there; " +
 			"permanent erases it. Comment IDs come from get_issue_comments.",
-		Annotations: mutating("Delete issue comment", true),
+		Annotations: removes("Delete issue comment"),
 	}, t.deleteIssueComment)
 
 	add(s, &mcp.Tool{
 		Name: "delete_article",
 		Description: "Permanently deletes a knowledge base article. If it has sub-articles, " +
 			"delete or move them first (get_article lists them).",
-		Annotations: mutating("Delete article", true),
+		Annotations: removes("Delete article"),
 	}, t.deleteArticle)
 }
 

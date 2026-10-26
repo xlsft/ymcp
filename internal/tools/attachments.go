@@ -78,13 +78,13 @@ func (t *toolset) registerAttachments(s *mcp.Server) {
 		Name: "add_attachment",
 		Description: "Attaches local files (filePath, or several with filePaths), or the given text as a file, to an issue " +
 			"or a knowledge base article. Article text can then reference the images by file name. Returns the attachment IDs.",
-		Annotations: mutating("Add attachment", false),
+		Annotations: changes("Add attachment"),
 	}, t.addAttachment)
 
 	add(s, &mcp.Tool{
 		Name:        "delete_attachment",
 		Description: "Permanently deletes an attachment from an issue or article.",
-		Annotations: mutating("Delete attachment", true),
+		Annotations: removes("Delete attachment"),
 	}, t.deleteAttachment)
 }
 
