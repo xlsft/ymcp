@@ -862,6 +862,9 @@ func TestEveryToolDeclaresAllHints(t *testing.T) {
 		if hints["readOnlyHint"] == true && hints["destructiveHint"] == true {
 			t.Errorf("%s is both read-only and destructive", tool.Name)
 		}
+		if hints["openWorldHint"] == hints["readOnlyHint"] {
+			t.Errorf("%s: openWorldHint = %v, want it on every write and only there", tool.Name, hints["openWorldHint"])
+		}
 	}
 }
 

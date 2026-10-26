@@ -156,10 +156,10 @@ func anything(title string) *mcp.ToolAnnotations {
 }
 
 // hints sets all four hints explicitly, since some hosts reject a tool that
-// leaves any out. No tool is open-world: each talks only to the configured
-// YouTrack instance.
+// leaves any out. Every write is open-world: it publishes to a tracker other
+// people read.
 func hints(title string, readOnly, destructive, idempotent bool) *mcp.ToolAnnotations {
-	openWorld := false
+	openWorld := !readOnly
 	return &mcp.ToolAnnotations{
 		Title:           title,
 		ReadOnlyHint:    readOnly,
