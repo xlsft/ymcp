@@ -2,15 +2,17 @@
   <img src="docs/banner.svg" alt="ymcp — It’s fun to fetch with the YMCP" width="100%">
 </p>
 
-<p align="center">
+<div align="center">
+
   <a href="https://github.com/xlsft/ymcp/actions/workflows/release.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/release.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml"><img src="https://github.com/xlsft/ymcp/actions/workflows/e2e.yml/badge.svg" alt="E2E"></a>
   <a href="https://github.com/xlsft/ymcp/releases/latest"><img src="https://img.shields.io/github/v/release/xlsft/ymcp?color=C62A22" alt="Release"></a>
   <a href="https://hub.docker.com/r/xlsoftware/ymcp"><img src="https://img.shields.io/docker/pulls/xlsoftware/ymcp?label=docker%20pulls&color=0E0E0E" alt="Docker pulls"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
-  <a href="https://m8ven.ai/mcp/xlsft-ymcp-fbkn16?s=readme"><img src="https://m8ven.ai/badge/mcp/xlsft-ymcp-fbkn16" alt="M8ven Score"></a>
-</p>
+[![M8ven Score](https://m8ven.ai/badge/mcp/xlsft-ymcp-fbkn16?v=2e1db4e584becf064c6d5bf20227fcc6)](https://m8ven.ai/mcp/xlsft-ymcp-fbkn16?s=readme)
+
+</div>
 
 **ymcp** is a local [MCP](https://modelcontextprotocol.io) server for [YouTrack](https://www.jetbrains.com/youtrack/),
 including self-hosted instances behind a VPN. It speaks for you with your **login and password**, ships every tool of
