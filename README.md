@@ -9,6 +9,7 @@
   <a href="https://hub.docker.com/r/xlsoftware/ymcp"><img src="https://img.shields.io/docker/pulls/xlsoftware/ymcp?label=docker%20pulls&color=0E0E0E" alt="Docker pulls"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
+  <a href="https://m8ven.ai/mcp/xlsft-ymcp-fbkn16?s=readme"><img src="https://m8ven.ai/badge/mcp/xlsft-ymcp-fbkn16" alt="M8ven Score"></a>
 </p>
 
 **ymcp** is a local [MCP](https://modelcontextprotocol.io) server for [YouTrack](https://www.jetbrains.com/youtrack/),
