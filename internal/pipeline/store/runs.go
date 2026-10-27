@@ -211,3 +211,33 @@ func (s *Store) UpdateRun(ctx context.Context, r Run) error {
 	}
 	return nil
 }
+
+// ModifyRun reads the run, applies fn and saves the result, all in one
+// transaction, so fn sees the run as it is now and not as the caller last
+// read it. A run that already has a final status is never changed: ModifyRun
+// returns it with ErrRunFinished without calling fn, so a run canceled from
+// another process is not revived by a stale copy. When fn returns an error
+// nothing is saved and the error is returned. The result is the run as
+// saved. It is ErrNotFound for an unknown run.
+func (s *Store) ModifyRun(ctx context.Context, id int64, fn func(*Run) error) (Run, error) {
+	var out Run
+	err := s.Tx(ctx, func(tx *Store) error {
+		run, err := tx.Run(ctx, id)
+		if err != nil {
+			return err
+		}
+		if run.Status.Final() {
+			out = run
+			return ErrRunFinished
+		}
+		if err := fn(&run); err != nil {
+			return err
+		}
+		if err := tx.UpdateRun(ctx, run); err != nil {
+			return err
+		}
+		out, err = tx.Run(ctx, id)
+		return err
+	})
+	return out, err
+}

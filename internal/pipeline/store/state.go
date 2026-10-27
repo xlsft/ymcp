@@ -81,6 +81,36 @@ func (s *Store) MarkIssueSeen(ctx context.Context, pipeline, issueID string) err
 	return nil
 }
 
+// RunState returns a value kept for a run by SetRunState, and whether there
+// is one.
+func (s *Store) RunState(ctx context.Context, runID int64, key string) (string, bool, error) {
+	var v string
+	err := s.q.QueryRowContext(ctx, `SELECT value FROM run_state WHERE run_id = ? AND key = ?`, runID, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("reading state %q of run %d: %w", key, runID, err)
+	}
+	return v, true, nil
+}
+
+// SetRunState keeps a value for a run under key, replacing an earlier one.
+// An empty value deletes the key. The values go away with the run.
+func (s *Store) SetRunState(ctx context.Context, runID int64, key, value string) error {
+	var err error
+	if value == "" {
+		_, err = s.q.ExecContext(ctx, `DELETE FROM run_state WHERE run_id = ? AND key = ?`, runID, key)
+	} else {
+		_, err = s.q.ExecContext(ctx, `INSERT INTO run_state (run_id, key, value) VALUES (?, ?, ?)
+			ON CONFLICT (run_id, key) DO UPDATE SET value = excluded.value`, runID, key, value)
+	}
+	if err != nil {
+		return fmt.Errorf("saving state %q of run %d: %w", key, runID, err)
+	}
+	return nil
+}
+
 // Event is an entry of a run's timeline, the feed of the TUI and the logs.
 type Event struct {
 	ID    int64

@@ -124,6 +124,15 @@ CREATE TABLE events (
 );
 CREATE INDEX events_by_run ON events (run_id, id);
 `,
+	// 2: small per-run key-value state (the engine keeps permission state here).
+	`
+CREATE TABLE run_state (
+    run_id INTEGER NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+    key    TEXT NOT NULL,
+    value  TEXT NOT NULL,
+    PRIMARY KEY (run_id, key)
+);
+`,
 }
 
 // migrate brings the schema to the latest version. It runs in an immediate

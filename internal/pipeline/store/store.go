@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"modernc.org/sqlite"
@@ -33,6 +34,8 @@ var (
 	ErrActiveRun = errors.New("store: the issue already has an active run")
 	// ErrRunnerBusy means a live runner already holds the pipeline.
 	ErrRunnerBusy = errors.New("store: another runner holds the pipeline")
+	// ErrRunFinished means the run has a final status and cannot be changed.
+	ErrRunFinished = errors.New("store: the run has ended")
 	// ErrRunnerLost means the caller no longer holds the runner lock, e.g.
 	// because another runner took it over after a missed heartbeat.
 	ErrRunnerLost = errors.New("store: the runner lock is not held")
@@ -66,10 +69,12 @@ type querier interface {
 // Store is the state database. It is safe for concurrent use. The value
 // passed to the function of Tx is a Store bound to that transaction.
 type Store struct {
-	db  *sql.DB // nil for a transaction-bound store
-	q   querier
-	tx  *sql.Tx
-	now func() time.Time
+	db *sql.DB // nil for a transaction-bound store
+	q  querier
+	tx *sql.Tx
+
+	clock sync.RWMutex // guards now
+	now   func() time.Time
 }
 
 // Open opens the database at path, creating the file and its directory when
@@ -178,7 +183,7 @@ func (s *Store) Tx(ctx context.Context, fn func(tx *Store) error) (err error) {
 			panic(p)
 		}
 	}()
-	if err := fn(&Store{q: tx, tx: tx, now: s.now}); err != nil {
+	if err := fn(&Store{q: tx, tx: tx, now: s.currentClock()}); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -240,5 +245,24 @@ func fromNullMS(v sql.NullInt64) *time.Time {
 // stamp is the current time at millisecond precision, the precision of
 // everything stored.
 func (s *Store) stamp() time.Time {
-	return time.UnixMilli(s.now().UnixMilli()).UTC()
+	return time.UnixMilli(s.currentClock()().UnixMilli()).UTC()
+}
+
+// SetClock replaces the clock behind every timestamp the store writes
+// (CreatedAt, UpdatedAt, event times and so on); nil restores time.Now. It
+// is meant for tests with a fake clock and only affects transactions that
+// begin after the call.
+func (s *Store) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	s.clock.Lock()
+	s.now = now
+	s.clock.Unlock()
+}
+
+func (s *Store) currentClock() func() time.Time {
+	s.clock.RLock()
+	defer s.clock.RUnlock()
+	return s.now
 }

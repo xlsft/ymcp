@@ -787,3 +787,132 @@ func TestProcessesCreatingTheDatabaseTogether(t *testing.T) {
 		}
 	}
 }
+
+func TestModifyRun(t *testing.T) {
+	s := open(t)
+	r, err := s.CreateRun(ctx, "p", "prof", "1-1", "A-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fn sees the stored run, not the copy CreateRun returned.
+	if err := s.UpdateRun(ctx, Run{ID: r.ID, IssueKey: "A-1", Stage: "working", Status: StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ModifyRun(ctx, r.ID, func(run *Run) error {
+		if run.Stage != "working" {
+			t.Errorf("fn saw stage %q, want the stored one", run.Stage)
+		}
+		run.Branch = "feat"
+		return nil
+	})
+	if err != nil || got.Branch != "feat" || got.Stage != "working" || got.Status != StatusWorking {
+		t.Fatalf("ModifyRun = %+v, %v", got, err)
+	}
+
+	// An error from fn saves nothing.
+	boom := errors.New("boom")
+	if _, err := s.ModifyRun(ctx, r.ID, func(run *Run) error { run.Branch = "lost"; return boom }); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+	if cur, _ := s.Run(ctx, r.ID); cur.Branch != "feat" {
+		t.Errorf("branch after a failed fn = %q", cur.Branch)
+	}
+
+	// A final run is returned unchanged and fn is not called.
+	if _, err := s.ModifyRun(ctx, r.ID, func(run *Run) error { run.Status = StatusCanceled; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	got, err = s.ModifyRun(ctx, r.ID, func(run *Run) error { called = true; run.Status = StatusWorking; return nil })
+	if !errors.Is(err, ErrRunFinished) || called || got.Status != StatusCanceled {
+		t.Errorf("ModifyRun on a final run = %+v, %v, called %v", got, err, called)
+	}
+	if cur, _ := s.Run(ctx, r.ID); cur.Status != StatusCanceled {
+		t.Errorf("status = %s, want canceled", cur.Status)
+	}
+
+	if _, err := s.ModifyRun(ctx, 9999, func(*Run) error { return nil }); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown run: err = %v", err)
+	}
+}
+
+func TestRunState(t *testing.T) {
+	s := open(t)
+	a, _ := s.CreateRun(ctx, "p", "prof", "1-1", "A-1")
+	b, _ := s.CreateRun(ctx, "p", "prof", "1-2", "A-2")
+
+	if v, ok, err := s.RunState(ctx, a.ID, "k"); err != nil || ok || v != "" {
+		t.Fatalf("empty state = %q, %v, %v", v, ok, err)
+	}
+	if err := s.SetRunState(ctx, a.ID, "k", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunState(ctx, a.ID, "k", "two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRunState(ctx, b.ID, "k", "other"); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok, _ := s.RunState(ctx, a.ID, "k"); !ok || v != "two" {
+		t.Errorf("state = %q, %v", v, ok)
+	}
+	if v, _, _ := s.RunState(ctx, b.ID, "k"); v != "other" {
+		t.Errorf("state of the other run = %q", v)
+	}
+	if err := s.SetRunState(ctx, a.ID, "k", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := s.RunState(ctx, a.ID, "k"); ok {
+		t.Error("the key survived an empty value")
+	}
+	if v, ok, _ := s.RunState(ctx, b.ID, "k"); !ok || v != "other" {
+		t.Errorf("deleting touched the other run: %q, %v", v, ok)
+	}
+	if err := s.SetRunState(ctx, a.ID, "gone", ""); err != nil {
+		t.Errorf("deleting a missing key: %v", err)
+	}
+}
+
+func TestSetClock(t *testing.T) {
+	s := open(t)
+	at := time.Date(2030, 5, 6, 7, 8, 9, 0, time.UTC)
+	s.SetClock(func() time.Time { return at })
+
+	r, err := s.CreateRun(ctx, "p", "prof", "1-1", "A-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.CreatedAt.Equal(at) || !r.UpdatedAt.Equal(at) {
+		t.Errorf("run times = %v / %v, want %v", r.CreatedAt, r.UpdatedAt, at)
+	}
+	if added, err := s.AddInbox(ctx, InboxItem{RunID: r.ID, Source: "youtrack", ExternalID: "c1", Body: "hi"}); err != nil || !added {
+		t.Fatal(added, err)
+	}
+	items, _ := s.PendingInbox(ctx, r.ID)
+	if len(items) != 1 || !items[0].CreatedAt.Equal(at) {
+		t.Errorf("inbox = %+v, want CreatedAt %v", items, at)
+	}
+	if err := s.AddEvent(ctx, r.ID, "x", nil); err != nil {
+		t.Fatal(err)
+	}
+	if evs, _ := s.Events(ctx, r.ID, 0, 0); len(evs) != 1 || !evs[0].At.Equal(at) {
+		t.Errorf("events = %+v", evs)
+	}
+
+	// Inside a transaction too, and nil restores the real clock.
+	later := at.Add(time.Hour)
+	s.SetClock(func() time.Time { return later })
+	var m Message
+	if err := s.Tx(ctx, func(tx *Store) error {
+		var err error
+		m, err = tx.AddMessage(ctx, Message{RunID: r.ID, Source: "youtrack", Kind: "answer"})
+		return err
+	}); err != nil || !m.CreatedAt.Equal(later) {
+		t.Errorf("message in a tx: %+v, %v", m, err)
+	}
+	s.SetClock(nil)
+	if r2, _ := s.CreateRun(ctx, "p", "prof", "1-2", "A-2"); time.Since(r2.CreatedAt) > time.Minute {
+		t.Errorf("CreatedAt after SetClock(nil) = %v", r2.CreatedAt)
+	}
+}
