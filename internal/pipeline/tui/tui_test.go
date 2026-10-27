@@ -407,3 +407,33 @@ func TestOpenURLRejectsNonWeb(t *testing.T) {
 		t.Error("file URL accepted")
 	}
 }
+
+// TestNavigationRussianLayout: TestNavigation's walk with a Russian
+// layout, where each shortcut key types a Cyrillic letter.
+func TestNavigationRussianLayout(t *testing.T) {
+	f := newFixture(t, "a", "b")
+	f.keys("enter")
+	topIs[*views.Pipelines](t, f)
+	f.keys("щ") // o
+	if b := topIs[*views.Board](t, f); b.Pipeline() != "backend" {
+		t.Errorf("board of %s", b.Pipeline())
+	}
+	f.keys("ш") // i
+	topIs[*views.Inbox](t, f)
+	f.keys("esc", "esc")
+	topIs[*views.Pipelines](t, f)
+	f.keys("Д") // L
+	if l := topIs[*views.Logs](t, f); l.Pipeline() != "backend" {
+		t.Errorf("logs of %s", l.Pipeline())
+	}
+	f.keys("esc", "т") // n
+	if w := topIs[*fakeWizard](t, f); w.existing != nil {
+		t.Errorf("new pipeline wizard got %v", w.existing)
+	}
+	f.keys("x") // the fake wizard cancels on x
+	topIs[*views.Pipelines](t, f)
+	f.keys("й") // q
+	if !f.quit {
+		t.Error("й does not quit")
+	}
+}

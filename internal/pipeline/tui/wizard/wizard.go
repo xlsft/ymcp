@@ -24,6 +24,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
@@ -432,7 +433,7 @@ func (m *Model) forward() {
 func isButton(id string) bool { return strings.HasPrefix(id, "btn:") }
 
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
-	k := msg.String()
+	k := keys.Of(msg) // shortcuts only; the focused field gets msg as typed
 	if k == "ctrl+c" {
 		return cancelled
 	}

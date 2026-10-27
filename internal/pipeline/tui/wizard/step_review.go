@@ -11,6 +11,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 )
 
 type checkMsg struct {
@@ -95,7 +96,7 @@ func (s *reviewStep) check() tea.Cmd {
 func (s *reviewStep) leave() {}
 
 func (s *reviewStep) shortcut(msg tea.KeyMsg, _ string) (tea.Cmd, bool) {
-	switch msg.String() {
+	switch keys.Of(msg) {
 	case "c":
 		return s.check(), true
 	}

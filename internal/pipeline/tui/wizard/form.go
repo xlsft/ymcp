@@ -7,6 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 )
 
 // A step is a form: a column of items, most of them fields with a
@@ -417,7 +419,7 @@ func (c *toggleCtl) help() string {
 }
 
 func (c *toggleCtl) key(msg tea.KeyMsg) (tea.Cmd, bool) {
-	switch msg.String() {
+	switch keys.Of(msg) {
 	case " ", "x":
 		return c.set(!c.get()), true
 	}
@@ -511,7 +513,7 @@ func (c *checklistCtl) help() string {
 
 func (c *checklistCtl) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 	rows := c.rows()
-	switch msg.String() {
+	switch keys.Of(msg) {
 	case "up":
 		c.cur = max(c.cur-1, 0)
 		return nil, true

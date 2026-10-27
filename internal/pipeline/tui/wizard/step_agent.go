@@ -13,6 +13,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
@@ -420,7 +421,7 @@ const errNoCommand = constError("set Command to start it")
 
 func (s *agentStep) shortcut(msg tea.KeyMsg, focus string) (tea.Cmd, bool) {
 	s.notice = ""
-	if msg.String() == "s" && (focus == "preset" || focus == "prompts") {
+	if keys.Of(msg) == "s" && (focus == "preset" || focus == "prompts") {
 		s.openSave()
 		return nil, true
 	}
@@ -819,7 +820,7 @@ func (c *promptsCtl) help() string {
 
 func (c *promptsCtl) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 	s := c.s
-	switch msg.String() {
+	switch keys.Of(msg) {
 	case "up":
 		c.cur = max(c.cur-1, 0)
 		return nil, true

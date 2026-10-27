@@ -10,6 +10,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
@@ -151,7 +152,7 @@ func (m *Inbox) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-		return m, m.key(msg.String())
+		return m, m.key(keys.Of(msg))
 	default:
 		return m, m.answer.update(msg)
 	}

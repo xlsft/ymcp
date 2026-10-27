@@ -9,6 +9,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/install"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
@@ -103,7 +104,7 @@ func (m *Profiles) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case Tick:
 		return m, m.load
 	case tea.KeyMsg:
-		switch msg.String() {
+		switch keys.Of(msg) {
 		case "q":
 			return m, tea.Quit
 		case "?":

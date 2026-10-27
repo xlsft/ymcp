@@ -14,6 +14,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
@@ -132,9 +133,9 @@ func (m *Pipelines) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.prompt.open:
 			return m, m.prompt.key(msg)
 		case m.menu.open:
-			return m, m.menuKey(msg.String())
+			return m, m.menuKey(keys.Of(msg))
 		}
-		return m, m.key(msg.String())
+		return m, m.key(keys.Of(msg))
 	default:
 		return m, m.prompt.update(msg)
 	}

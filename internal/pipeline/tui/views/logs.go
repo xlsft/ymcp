@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
@@ -83,7 +84,7 @@ func (m *Logs) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.reload()
 		}
 	case tea.KeyMsg:
-		return m, m.key(msg.String())
+		return m, m.key(keys.Of(msg))
 	}
 	return m, nil
 }

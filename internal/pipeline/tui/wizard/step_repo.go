@@ -14,6 +14,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 )
 
@@ -387,7 +388,7 @@ func (s *repoStep) store() {
 }
 
 func (s *repoStep) shortcut(msg tea.KeyMsg, focus string) (tea.Cmd, bool) {
-	if focus == "strategy" && msg.String() == "u" && s.det != nil && s.det.Kind != "" {
+	if focus == "strategy" && keys.Of(msg) == "u" && s.det != nil && s.det.Kind != "" {
 		s.sh.p.Strategy.Kind = s.det.Kind
 		s.touched = true
 		return nil, true

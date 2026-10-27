@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
@@ -103,7 +104,7 @@ func (b *base) common(msg tea.Msg) (bool, tea.Cmd) {
 		}
 		yes := b.onYes
 		b.ask, b.onYes = "", nil
-		switch msg.String() {
+		switch keys.Of(msg) {
 		case "y", "Y":
 			return true, yes()
 		}

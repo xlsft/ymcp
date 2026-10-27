@@ -14,6 +14,7 @@ import (
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
@@ -226,7 +227,7 @@ func (m *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
-		return m, m.key(msg.String())
+		return m, m.key(keys.Of(msg))
 	}
 	return m, nil
 }
