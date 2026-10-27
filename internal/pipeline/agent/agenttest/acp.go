@@ -311,6 +311,11 @@ func (a *fakeACP) Prompt(ctx context.Context, p acp.PromptRequest) (acp.PromptRe
 		case st.Tool != nil:
 			tid := acp.ToolCallId(toolID(st.Tool, n))
 			a.update(ctx, id, acp.StartToolCall(tid, st.Tool.Title, acp.WithStartKind(acp.ToolKind(st.Tool.Kind)), acp.WithStartStatus(acp.ToolCallStatusPending), acp.WithStartRawInput(st.Tool.Input)))
+			// Like kimi, which repeats an update for every bit of output.
+			for range 3 {
+				a.update(ctx, id, acp.UpdateToolCall(tid, acp.WithUpdateStatus(acp.ToolCallStatusInProgress),
+					acp.WithUpdateContent([]acp.ToolCallContent{acp.ToolContent(acp.TextBlock("output"))})))
+			}
 			a.update(ctx, id, acp.UpdateToolCall(tid, acp.WithUpdateStatus(acp.ToolCallStatusCompleted)))
 		case st.Permission != nil:
 			if end, done := a.permission(ctx, id, st.Permission, n); done {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -448,25 +449,32 @@ func (c acpClient) SessionUpdate(ctx context.Context, n acp.SessionNotification)
 		s.events.emit(Event{Kind: EventToolCall, Tool: &tc, Raw: raw})
 	case u.ToolCallUpdate != nil:
 		t := u.ToolCallUpdate
-		tc := s.mergeTool(string(t.ToolCallId), t.Title, t.Kind, t.Status, t.RawInput)
+		tc, changed := s.mergeTool(string(t.ToolCallId), t.Title, t.Kind, t.Status, t.RawInput)
 		s.mu.Lock()
 		s.afterTool = true
 		s.mu.Unlock()
-		s.events.emit(Event{Kind: EventToolUpdate, Tool: &tc, Raw: raw})
+		// Agents repeat updates while a tool streams its output, which
+		// ymcp doesn't keep: only a change of what it records is an event.
+		if changed {
+			s.events.emit(Event{Kind: EventToolUpdate, Tool: &tc, Raw: raw})
+		}
 	case u.UsageUpdate != nil:
 		s.events.emit(Event{Kind: EventUsage, Raw: raw, Text: fmt.Sprintf("used=%d size=%d", u.UsageUpdate.Used, u.UsageUpdate.Size)})
 	}
 	return nil
 }
 
-// mergeTool applies an update to the known state of a tool call.
-func (s *acpSession) mergeTool(id string, title *string, kind *acp.ToolKind, status *acp.ToolCallStatus, input any) ToolCall {
+// mergeTool applies an update to the known state of a tool call; changed
+// reports whether its title, kind, status or input changed (or the call
+// was not known).
+func (s *acpSession) mergeTool(id string, title *string, kind *acp.ToolKind, status *acp.ToolCallStatus, input any) (tc ToolCall, changed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tc, ok := s.tools[id]
 	if !ok {
 		tc = ToolCall{ID: id, Status: "pending"}
 	}
+	before := tc
 	if title != nil && *title != "" {
 		tc.Title = *title
 	}
@@ -480,7 +488,8 @@ func (s *acpSession) mergeTool(id string, title *string, kind *acp.ToolKind, sta
 		tc.Input = in
 	}
 	s.tools[id] = tc
-	return tc
+	changed = !ok || tc.Title != before.Title || tc.Kind != before.Kind || tc.Status != before.Status || !bytes.Equal(tc.Input, before.Input)
+	return tc, changed
 }
 
 func rawJSON(v any) json.RawMessage {
@@ -501,7 +510,7 @@ func (c acpClient) RequestPermission(ctx context.Context, p acp.RequestPermissio
 		return cancelled, nil
 	}
 	t := p.ToolCall
-	tool := s.mergeTool(string(t.ToolCallId), nil, t.Kind, nil, t.RawInput)
+	tool, _ := s.mergeTool(string(t.ToolCallId), nil, t.Kind, nil, t.RawInput)
 	if t.Title != nil && *t.Title != "" {
 		tool.Title = *t.Title // opencode puts the target path here
 	}

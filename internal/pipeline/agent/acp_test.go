@@ -62,9 +62,20 @@ func TestACPStreamsEventsAndConfigures(t *testing.T) {
 	if call.Tool.Title != "Read" || call.Tool.Kind != "read" || call.Tool.Status != "pending" || string(call.Tool.Input) != `{"path":"README.md"}` {
 		t.Errorf("tool call = %+v (%s)", call.Tool, call.Tool.Input)
 	}
-	upd := s.wait(t, EventToolUpdate, nil)
-	if upd.Tool.ID != call.Tool.ID || upd.Tool.Status != "completed" || upd.Tool.Title != "Read" {
+	upd := s.wait(t, EventToolUpdate, func(e Event) bool { return e.Tool.Status == "completed" })
+	if upd.Tool.ID != call.Tool.ID || upd.Tool.Title != "Read" {
 		t.Errorf("tool update = %+v", upd.Tool)
+	}
+	// The fake repeats its in_progress update with more output, as kimi
+	// does; only the changes of status are events.
+	var statuses []string
+	for _, e := range s.all() {
+		if e.Kind == EventToolUpdate {
+			statuses = append(statuses, e.Tool.Status)
+		}
+	}
+	if strings.Join(statuses, ",") != "in_progress,completed" {
+		t.Errorf("tool updates = %q", statuses)
 	}
 	s.wait(t, EventUsage, func(e Event) bool { return e.Text == "used=1234 size=100000" })
 	s.wait(t, EventUsage, func(e Event) bool { return e.Text == "in=10 out=20 total=30" })
