@@ -781,6 +781,36 @@ func ownTool(tc agent.ToolCall) bool {
 	return false
 }
 
+// permissionInput is what a permission request is about, for people: the
+// command of a shell call, the text of the content blocks an ACP agent
+// such as kimi describes the call with, else the input as it came.
+func permissionInput(raw json.RawMessage) string {
+	var call struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(raw, &call) == nil && strings.TrimSpace(call.Command) != "" {
+		return strings.TrimSpace(call.Command)
+	}
+	var blocks []struct {
+		Content struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		var texts []string
+		for _, b := range blocks {
+			if t := strings.TrimSpace(b.Content.Text); b.Content.Type == "text" && t != "" {
+				texts = append(texts, strings.TrimPrefix(t, "Requesting approval to "))
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "\n")
+		}
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 // openPermission asks a human about the oldest open request: the run
 // waits in needs_input until /approve, /reject or Timeouts.Permission.
 func (t *turn) openPermission() {
@@ -793,7 +823,7 @@ func (t *turn) openPermission() {
 		what = "a tool"
 	}
 	body := "The agent asks for permission to run **" + what + "**."
-	if in := strings.TrimSpace(string(p.Tool.Input)); in != "" {
+	if in := permissionInput(p.Tool.Input); in != "" {
 		body += "\n\n" + codeBlock(trimText(in, 3000))
 	}
 	body += "\n\nReply `/approve` to allow it or `/reject` to refuse. Without a reply within " + fmtDuration(wait) + " it is refused."
