@@ -875,6 +875,8 @@ func TestRestartDuringTurn(t *testing.T) {
 func TestNoResumeStartsNewSessionWithRecap(t *testing.T) {
 	h := newHarness(t, nil)
 	is := h.yt.addIssue("Recap", "Open")
+	h.yt.issue(is.Key).Description = "The full story of the bug."
+	h.yt.addComment(is.Key, "carol", "Context from before the run")
 	h.ag.script(func(t *fakeTurn) agent.Result {
 		writeFile(t, "a.txt", "a\n")
 		t.Say("First answer.")
@@ -891,6 +893,18 @@ func TestNoResumeStartsNewSessionWithRecap(t *testing.T) {
 	p := h.ag.promptLog()[1]
 	if !strings.Contains(p, "could not be resumed") || !strings.Contains(p, "a.txt") || !strings.Contains(p, "First answer.") || !strings.Contains(p, "Again") {
 		t.Errorf("prompt = %q", p)
+	}
+	// The recap repeats the task with the issue's description and comments.
+	if !strings.Contains(p, "The task as it was first given to you") || !strings.Contains(p, "The full story of the bug.") || !strings.Contains(p, "Context from before the run") {
+		t.Errorf("the recap lacks the issue: %q", p)
+	}
+	// turn.start records the prompt that was sent, recap included.
+	var sent []string
+	for _, e := range h.events(run.ID, "turn.start") {
+		sent = append(sent, string(e.Data))
+	}
+	if len(sent) != 2 || !strings.Contains(sent[0], `"system":`) || strings.Contains(sent[0], "could not be resumed") || !strings.Contains(sent[1], "could not be resumed") || !strings.Contains(sent[1], `"system":`) {
+		t.Errorf("turn.start events = %q", sent)
 	}
 	starts := h.ag.startLog()
 	if last := starts[len(starts)-1]; last.SessionID != "" || last.SystemPrompt == "" {

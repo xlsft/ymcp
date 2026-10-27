@@ -194,7 +194,6 @@ func (t *turn) run1(answer string) string {
 	if err != nil {
 		return t.fail("bad template", "A prompt template of the pipeline is invalid: "+err.Error())
 	}
-	r.event(t.bg, run.ID, "turn.start", map[string]string{"kind": t.kind, "prompt": trimText(prompt, 4000)})
 
 	opts := agent.StartOptions{
 		Dir:          t.w.wt.Path,
@@ -348,6 +347,7 @@ func (t *turn) session(opts agent.StartOptions, prompt string, comments []commen
 			return agent.Result{}, "", fmt.Errorf("starting the agent: %w", err)
 		}
 		t.saveSession(sess.ID())
+		t.started(opts, prompt)
 		res, cause, perr := t.drive(sess, prompt)
 		sess.Close()
 		t.drain(sess)
@@ -375,11 +375,32 @@ func (t *turn) saveSession(id string) {
 	}
 }
 
-// recap tells a new session what an earlier one did.
+// promptLimit bounds the prompt recorded in a turn.start event.
+const promptLimit = 16000
+
+// started records the prompt sent to the agent as it was sent: with the
+// recap of a replaced session, and with the service instruction a new
+// session gets.
+func (t *turn) started(opts agent.StartOptions, prompt string) {
+	data := map[string]string{"kind": t.kind, "prompt": trimText(prompt, promptLimit)}
+	if opts.SessionID == "" && opts.SystemPrompt != "" {
+		data["system"] = trimText(opts.SystemPrompt, promptLimit)
+	}
+	t.r.event(t.bg, t.run.ID, "turn.start", data)
+}
+
+// recap tells a new session what an earlier one did. It repeats the task
+// the way the start prompt gave it (the issue, its description and
+// comments), then the branch's changes and the earlier answers.
 func (t *turn) recap(comments []comment, issue ytwatch.Issue) string {
 	r, w := t.r, t.w
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are continuing earlier work on issue %s (%s) in a new session: the previous session could not be resumed.\n", issue.Key, issue.Summary)
+	if t.kind != kindStart {
+		if task, err := text.Render(r.prompts.Start, t.vars); err == nil && strings.TrimSpace(task) != "" {
+			b.WriteString("\nThe task as it was first given to you:\n---\n" + strings.TrimSpace(task) + "\n---\n\n")
+		}
+	}
 	fmt.Fprintf(&b, "Your branch is %s, created from %s.\n", w.wt.Branch, w.wt.Base)
 	out, _, err := r.host.Run(t.ctx, w.wt.Path, []string{"git", "diff", "--stat", "origin/" + w.wt.Base + "...HEAD"}, nil)
 	if stat := strings.TrimSpace(string(out)); err == nil && stat != "" {
