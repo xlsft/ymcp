@@ -51,8 +51,9 @@ var (
 	strategyKinds   = []string{"branch", "github-pr", "github-issue-pr", "gitlab-mr"}
 )
 
-// Validate checks the pipeline without touching the network or the disk:
-// the name, required fields, known enum values and sane numbers. Unset
+// Validate checks the pipeline without touching the network: the name,
+// required fields, known enum values and sane numbers. The only file it
+// reads is that of a user preset named by prompts.preset. Unset
 // optional fields are taken as their defaults. It returns a
 // *ValidationError listing every problem.
 func (p Pipeline) Validate() error {
@@ -153,7 +154,7 @@ func (p Pipeline) Validate() error {
 	pr := p.Prompts
 	if pr.Preset != "" {
 		if _, ok := LookupPreset(pr.Preset); !ok && (pr.Start == "" || pr.Feedback == "" || pr.Answer == "") {
-			add("prompts.preset %q is not a built-in preset (%s) and prompts.start, feedback and answer are not all set", pr.Preset, strings.Join(presetNames(), ", "))
+			add("prompts.preset %q is neither a built-in preset (%s) nor one of yours, and prompts.start, feedback and answer are not all set", pr.Preset, strings.Join(presetNames(), ", "))
 		}
 	}
 

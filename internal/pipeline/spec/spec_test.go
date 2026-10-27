@@ -423,6 +423,9 @@ func TestPresets(t *testing.T) {
 	var got []string
 	for _, p := range Presets() {
 		got = append(got, p.Name)
+		if !p.Builtin {
+			t.Errorf("preset %s is not marked built-in", p.Name)
+		}
 		if p.Rationale == "" || p.Start == "" || p.Feedback == "" || p.Answer == "" {
 			t.Errorf("preset %s has an empty text", p.Name)
 		}

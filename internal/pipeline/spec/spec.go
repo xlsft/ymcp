@@ -111,9 +111,9 @@ type Feedback struct {
 	GitLab   []string `json:"gitlab,omitempty"`
 }
 
-// Prompts are the three prompt templates. Preset names the built-in preset
-// they were copied from; an empty text falls back to that preset (see
-// Pipeline.ResolvedPrompts).
+// Prompts are the three prompt templates. Preset names the preset, built-in
+// or user, they were copied from; an empty text falls back to that preset
+// (see Pipeline.ResolvedPrompts).
 type Prompts struct {
 	Preset   string `json:"preset,omitempty"`
 	Start    string `json:"start,omitempty"`

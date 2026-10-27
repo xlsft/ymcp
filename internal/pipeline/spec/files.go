@@ -78,15 +78,19 @@ func Save(p Pipeline) error {
 	return write(path, p.WithDefaults())
 }
 
-func write(path string, p Pipeline) error {
+func write(path string, p Pipeline) error { return writeJSON(path, p) }
+
+// writeJSON writes v as indented JSON to path with mode 0600, atomically:
+// a temporary file in the same directory is renamed over path.
+func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".pipeline-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".ymcp-*.tmp")
 	if err != nil {
 		return err
 	}
