@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // requestTimeout bounds every call the wizard makes in the background.
@@ -39,11 +40,13 @@ func (d *debouncer) fired(msg tea.Msg) bool {
 // current reports whether a result started at seq is still wanted.
 func (d *debouncer) current(id, seq int) bool { return id == d.id && seq == d.seq }
 
-// newInput is a single-line text input without a blinking cursor.
+// newInput is a single-line text input without a blinking cursor; its
+// placeholder is dim italic so it never looks like a value.
 func newInput(placeholder string) textinput.Model {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Placeholder = placeholder
+	in.PlaceholderStyle = styleHolder
 	in.Cursor.SetMode(cursor.CursorStatic)
 	in.CharLimit = 0
 	return in
@@ -63,11 +66,10 @@ type suggestMsg struct {
 // assistField is a text input with completions under it that follow the
 // text as it is typed (debounced).
 type assistField struct {
-	sh    *shared
-	label string
-	in    textinput.Model
-	src   suggestFunc
-	deb   debouncer
+	sh  *shared
+	in  textinput.Model
+	src suggestFunc
+	deb debouncer
 
 	list []Suggestion
 	cur  int // highlighted completion, -1 = none
@@ -75,8 +77,8 @@ type assistField struct {
 	err  error
 }
 
-func newAssist(sh *shared, label, placeholder string, src suggestFunc) *assistField {
-	return &assistField{sh: sh, label: label, in: newInput(placeholder), src: src, deb: debouncer{id: sh.newID()}, cur: -1}
+func newAssist(sh *shared, placeholder string, src suggestFunc) *assistField {
+	return &assistField{sh: sh, in: newInput(placeholder), src: src, deb: debouncer{id: sh.newID()}, cur: -1}
 }
 
 func (f *assistField) value() string { return strings.TrimSpace(f.in.Value()) }
@@ -97,7 +99,8 @@ func (f *assistField) blur() {
 func (f *assistField) showing() bool { return f.in.Focused() && f.open && len(f.list) > 0 }
 
 // key handles a key while the field has focus. consumed is false for the
-// keys the step uses to move between fields.
+// keys the form uses to move between fields: tab, shift+tab and enter
+// go to the form unless a completion is highlighted (then they apply it).
 func (f *assistField) key(msg tea.KeyMsg) (cmd tea.Cmd, consumed, changed bool) {
 	switch msg.String() {
 	case "up":
@@ -113,10 +116,10 @@ func (f *assistField) key(msg tea.KeyMsg) (cmd tea.Cmd, consumed, changed bool) 
 		f.cur = min(f.cur+1, len(f.list)-1)
 		return nil, true, false
 	case "tab", "enter":
-		if !f.showing() || (msg.String() == "enter" && f.cur < 0) {
+		if !f.showing() || f.cur < 0 {
 			return nil, false, false
 		}
-		s := f.list[max(f.cur, 0)]
+		s := f.list[f.cur]
 		text, caret := s.Apply(f.in.Value())
 		f.in.SetValue(text)
 		f.in.SetCursor(caret)
@@ -155,6 +158,9 @@ func (f *assistField) refresh() tea.Cmd {
 // msg handles the field's background messages.
 func (f *assistField) msg(msg tea.Msg) tea.Cmd {
 	if f.deb.fired(msg) {
+		if f.src == nil {
+			return nil
+		}
 		call := f.src(f.in.Value(), f.in.Position())
 		if call == nil {
 			return nil
@@ -173,18 +179,47 @@ func (f *assistField) msg(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// view draws the label, the input and, when focused, the completions.
-func (f *assistField) view(width int, focused bool) string {
-	var b strings.Builder
-	label := styleLabel.Render(f.label)
-	marker := "  "
-	if focused {
-		label = styleFocus.Render(f.label)
-		marker = styleFocus.Render("› ")
+// boxWidth is the width of an input box in a form width cells wide.
+func boxWidth(width int) int { return min(max(width, 20), 80) }
+
+// inputBox draws content in a rounded box: grey, accent when focused,
+// red when the value is wrong.
+func inputBox(content string, width int, focused, bad bool) string {
+	c := borderGray
+	switch {
+	case focused:
+		c = accentRed
+	case bad:
+		c = errorRed
 	}
-	b.WriteString(label + "\n")
-	f.in.Width = max(width-4, 10)
-	b.WriteString(marker + f.in.View())
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(c).
+		Padding(0, 1).Width(boxWidth(width) - 2).Render(content)
+}
+
+// view draws the input in its box and, when focused, the completions
+// under it.
+func (f *assistField) view(width int, focused, bad bool) string {
+	if w := max(boxWidth(width)-5, 5); f.in.Width != w {
+		f.in.Width = w
+		f.in.SetCursor(f.in.Position()) // scrolls a long value to the caret
+	}
+	content := f.in.View()
+	if v, room := f.in.Value(), boxWidth(width)-4; !f.in.Focused() && lenRunes(v) > room {
+		// A long value (a path) shows its end; the start is cut.
+		r := []rune(v)
+		content = "…" + string(r[len(r)-room+1:])
+	}
+	out := inputBox(content, width, focused, bad)
+	if c := f.completions(width, focused); c != "" {
+		out += "\n" + c
+	}
+	return out
+}
+
+// completions draws the completions while they show, or why there are
+// none.
+func (f *assistField) completions(width int, focused bool) string {
+	var lines []string
 	if f.showing() {
 		for i, s := range f.list {
 			line := s.Prefix + s.Option + s.Suffix
@@ -201,12 +236,25 @@ func (f *assistField) view(width int, focused bool) string {
 			if s.Description != "" && s.Description != s.Option {
 				line += " " + styleDim.Render(s.Description)
 			}
-			b.WriteString("\n    " + line)
+			lines = append(lines, "  "+line)
 		}
 	} else if focused && f.err != nil {
-		b.WriteString("\n    " + styleDim.Render("no completions: "+oneLine(f.err.Error(), width-20)))
+		lines = append(lines, "  "+styleDim.Render("no completions: "+oneLine(f.err.Error(), width-20)))
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
+}
+
+// help is the key help of a focused assist field.
+func (f *assistField) help() string {
+	switch {
+	case f.showing() && f.cur >= 0:
+		return keyHelp("↑/↓", "choose", "enter", "apply completion", "esc", "hide")
+	case f.showing():
+		return keyHelp("↓", "choose a completion", "esc", "hide")
+	case f.src != nil:
+		return keyHelp("ctrl+space", "completions")
+	}
+	return ""
 }
 
 // staticSuggest completes from a fixed list: items containing the typed
@@ -277,15 +325,6 @@ func (p *pickList) selected() (pickItem, bool) {
 	return v[p.cur], true
 }
 
-func (p *pickList) selectValue(value string) {
-	for i, it := range p.visible() {
-		if it.value == value {
-			p.cur = i
-			return
-		}
-	}
-}
-
 // key moves the cursor or edits the filter; it reports whether it used
 // the key.
 func (p *pickList) key(msg tea.KeyMsg) bool {
@@ -323,9 +362,9 @@ func (p *pickList) key(msg tea.KeyMsg) bool {
 func (p *pickList) view(width, height int) string {
 	var b strings.Builder
 	if p.filtered {
-		p.filter.Width = max(width-12, 10)
-		b.WriteString(styleDim.Render("filter: ") + p.filter.View() + "\n")
-		height--
+		p.filter.Width = max(boxWidth(width)-5, 5)
+		b.WriteString(inputBox(p.filter.View(), width, true, false) + "\n")
+		height -= 3
 	}
 	items := p.visible()
 	if len(items) == 0 {

@@ -436,17 +436,19 @@ func (d *driver) mustNot(parts ...string) {
 	}
 }
 
-// dump writes the view to $YMCP_WIZARD_DUMP/<name>.txt when set.
+// dump checks that the view fits the window and writes it to
+// $YMCP_WIZARD_DUMP/<name>.txt when set.
 func (d *driver) dump(name string) {
 	d.t.Helper()
 	v := d.view()
 	lines := strings.Split(v, "\n")
-	if len(lines) > 30 {
-		d.t.Errorf("%s: view has %d lines, more than the 30 of the window", name, len(lines))
+	w, h := d.m.sh.width, d.m.sh.height
+	if len(lines) > h {
+		d.t.Errorf("%s: view has %d lines, more than the %d of the window", name, len(lines), h)
 	}
 	for i, l := range lines {
-		if w := lenVisible(l); w > 100 {
-			d.t.Errorf("%s: line %d is %d cells wide: %q", name, i+1, w, l)
+		if lw := lenVisible(l); lw > w {
+			d.t.Errorf("%s: line %d is %d cells wide: %q", name, i+1, lw, l)
 		}
 	}
 	dir := os.Getenv("YMCP_WIZARD_DUMP")
@@ -459,6 +461,33 @@ func (d *driver) dump(name string) {
 }
 
 func (d *driver) step() string { return d.m.steps[d.m.cur].title() }
+
+// focused is the id of the focused field or button.
+func (d *driver) focused() string { return d.m.focusID() }
+
+// focus puts the focus on a field or button directly.
+func (d *driver) focus(id string) {
+	d.t.Helper()
+	ok := false
+	for _, f := range d.m.focusables() {
+		ok = ok || f == id
+	}
+	if !ok {
+		d.t.Fatalf("no field %q on %s: %v", id, d.step(), d.m.focusables())
+	}
+	d.m.steps[d.m.cur].form().focus = id
+	d.m.syncFocus()
+}
+
+// goStep shows step i (0-based) without the checks of Next.
+func (d *driver) goStep(i int) {
+	d.run(d.m.goTo(i), 0)
+}
+
+// alt presses alt+r.
+func (d *driver) alt(r rune) {
+	d.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: true})
+}
 
 // ctrlU clears the input before the cursor.
 func ctrlU() tea.Msg { return tea.KeyMsg{Type: tea.KeyCtrlU} }

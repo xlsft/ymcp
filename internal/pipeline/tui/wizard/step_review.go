@@ -19,28 +19,57 @@ type checkMsg struct {
 	err     error
 }
 
-// reviewStep sums the pipeline up, runs the full check and saves.
+// reviewStep sums the pipeline up and runs the full check; the buttons
+// under it save.
 type reviewStep struct {
-	sh      *shared
+	base
+	all     []*item
 	deb     debouncer
 	results []engine.CheckResult
 	err     error
 	pending bool
 	checked string // JSON of the pipeline the results are for
-	btn     int    // 0 save, 1 save & run
 }
 
 func newReviewStep(sh *shared) *reviewStep {
-	return &reviewStep{sh: sh, deb: debouncer{id: sh.newID()}}
+	s := &reviewStep{base: base{sh: sh}, deb: debouncer{id: sh.newID()}}
+	s.all = []*item{
+		{id: "summary", heading: "Summary", below: s.summary},
+		{
+			id: "invalid", heading: "Fix these before saving",
+			hidden: func() bool { return s.final().Validate() == nil },
+			below:  s.invalid,
+		},
+		{
+			id: "checks", heading: "Checks", headNote: "c runs them again",
+			headMark: func() string {
+				if s.pending {
+					return markPending
+				}
+				return ""
+			},
+			hidden: func() bool { return s.final().Validate() != nil },
+			below:  s.checkList,
+		},
+	}
+	return s
 }
 
-func (s *reviewStep) title() string { return "Review & save" }
+func (s *reviewStep) title() string { return "Review" }
+func (s *reviewStep) intro() string {
+	return "The pipeline at a glance and the full check; failures don't block."
+}
+func (s *reviewStep) items() []*item { return s.all }
 
 // final is the pipeline as it will be saved.
 func (s *reviewStep) final() spec.Pipeline { return clonePipeline(*s.sh.p).WithDefaults() }
 
 func (s *reviewStep) enter() tea.Cmd {
+	s.fs.focus = btnSave
 	p := s.final()
+	if p.Validate() != nil {
+		return nil
+	}
 	data, _ := json.Marshal(p)
 	if string(data) == s.checked && (s.pending || s.results != nil || s.err != nil) {
 		return nil
@@ -65,33 +94,16 @@ func (s *reviewStep) check() tea.Cmd {
 
 func (s *reviewStep) leave() {}
 
-func (s *reviewStep) key(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (s *reviewStep) shortcut(msg tea.KeyMsg, _ string) (tea.Cmd, bool) {
 	switch msg.String() {
-	case "left", "h", "shift+tab":
-		s.btn = 0
-		return nil, true
-	case "right", "l", "tab":
-		s.btn = 1
-		return nil, true
 	case "c":
 		return s.check(), true
-	case "s":
-		return s.done(false), true
-	case "r":
-		return s.done(true), true
-	case "enter":
-		return s.done(s.btn == 1), true
 	}
 	return nil, false
 }
 
-// done ends the wizard, unless the pipeline is invalid.
-func (s *reviewStep) done(run bool) tea.Cmd {
-	p := s.final()
-	if p.Validate() != nil {
-		return nil
-	}
-	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }
+func (s *reviewStep) extraHelp(string) string {
+	return keyHelp("c", "check again")
 }
 
 func (s *reviewStep) msg(msg tea.Msg) tea.Cmd {
@@ -101,11 +113,11 @@ func (s *reviewStep) msg(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (s *reviewStep) view(width, height int) string {
+func (s *reviewStep) summary(width int) string {
 	p := s.final()
-	var b strings.Builder
+	var b []string
 	row := func(k, v string) {
-		b.WriteString(styleDim.Render(fmt.Sprintf("%-10s", k)) + " " + oneLine(v, width-12) + "\n")
+		b = append(b, styleDim.Render(fmt.Sprintf("%-11s", k))+" "+oneLine(v, width-12))
 	}
 	row("Pipeline", p.Name+" · profile "+p.Profile)
 	src := p.Source.Query
@@ -113,24 +125,29 @@ func (s *reviewStep) view(width, height int) string {
 		src += fmt.Sprintf("  (%d issues now)", len(smp.issues))
 	}
 	row("Source", src)
+	var stages []string
 	for i, st := range stageList(&p) {
-		name := strings.ToLower(stageDefs[i].name)
-		switch {
-		case !st.On():
-			row("", name+": off")
-		default:
-			v := name + ": " + orDash(st.Enter) + " · match " + orDash(st.Match)
-			if st.Exit != "" {
-				v += " · exit " + st.Exit
-			}
-			k := ""
-			if i == 0 {
-				k = "Stages"
-			}
-			row(k, v)
+		if st.On() && (st.Enter != "" || st.Match != "") {
+			stages = append(stages, strings.ToLower(stageDefs[i].name)+" ("+orDash(st.Enter)+")")
 		}
 	}
-	row("Workspace", orDash(p.Workspace.Dir)+fmt.Sprintf(" · parallel %d · branch %s", p.Workspace.Parallel, p.Workspace.Branch))
+	row("Board", strings.Join(stages, " · "))
+	where := orDash(p.Workspace.Dir)
+	if p.Workspace.Host != "" {
+		where = p.Workspace.Host + ":" + where
+	}
+	rest := fmt.Sprintf(" · %d at once", p.Workspace.Parallel)
+	if room := width - 12 - lenRunes(rest); lenRunes(where) > room && room > 10 {
+		// A path matters at its end.
+		r := []rune(where)
+		where = "…" + string(r[len(r)-room+1:])
+	}
+	row("Repository", where+rest)
+	st := p.Strategy.Kind
+	if p.Strategy.Draft {
+		st += " (draft)"
+	}
+	row("Publishing", st)
 	ag := p.Agent.Provider
 	if p.Agent.Mode != "" {
 		ag += " · mode " + p.Agent.Mode
@@ -139,49 +156,79 @@ func (s *reviewStep) view(width, height int) string {
 		ag += " · model " + p.Agent.Model
 	}
 	row("Agent", ag+" · permissions "+p.Permissions)
-	st := p.Strategy.Kind
-	if p.Strategy.Draft {
-		st += " (draft)"
-	}
-	row("Strategy", st)
-	row("Feedback", "youtrack "+orDash(strings.Join(p.Feedback.YouTrack, ", "))+" · github "+orDash(strings.Join(p.Feedback.GitHub, ", "))+" · gitlab "+orDash(strings.Join(p.Feedback.GitLab, ", ")))
 	row("Prompts", p.Prompts.Preset+" · "+p.Language)
-	b.WriteString("\n")
-
-	var ve *spec.ValidationError
-	if err := p.Validate(); errors.As(err, &ve) {
-		b.WriteString(markErr + " " + styleBold.Render("Fix these before saving:") + "\n")
-		for _, pr := range ve.Problems {
-			b.WriteString("  " + oneLine(pr, width-2) + "\n")
-		}
-		return b.String()
+	row("Feedback", "youtrack "+orDash(strings.Join(p.Feedback.YouTrack, ", "))+" · github "+orDash(strings.Join(p.Feedback.GitHub, ", "))+" · gitlab "+orDash(strings.Join(p.Feedback.GitLab, ", ")))
+	notify := "the machine's settings"
+	if n := p.Notifications; n != nil {
+		notify = "providers " + orDash(strings.Join(n.Providers, ", ")) + " · events " + orDash(strings.Join(n.Events, ", "))
 	}
+	row("Alerts", notify)
+	return strings.Join(b, "\n")
+}
 
-	b.WriteString(styleLabel.Render("Check") + styleDim.Render("  (c runs it again)") + "\n")
-	used := strings.Count(b.String(), "\n")
-	room := max(height-used-3, 3)
+func (s *reviewStep) invalid(width int) string {
+	var ve *spec.ValidationError
+	if err := s.final().Validate(); errors.As(err, &ve) {
+		var lines []string
+		for _, pr := range ve.Problems {
+			lines = append(lines, errLine(pr, width))
+		}
+		return strings.Join(lines, "\n")
+	} else if err != nil {
+		return errLine(err.Error(), width)
+	}
+	return ""
+}
+
+// checkSection is the step a check result belongs to.
+func checkSection(name string) string {
+	switch {
+	case name == "pipeline":
+		return "Config"
+	case name == "YouTrack" || name == "source query":
+		return "Basics"
+	case strings.HasPrefix(name, "stages.") || strings.HasSuffix(name, " command") || strings.Contains(name, "leaves the source"):
+		return "Board"
+	case strings.HasPrefix(name, "workspace") || strings.Contains(name, "strategy") ||
+		strings.Contains(name, "github") || strings.Contains(name, "gitlab") || strings.Contains(name, "token"):
+		return "Repository"
+	case strings.HasPrefix(name, "agent"):
+		return "Agent"
+	}
+	return "Other"
+}
+
+// checkList shows the results, failures first, then warnings, each with
+// the step it belongs to.
+func (s *reviewStep) checkList(width int) string {
 	switch {
 	case s.pending:
-		b.WriteString(markPending + " checking YouTrack, the repository and the agent…\n")
+		return markPending + styleDim.Render(" checking YouTrack, the repository and the agent…")
 	case s.err != nil:
-		b.WriteString(markErr + " " + oneLine(s.err.Error(), width-4) + "\n")
-	default:
-		b.WriteString(checkList(s.results, width, room))
+		return errLine(s.err.Error(), width)
+	case s.results == nil:
+		return styleDim.Render("not checked yet")
 	}
-	b.WriteString("\n")
-	save, run := " Save ", " Save & run in background "
-	if s.btn == 0 {
-		save = styleSel.Render(save)
-		run = styleBorder.Render("[") + run + styleBorder.Render("]")
-	} else {
-		run = styleSel.Render(run)
-		save = styleBorder.Render("[") + save + styleBorder.Render("]")
+	var lines []string
+	for _, pass := range []int{0, 1, 2} {
+		for _, r := range s.results {
+			rank, mark := 2, markOK
+			switch {
+			case !r.OK:
+				rank, mark = 0, markErr
+			case r.Warning:
+				rank, mark = 1, markWarn
+			}
+			if rank == pass {
+				sec := styleDim.Render(fmt.Sprintf("%-11s", checkSection(r.Name)))
+				lines = append(lines, sec+" "+mark+" "+oneLine(r.Name+": "+r.Detail, width-14))
+			}
+		}
 	}
-	b.WriteString(save + "  " + run)
 	if failed := countFailed(s.results); failed > 0 {
-		b.WriteString("  " + styleWarn.Render(fmt.Sprintf("%d checks failed; you can still save and fix them later", failed)))
+		lines = append(lines, styleWarn.Render(fmt.Sprintf("%d checks failed; you can still save and fix them later", failed)))
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
 func countFailed(rs []engine.CheckResult) int {
@@ -194,37 +241,6 @@ func countFailed(rs []engine.CheckResult) int {
 	return n
 }
 
-// checkList shows failures first, then warnings, then the passed checks,
-// in at most room lines.
-func checkList(rs []engine.CheckResult, width, room int) string {
-	var bad, warn, ok []engine.CheckResult
-	for _, r := range rs {
-		switch {
-		case !r.OK:
-			bad = append(bad, r)
-		case r.Warning:
-			warn = append(warn, r)
-		default:
-			ok = append(ok, r)
-		}
-	}
-	var lines []string
-	for _, r := range bad {
-		lines = append(lines, markErr+" "+oneLine(r.Name+": "+r.Detail, width-2))
-	}
-	for _, r := range warn {
-		lines = append(lines, markWarn+" "+oneLine(r.Name+": "+r.Detail, width-2))
-	}
-	for _, r := range ok {
-		lines = append(lines, markOK+" "+oneLine(r.Name+": "+r.Detail, width-2))
-	}
-	if len(lines) > room {
-		hidden := len(lines) - room + 1
-		lines = append(lines[:room-1], styleDim.Render(fmt.Sprintf("  … %d more passed", hidden)))
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
 func orDash(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "-"
@@ -232,18 +248,28 @@ func orDash(s string) string {
 	return s
 }
 
-func (s *reviewStep) help() string {
-	return keyHelp("enter", "confirm", "←/→", "choose", "s", "save", "r", "save & run", "c", "check again")
+func (s *reviewStep) blockers() []problem {
+	var ve *spec.ValidationError
+	if err := s.final().Validate(); errors.As(err, &ve) {
+		var out []problem
+		for _, pr := range ve.Problems {
+			out = append(out, problem{"invalid", pr})
+		}
+		return out
+	} else if err != nil {
+		return []problem{{"invalid", err.Error()}}
+	}
+	return nil
 }
 
 func (s *reviewStep) mark() string {
 	switch {
 	case s.final().Validate() != nil:
-		return markErr
+		return markBad
 	case s.pending:
 		return markPending
 	case s.err != nil || countFailed(s.results) > 0:
-		return markErr
+		return markBad
 	}
 	for _, r := range s.results {
 		if r.Warning {
