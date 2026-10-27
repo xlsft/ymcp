@@ -298,7 +298,7 @@ Three more replies are carried out by ymcp itself, the agent never sees them:
 
 | Reply | |
 |---|---|
-| `/clear` | Hides every comment of the run, yours and the agent's, in YouTrack and on the pull or merge request. They stay in the history: YouTrack marks them deleted and can restore them, GitHub folds them as outdated, GitLab resolves their threads |
+| `/clear` | Hides every comment of the run, yours and the agent's, in YouTrack and on the pull or merge request. They stay in the history: YouTrack marks them deleted and can restore them, GitHub folds them as outdated, GitLab resolves their threads (a plain comment outside a thread stays visible) |
 | `/compact` | Has the agent sum the run up in the pipeline's `language`, then clears it and leaves the summary, with the links to the change and the branch, as the one comment |
 | `/cancel [why]` | Cancels the run as `ymcp pipeline NAME cancel N` does, and closes the issue with the closed stage's command |
 
