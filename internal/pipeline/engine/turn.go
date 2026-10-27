@@ -943,7 +943,7 @@ func (t *turn) publishAnswer(answer string, extra error) {
 		case len(ns) == 1:
 			body := answer
 			if part, ok := parts[ns[0]]; ok {
-				body = strings.TrimSpace(other + "\n\n" + part)
+				body = strings.TrimSpace(part + "\n\n" + other)
 			}
 			rest = "Re: " + t.items[ns[0]-1].URL + "\n\n" + body
 		case len(parts) > 0:

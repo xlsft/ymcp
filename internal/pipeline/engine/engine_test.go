@@ -388,7 +388,8 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 }
 
 // TestSingleFeedbackItemRepliesInPlace: feedback with one YouTrack comment
-// turns the placeholder into the reply instead of posting a second comment.
+// turns the placeholder into the reply instead of posting a second comment,
+// with the reply to the item before the rest of the answer.
 func TestSingleFeedbackItemRepliesInPlace(t *testing.T) {
 	h := newHarness(t, nil)
 	is := h.yt.addIssue("Rename it", "Open")
@@ -398,7 +399,7 @@ func TestSingleFeedbackItemRepliesInPlace(t *testing.T) {
 			return agent.Result{}
 		},
 		func(t *fakeTurn) agent.Result {
-			t.Say("[1] Renamed it.\nTests pass.")
+			t.Say("Tests pass.\n[1] Renamed it.")
 			return agent.Result{}
 		},
 	)
@@ -409,7 +410,7 @@ func TestSingleFeedbackItemRepliesInPlace(t *testing.T) {
 	h.waitReview(1, is.Key)
 	said := h.yt.agentComments(is.Key)
 	if len(said) != 2 || said[0] != "First answer." || !strings.HasPrefix(said[1], "Re: ") ||
-		!strings.HasSuffix(said[1], "#focus=Comments-"+c+".0-0\n\nRenamed it.\nTests pass.") {
+		!strings.HasSuffix(said[1], "#focus=Comments-"+c+".0-0\n\nRenamed it.\n\nTests pass.") {
 		t.Errorf("agent comments = %q", said)
 	}
 }
