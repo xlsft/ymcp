@@ -916,3 +916,53 @@ func TestSetClock(t *testing.T) {
 		t.Errorf("CreatedAt after SetClock(nil) = %v", r2.CreatedAt)
 	}
 }
+
+func TestStopRequest(t *testing.T) {
+	s := open(t)
+	clock := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return clock }
+
+	if ok, err := s.StopRequested(ctx, "p", clock); ok || err != nil {
+		t.Fatalf("StopRequested on empty = %v, %v", ok, err)
+	}
+	if err := s.RequestStop(ctx, "p"); err != nil {
+		t.Fatal(err)
+	}
+	// Seen by a runner that started before, or at the same moment.
+	for _, since := range []time.Time{clock.Add(-time.Hour), clock, clock.Add(500 * time.Microsecond)} {
+		if ok, err := s.StopRequested(ctx, "p", since); !ok || err != nil {
+			t.Errorf("StopRequested(since %v) = %v, %v", since, ok, err)
+		}
+	}
+	// Not by a runner that started later, nor for another pipeline.
+	if ok, _ := s.StopRequested(ctx, "p", clock.Add(time.Second)); ok {
+		t.Error("a request older than the runner counts")
+	}
+	if ok, _ := s.StopRequested(ctx, "q", clock.Add(-time.Hour)); ok {
+		t.Error("the request of p stops q")
+	}
+	// It does not disturb the other cursors of the pipeline.
+	if err := s.SetCursor(ctx, "p", "youtrack", "comments", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearStop(ctx, "p"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.StopRequested(ctx, "p", clock.Add(-time.Hour)); ok {
+		t.Error("the request survived ClearStop")
+	}
+	if v, _ := s.Cursor(ctx, "p", "youtrack", "comments"); v != "c1" {
+		t.Errorf("ClearStop removed another cursor: %q", v)
+	}
+	if err := s.ClearStop(ctx, "p"); err != nil {
+		t.Errorf("clearing twice: %v", err)
+	}
+	// A later request is seen again.
+	clock = clock.Add(time.Minute)
+	if err := s.RequestStop(ctx, "p"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.StopRequested(ctx, "p", clock); !ok {
+		t.Error("the second request is not seen")
+	}
+}

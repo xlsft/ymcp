@@ -209,8 +209,9 @@ func newAgent(a spec.Agent, logger *slog.Logger) (agent.Agent, error) {
 // (store.ErrRunnerBusy when a live runner holds it), sends heartbeats,
 // serves the agents' MCP endpoint, resumes the active runs of the store and
 // polls YouTrack every Source.PollInterval. On return the agents are
-// stopped and the lock is released. It returns nil when ctx ended, and an
-// error when the runner could not start or lost its lock.
+// stopped and the lock is released. It returns nil when ctx ended or a stop
+// was requested (see RequestStop), and an error when the runner could not
+// start or lost its lock.
 func (r *Runner) Run(ctx context.Context) error {
 	r.mu.Lock()
 	if r.started {
@@ -222,6 +223,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	pid := os.Getpid()
 	hostname, _ := os.Hostname()
+	startedAt := r.now() // stop requests older than this are not ours
 	if err := r.st.AcquireRunner(ctx, r.p.Name, pid, hostname, staleAfter); err != nil {
 		return err
 	}
@@ -263,13 +265,23 @@ func (r *Runner) Run(ctx context.Context) error {
 		<-beating
 	}()
 
+	watching := make(chan struct{})
+	go func() {
+		defer close(watching)
+		r.watchStop(runCtx, startedAt, stop)
+	}()
+	defer func() {
+		stop(nil)
+		<-watching
+	}()
+
 	poll := time.NewTicker(r.p.Source.PollInterval.Duration)
 	defer poll.Stop()
 	for {
 		r.tick(runCtx)
 		select {
 		case <-runCtx.Done():
-			if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil {
+			if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil && !errors.Is(cause, errStopRequested) {
 				return cause
 			}
 			r.log.Info("pipeline runner stopping")
