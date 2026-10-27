@@ -148,6 +148,8 @@ func (p Pipeline) Validate() error {
 		}
 	}
 
+	problems = append(problems, p.Notifications.problems()...)
+
 	pr := p.Prompts
 	if pr.Preset != "" {
 		if _, ok := LookupPreset(pr.Preset); !ok && (pr.Start == "" || pr.Feedback == "" || pr.Answer == "") {

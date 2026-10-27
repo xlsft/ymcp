@@ -128,23 +128,19 @@ func readProfiles() (map[string]Config, error) {
 	return profiles, nil
 }
 
+// writeProfiles replaces the profiles in the config file, keeping its other
+// sections (see Section) and dropping the legacy top-level connection.
 func writeProfiles(profiles map[string]Config) error {
-	path, err := Path()
+	data, err := json.Marshal(profiles)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(file{Profiles: profiles}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return updateRaw(func(raw map[string]json.RawMessage) {
+		for _, legacy := range []string{"url", "login", "proxy", "password"} {
+			delete(raw, legacy)
+		}
+		raw["profiles"] = data
+	})
 }
 
 // Profiles lists the stored profiles by key, without passwords.

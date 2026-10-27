@@ -3,10 +3,14 @@ module github.com/xlsft/ymcp
 go 1.26.3
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast v1.1.2
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/huh/spinner v0.0.0-20260223110133-9dc45e34a40b
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coder/acp-go-sdk v0.13.5
+	github.com/ebitengine/purego v0.11.2
+	github.com/esiqveland/notify v0.14.0
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
@@ -33,7 +37,7 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

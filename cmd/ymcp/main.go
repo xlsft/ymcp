@@ -48,6 +48,9 @@ Global flags:
 `
 
 func main() {
+	if clickRelaunch() {
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(os.Stderr, "ymcp:", err)
@@ -114,6 +117,8 @@ func run(args []string) error {
 		return setup(ctx, rest)
 	case "pipeline":
 		return pipelineCmd(ctx, rest, logger)
+	case "notify":
+		return notifyHelper(rest)
 	case "update":
 		return selfUpdate(ctx, rest)
 	case "check":
