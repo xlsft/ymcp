@@ -61,7 +61,7 @@ func isolate(t *testing.T) {
 
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, stderr, err := workspace.Local().Run(context.Background(), dir, append([]string{"git"}, args...), nil)
+	out, stderr, err := gitRun(dir, args...)
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, stderr)
 	}
@@ -879,9 +879,21 @@ func TestQuestionKeepsDenials(t *testing.T) {
 	}
 }
 
+// gitRun runs git in dir, again when git crashed: git on a busy macOS
+// CI machine now and then dies of a segfault before doing anything.
+func gitRun(dir string, args ...string) (stdout, stderr []byte, err error) {
+	for try := 0; try < 3; try++ {
+		stdout, stderr, err = workspace.Local().Run(context.Background(), dir, append([]string{"git"}, args...), nil)
+		if err == nil || !strings.HasPrefix(err.Error(), "signal: segmentation fault") && !strings.HasPrefix(err.Error(), "signal: bus error") {
+			break
+		}
+	}
+	return stdout, stderr, err
+}
+
 // gitIn runs git in the agent's worktree, as the agent would.
 func gitIn(t *fakeTurn, args ...string) {
-	out, stderr, err := workspace.Local().Run(context.Background(), t.s.opts.Dir, append([]string{"git"}, args...), nil)
+	out, stderr, err := gitRun(t.s.opts.Dir, args...)
 	if err != nil {
 		t.Say(fmt.Sprintf("git %v failed: %v: %s%s", args, err, stderr, out))
 	}

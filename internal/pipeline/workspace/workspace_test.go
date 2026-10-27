@@ -36,6 +36,11 @@ func isolate(t *testing.T) {
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	out, err := run(context.Background(), Local(), dir, args...)
+	// git on a busy macOS CI machine now and then dies of a segfault
+	// before doing anything; run does not repeat what changes the repo.
+	for try := 0; try < 2 && crashed(err); try++ {
+		out, err = run(context.Background(), Local(), dir, args...)
+	}
 	if err != nil {
 		t.Fatalf("git %v: %v", args, err)
 	}
