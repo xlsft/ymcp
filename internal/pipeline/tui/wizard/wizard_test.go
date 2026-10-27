@@ -1,6 +1,7 @@
 package wizard
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -526,4 +527,97 @@ func TestWorkingMustLeaveTheSource(t *testing.T) {
 	d := start(t, newFakes().deps, &existing)
 	d.send(navMsg{to: 2})
 	d.must("1 issues match both the source and this search (YPC-3)", "! Working")
+}
+
+func TestPromptPresetsOfTheUser(t *testing.T) {
+	f := newFakes()
+	team := spec.Preset{Name: "team-fix", Rationale: "Our fix", Start: "Team start {{issue.id}}", Feedback: "Team feedback {{feedback}}", Answer: "Team answer {{answer}}"}
+	f.presets.user = []spec.Preset{team}
+	d := start(t, f.deps, nil)
+	d.send(navMsg{to: 7})
+	// The built-ins fill the line; the user preset is scrolled to.
+	d.must(" fix ", "investigate", " ›")
+	d.mustNot("team-fix")
+	d.dump("8-prompts-user-presets")
+	d.keys("right", "right", "right", "right", "right", "right")
+	d.must("‹", "│ team-fix", "your preset · Our fix")
+	d.mustNot(" ›")
+	d.dump("8-prompts-user-preset-selected")
+	d.keys("enter")
+	if pr := d.m.sh.p.Prompts; pr.Preset != "team-fix" || pr.Start != team.Start || pr.Answer != team.Answer {
+		t.Fatalf("prompts = %+v", pr)
+	}
+	d.must("based on team-fix", "Team start ABC-1")
+	d.mustNot("modified")
+}
+
+func TestSaveAsPreset(t *testing.T) {
+	f := newFakes()
+	f.presets.user = []spec.Preset{{Name: "team-fix", Start: "s", Feedback: "f", Answer: "a"}}
+	d := start(t, f.deps, nil)
+	d.send(navMsg{to: 7})
+	d.keys("tab", "tab") // the start prompt
+	d.send(editedMsg{which: 0, text: "My start {{issue.id}}"})
+	d.must("based on fix, modified: start")
+
+	// esc closes the form and does not ask to discard the draft.
+	d.typ("s")
+	d.must("Save these prompts as a preset", "esc cancel")
+	d.keys("esc")
+	d.mustNot("Save these prompts as a preset", "Discard this draft?")
+
+	d.typ("s")
+	for name, want := range map[string]string{
+		"fix":      `"fix" is a built-in preset`,
+		"team-fix": `preset "team-fix" already exists`,
+		"Bad Name": "invalid",
+	} {
+		d.send(ctrlU())
+		d.typ(name)
+		d.keys("enter")
+		d.must(want, "Save these prompts as a preset")
+	}
+	d.send(ctrlU())
+	d.typ("mine")
+	d.keys("enter")
+	d.mustNot("invalid")
+	d.typ("For my tests")
+	d.dump("8-prompts-save-preset")
+
+	// A failing store keeps the form open with the error.
+	f.presets.saveErr = errors.New("disk full")
+	d.keys("enter")
+	d.must("disk full", "Save these prompts as a preset")
+	f.presets.saveErr = nil
+	d.keys("enter")
+	d.must("Saved preset mine", "based on mine")
+	d.mustNot("Save these prompts as a preset", "modified")
+	saved := f.presets.user[len(f.presets.user)-1]
+	fix, _ := spec.LookupPreset("fix")
+	if saved.Name != "mine" || saved.Rationale != "For my tests" || saved.Start != "My start {{issue.id}}" ||
+		saved.Feedback != fix.Feedback || saved.Answer != fix.Answer {
+		t.Fatalf("saved = %+v", saved)
+	}
+	if pr := d.m.sh.p.Prompts; pr.Preset != "mine" || pr.Start != saved.Start || pr.Feedback != saved.Feedback {
+		t.Fatalf("prompts = %+v", pr)
+	}
+	if it, _ := d.m.steps[7].(*promptsStep).presets.selected(); it.value != "mine" {
+		t.Errorf("selected preset = %q", it.value)
+	}
+
+	// In the language field "s" is typed, not a command.
+	d.keys("shift+tab")
+	d.typ("s")
+	d.mustNot("Save these prompts as a preset")
+	if d.m.sh.p.Language != "Englishs" {
+		t.Errorf("language = %q", d.m.sh.p.Language)
+	}
+}
+
+func TestPresetListError(t *testing.T) {
+	f := newFakes()
+	f.presets.listErr = errors.New("preset file broken.json: unexpected EOF")
+	d := start(t, f.deps, nil)
+	d.send(navMsg{to: 7})
+	d.must("broken.json", "bugfix-test-first")
 }

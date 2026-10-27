@@ -32,6 +32,17 @@ type Deps struct {
 	Checker   CheckRunner
 	Editor    EditorLauncher
 	Notify    NotifySettings
+	Presets   PresetStore
+}
+
+// PresetStore lists the prompt presets and saves the user's own.
+type PresetStore interface {
+	// List returns the built-in presets, then the user's. Presets that
+	// could be read are returned even along with an error.
+	List() ([]spec.Preset, error)
+	// Save creates a user preset. It fails when the name is invalid or
+	// taken, by a built-in preset or one of the user's.
+	Save(p spec.Preset) error
 }
 
 // Local reads what is stored on this machine: YouTrack profiles and
@@ -166,7 +177,33 @@ func DefaultDeps() Deps {
 		Checker:   checkRunner{},
 		Editor:    envEditor{},
 		Notify:    notifySettings{},
+		Presets:   presetFiles{},
 	}
+}
+
+// presetFiles are the presets of internal/pipeline/spec: the built-in ones
+// and the user's files.
+type presetFiles struct{}
+
+func (presetFiles) List() ([]spec.Preset, error) { return spec.AllPresets() }
+
+func (presetFiles) Save(p spec.Preset) error {
+	taken, err := spec.PresetExists(p.Name)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return presetTaken(p.Name)
+	}
+	return spec.SavePreset(p)
+}
+
+// presetTaken is the error for a preset name that is in use.
+func presetTaken(name string) error {
+	if spec.IsBuiltinPreset(name) {
+		return fmt.Errorf("%q is a built-in preset; choose another name", name)
+	}
+	return fmt.Errorf("preset %q already exists; choose another name", name)
 }
 
 // notifySettings reads internal/notify's settings; it sees the providers

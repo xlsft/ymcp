@@ -268,10 +268,11 @@ type fakes struct {
 	agents  *fakeAgents
 	inspect *fakeInspector
 	checker *fakeChecker
+	presets *fakePresets
 }
 
 func newFakes() *fakes {
-	f := &fakes{yt: newFakeYT(), agents: &fakeAgents{}, inspect: &fakeInspector{}, checker: &fakeChecker{}}
+	f := &fakes{yt: newFakeYT(), agents: &fakeAgents{}, inspect: &fakeInspector{}, checker: &fakeChecker{}, presets: &fakePresets{}}
 	f.factory = &fakeFactory{yt: f.yt}
 	f.deps = Deps{
 		Local: fakeLocal{
@@ -288,8 +289,34 @@ func newFakes() *fakes {
 		Checker:   f.checker,
 		Editor:    fakeEditor{},
 		Notify:    fakeNotify{},
+		Presets:   f.presets,
 	}
 	return f
+}
+
+// fakePresets are the built-in presets plus user presets in memory.
+type fakePresets struct {
+	user    []spec.Preset
+	listErr error
+	saveErr error
+}
+
+func (f *fakePresets) List() ([]spec.Preset, error) {
+	return append(spec.Presets(), f.user...), f.listErr
+}
+
+func (f *fakePresets) Save(p spec.Preset) error {
+	if f.saveErr != nil {
+		return f.saveErr
+	}
+	list, _ := f.List()
+	for _, q := range list {
+		if q.Name == p.Name {
+			return presetTaken(p.Name)
+		}
+	}
+	f.user = append(f.user, p)
+	return nil
 }
 
 // driver runs the wizard like a tea.Program would, synchronously: every

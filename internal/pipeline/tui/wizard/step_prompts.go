@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
@@ -50,13 +51,19 @@ type editedMsg struct {
 }
 
 // promptsStep picks a preset, the public language, edits the prompts in
-// $EDITOR and previews them rendered on an issue of the source.
+// $EDITOR and previews them rendered on an issue of the source. It can
+// save the current prompts as a preset of the user's.
 type promptsStep struct {
 	sh      *shared
 	presets *pickList
+	all     []spec.Preset // built-in, then the user's
+	listErr error
 	lang    *assistField
 	focus   int
 	confirm string // preset waiting for a second enter
+
+	save   *saveForm // "save as preset", while open
+	notice string    // what the last save did
 
 	issueKey     string
 	issue        *ytwatch.Issue
@@ -65,17 +72,40 @@ type promptsStep struct {
 	editErr      error
 }
 
+// saveForm asks for the name and the one-line rationale of a new preset.
+type saveForm struct {
+	name, why textinput.Model
+	field     int // 0 name, 1 rationale
+	err       error
+}
+
 func newPromptsStep(sh *shared) *promptsStep {
 	s := &promptsStep{sh: sh}
-	var items []pickItem
-	for _, p := range spec.Presets() {
-		items = append(items, pickItem{title: p.Name, value: p.Name})
-	}
-	s.presets = newPickList(items, false)
-	s.presets.selectValue(sh.p.Prompts.Preset)
+	s.reload()
 	s.lang = newAssist(sh, "Language of public messages", spec.DefaultLanguage, staticSuggest(languages))
 	s.lang.set(sh.p.Language)
 	return s
+}
+
+// reload reads the presets again and puts the cursor on the pipeline's.
+func (s *promptsStep) reload() {
+	s.all, s.listErr = s.sh.deps.Presets.List()
+	items := make([]pickItem, 0, len(s.all))
+	for _, p := range s.all {
+		items = append(items, pickItem{title: p.Name, value: p.Name})
+	}
+	s.presets = newPickList(items, false)
+	s.presets.selectValue(s.sh.p.Prompts.Preset)
+}
+
+// lookup finds a preset, built-in or the user's, by name.
+func (s *promptsStep) lookup(name string) (spec.Preset, bool) {
+	for _, p := range s.all {
+		if p.Name == name {
+			return p, true
+		}
+	}
+	return spec.Preset{}, false
 }
 
 func (s *promptsStep) title() string { return "Prompts" }
@@ -97,7 +127,10 @@ func (s *promptsStep) enter() tea.Cmd {
 	}
 }
 
-func (s *promptsStep) leave() { s.lang.blur() }
+func (s *promptsStep) leave() {
+	s.lang.blur()
+	s.save = nil
+}
 
 func (s *promptsStep) setFocus(i int) {
 	s.lang.blur()
@@ -110,8 +143,16 @@ func (s *promptsStep) setFocus(i int) {
 
 // texts are the three prompts, falling back to the preset.
 func (s *promptsStep) texts() []string {
-	r := s.sh.p.ResolvedPrompts()
-	return []string{r.Start, r.Feedback, r.Answer}
+	pr := s.sh.p.Prompts
+	out := []string{pr.Start, pr.Feedback, pr.Answer}
+	if base, ok := s.lookup(pr.Preset); ok {
+		for i, t := range []string{base.Start, base.Feedback, base.Answer} {
+			if out[i] == "" {
+				out[i] = t
+			}
+		}
+	}
+	return out
 }
 
 func (s *promptsStep) setText(which int, t string) {
@@ -128,7 +169,7 @@ func (s *promptsStep) setText(which int, t string) {
 
 // modified lists the prompts that differ from the preset.
 func (s *promptsStep) modified() []string {
-	pr, ok := spec.LookupPreset(s.sh.p.Prompts.Preset)
+	pr, ok := s.lookup(s.sh.p.Prompts.Preset)
 	if !ok {
 		return nil
 	}
@@ -142,7 +183,7 @@ func (s *promptsStep) modified() []string {
 }
 
 func (s *promptsStep) usePreset(name string) {
-	pr, ok := spec.LookupPreset(name)
+	pr, ok := s.lookup(name)
 	if !ok {
 		return
 	}
@@ -152,6 +193,14 @@ func (s *promptsStep) usePreset(name string) {
 
 func (s *promptsStep) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 	k := msg.String()
+	s.notice = ""
+	if s.save != nil {
+		return s.saveKey(msg), true
+	}
+	if k == "s" && s.focus != promptLanguage {
+		s.openSave()
+		return nil, true
+	}
 	switch s.focus {
 	case promptPreset:
 		switch k {
@@ -200,7 +249,7 @@ func (s *promptsStep) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 		case "r":
 			// Back to the preset's text.
 			s.setText(s.focus-promptStart, "")
-			if pr, ok := spec.LookupPreset(s.sh.p.Prompts.Preset); ok {
+			if pr, ok := s.lookup(s.sh.p.Prompts.Preset); ok {
 				s.setText(s.focus-promptStart, []string{pr.Start, pr.Feedback, pr.Answer}[s.focus-promptStart])
 			}
 			return nil, true
@@ -230,6 +279,95 @@ func (s *promptsStep) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// openSave opens the form that saves the current prompts as a preset.
+func (s *promptsStep) openSave() {
+	s.lang.blur()
+	s.confirm = ""
+	f := &saveForm{name: newInput("my-preset"), why: newInput("what these prompts are for (optional)")}
+	f.name.CharLimit = 40
+	f.name.Focus()
+	s.save = f
+}
+
+// saveKey handles a key while the save form is open.
+func (s *promptsStep) saveKey(msg tea.KeyMsg) tea.Cmd {
+	f := s.save
+	switch msg.String() {
+	case "esc":
+		s.save = nil
+		return nil
+	case "tab", "shift+tab", "up", "down":
+		f.setField(1 - f.field)
+		return nil
+	case "enter":
+		if f.field == 0 {
+			if f.err = s.checkNewName(); f.err == nil {
+				f.setField(1)
+			}
+			return nil
+		}
+		s.savePreset()
+		return nil
+	}
+	var cmd tea.Cmd
+	if f.field == 0 {
+		f.name, cmd = f.name.Update(msg)
+	} else {
+		f.why, cmd = f.why.Update(msg)
+	}
+	f.err = nil
+	return cmd
+}
+
+func (f *saveForm) setField(i int) {
+	f.field = i
+	f.name.Blur()
+	f.why.Blur()
+	if i == 0 {
+		f.name.Focus()
+	} else {
+		f.why.Focus()
+	}
+}
+
+// checkNewName fails for an invalid name or one that is taken.
+func (s *promptsStep) checkNewName() error {
+	name := strings.TrimSpace(s.save.name.Value())
+	if err := spec.CheckPresetName(name); err != nil {
+		return err
+	}
+	if _, ok := s.lookup(name); ok {
+		return presetTaken(name)
+	}
+	return nil
+}
+
+// savePreset saves the current prompts as a new preset of the user's and
+// bases the pipeline on it. An error stays in the form.
+func (s *promptsStep) savePreset() {
+	f := s.save
+	if f.err = s.checkNewName(); f.err != nil {
+		f.setField(0)
+		return
+	}
+	t := s.texts()
+	p := spec.Preset{
+		Name:      strings.TrimSpace(f.name.Value()),
+		Rationale: strings.TrimSpace(f.why.Value()),
+		Start:     t[0], Feedback: t[1], Answer: t[2],
+	}
+	if f.err = p.Validate(); f.err != nil {
+		return
+	}
+	if f.err = s.sh.deps.Presets.Save(p); f.err != nil {
+		return
+	}
+	s.sh.p.Prompts = spec.Prompts{Preset: p.Name, Start: p.Start, Feedback: p.Feedback, Answer: p.Answer}
+	s.save = nil
+	s.reload()
+	s.notice = "Saved preset " + p.Name + "; the pipeline is now based on it"
 }
 
 // edit opens a prompt in the editor.
@@ -331,25 +469,38 @@ func (s *promptsStep) view(width, height int) string {
 		}
 		return styleLabel.Render(l)
 	}
-	var names []string
-	for _, it := range s.presets.items {
-		n := " " + it.title + " "
-		switch {
-		case s.focus == promptPreset && it.value == s.presets.items[s.presets.cur].value:
-			n = styleSel.Render(n)
-		case it.value == s.sh.p.Prompts.Preset:
-			n = styleFocus.Render("[" + it.title + "]")
+	b.WriteString(label(promptPreset, "Preset") + "  " + s.presetRow(width-lenVisible("Preset  ")) + "\n")
+	if it, ok := s.presets.selected(); ok && s.save == nil {
+		if pr, ok := s.lookup(it.value); ok {
+			about := pr.Rationale
+			if !pr.Builtin {
+				about = strings.TrimSpace("your preset · " + about)
+			}
+			b.WriteString(styleDim.Render(wrap(oneLine(about, 3*(width-2)), width-2)) + "\n")
 		}
-		names = append(names, n)
 	}
-	b.WriteString(label(promptPreset, "Preset") + "  " + strings.Join(names, "") + "\n")
-	if it, ok := s.presets.selected(); ok {
-		if pr, ok := spec.LookupPreset(it.value); ok {
-			b.WriteString(styleDim.Render(wrap(oneLine(pr.Rationale, 3*(width-2)), width-2)) + "\n")
-		}
+	if s.listErr != nil {
+		b.WriteString(markWarn + " " + styleDim.Render(oneLine(s.listErr.Error(), width-4)) + "\n")
 	}
 	if s.confirm != "" {
 		b.WriteString(markWarn + " " + wrap("Your edits to "+strings.Join(s.modified(), ", ")+" will be replaced. Press enter again to use "+s.confirm+".", width-2) + "\n")
+	}
+	if f := s.save; f != nil {
+		b.WriteString(styleFocus.Render("Save these prompts as a preset") + "\n")
+		f.name.Width, f.why.Width = max(width-12, 10), max(width-12, 10)
+		for i, row := range []struct{ l, v string }{{"Name ", f.name.View()}, {"About", f.why.View()}} {
+			l := styleLabel.Render(row.l)
+			if f.field == i {
+				l = styleFocus.Render(row.l)
+			}
+			b.WriteString("  " + l + "  " + row.v + "\n")
+		}
+		if f.err != nil {
+			b.WriteString(markErr + " " + oneLine(f.err.Error(), width-4) + "\n")
+		}
+	}
+	if s.notice != "" {
+		b.WriteString(markOK + " " + oneLine(s.notice, width-4) + "\n")
 	}
 	b.WriteString(s.lang.view(width, s.focus == promptLanguage) + "\n")
 
@@ -408,14 +559,79 @@ func (s *promptsStep) view(width, height int) string {
 	return b.String()
 }
 
+// presetRow lays the preset names out on one line of at most w cells: the
+// built-in ones, then the user's after a bar, scrolled so that the one
+// under the cursor shows.
+func (s *promptsStep) presetRow(w int) string {
+	items := s.presets.items
+	if len(items) == 0 {
+		return styleDim.Render("no presets")
+	}
+	cells := make([]string, len(items))
+	firstUser := true
+	for i, it := range items {
+		n := " " + it.title + " "
+		switch {
+		case s.focus == promptPreset && s.save == nil && i == s.presets.cur:
+			n = styleSel.Render(n)
+		case it.value == s.sh.p.Prompts.Preset:
+			n = styleFocus.Render("[" + it.title + "]")
+		}
+		if pr, ok := s.lookup(it.value); ok && !pr.Builtin && firstUser {
+			firstUser = false
+			if i > 0 {
+				n = styleBorder.Render("│") + n
+			}
+		}
+		cells[i] = n
+	}
+	total := 0
+	for _, c := range cells {
+		total += lenVisible(c)
+	}
+	if total <= w {
+		return strings.Join(cells, "")
+	}
+	cur := min(max(s.presets.cur, 0), len(cells)-1)
+	lo, hi := cur, cur+1
+	used, room := lenVisible(cells[cur]), w-4 // "‹ " and " ›"
+	for grew := true; grew; {
+		grew = false
+		if hi < len(cells) && used+lenVisible(cells[hi]) <= room {
+			used += lenVisible(cells[hi])
+			hi++
+			grew = true
+		}
+		if lo > 0 && used+lenVisible(cells[lo-1]) <= room {
+			lo--
+			used += lenVisible(cells[lo])
+			grew = true
+		}
+	}
+	out := strings.Join(cells[lo:hi], "")
+	if lo > 0 {
+		out = styleDim.Render("‹ ") + out
+	}
+	if hi < len(cells) {
+		out += styleDim.Render(" ›")
+	}
+	return out
+}
+
 func (s *promptsStep) help() string {
+	if f := s.save; f != nil {
+		if f.field == 0 {
+			return keyHelp("enter", "next", "tab", "about", "esc", "cancel")
+		}
+		return keyHelp("enter", "save", "tab", "name", "esc", "cancel")
+	}
 	switch s.focus {
 	case promptPreset:
-		return keyHelp("←/→", "browse", "enter", "use preset", "tab", "next")
+		return keyHelp("←/→", "browse", "enter", "use preset", "s", "save as preset", "tab", "next")
 	case promptStart, promptFeedback, promptAnswer:
-		return keyHelp("enter", "edit in $EDITOR", "r", "reset to preset", "tab", "next", "vars", "{{issue.id}} {{issue.summary}} {{issue.fields.X}} {{branch}} {{language}} | slug | trim N")
+		return keyHelp("enter", "edit in $EDITOR", "r", "reset to preset", "s", "save as preset", "tab", "next", "vars", "{{issue.id}} {{issue.summary}} {{issue.fields.X}} {{branch}} {{language}} | slug | trim N")
 	case promptService:
-		return keyHelp("space", "on/off", "enter", "continue")
+		return keyHelp("space", "on/off", "enter", "continue", "s", "save as preset")
 	}
 	return keyHelp("tab", "next", "shift+tab", "back")
 }
