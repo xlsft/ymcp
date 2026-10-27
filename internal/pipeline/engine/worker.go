@@ -540,13 +540,28 @@ func (t *tail) String() string {
 
 // codeBlock fences s for a YouTrack comment.
 func codeBlock(s string) string {
-	return "```\n" + strings.ReplaceAll(s, "```", "'''") + "\n```"
+	// "text" keeps YouTrack from guessing a language for the block.
+	return "```text\n" + strings.ReplaceAll(s, "```", "'''") + "\n```"
+}
+
+// quoteBlock quotes prose, such as the agent's own words, so that it wraps
+// on the page instead of running off in one code line.
+func quoteBlock(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // withTail appends the agent's last output to a reason.
 func withTail(reason string, t *tail) string {
 	if s := t.String(); s != "" {
-		return reason + "\n\nLast output:\n" + codeBlock(s)
+		return reason + "\n\nLast output:\n\n" + quoteBlock(s)
 	}
 	return reason
 }
