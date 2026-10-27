@@ -922,7 +922,9 @@ func (t *turn) allApproved(tools []string) bool {
 }
 
 // publishAnswer edits the placeholder into the answer. Feedback answers
-// are split: each YouTrack item gets its part as a separate reply.
+// are split: each YouTrack item gets its part as a separate reply. A batch
+// with a single YouTrack item gets no separate reply: the placeholder
+// becomes the reply to it.
 func (t *turn) publishAnswer(answer string, extra error) {
 	r := t.r
 	if answer == "" {
@@ -937,7 +939,14 @@ func (t *turn) publishAnswer(answer string, extra error) {
 			}
 		}
 		parts, other := text.SplitAnswer(answer, ns)
-		if len(parts) > 0 {
+		switch {
+		case len(ns) == 1:
+			body := answer
+			if part, ok := parts[ns[0]]; ok {
+				body = strings.TrimSpace(other + "\n\n" + part)
+			}
+			rest = "Re: " + t.items[ns[0]-1].URL + "\n\n" + body
+		case len(parts) > 0:
 			rest = other
 			for _, n := range ns {
 				part, ok := parts[n]

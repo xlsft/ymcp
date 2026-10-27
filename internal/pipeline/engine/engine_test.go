@@ -386,6 +386,33 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	}
 }
 
+// TestSingleFeedbackItemRepliesInPlace: feedback with one YouTrack comment
+// turns the placeholder into the reply instead of posting a second comment.
+func TestSingleFeedbackItemRepliesInPlace(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Rename it", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			t.Say("First answer.")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("[1] Renamed it.\nTests pass.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitReview(1, is.Key)
+	c := h.yt.addComment(is.Key, "alice", "Please rename login.go")
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	said := h.yt.agentComments(is.Key)
+	if len(said) != 2 || said[0] != "First answer." || !strings.HasPrefix(said[1], "Re: ") ||
+		!strings.HasSuffix(said[1], "#focus=Comments-"+c+".0-0\n\nRenamed it.\nTests pass.") {
+		t.Errorf("agent comments = %q", said)
+	}
+}
+
 func TestRequestInputThenCLIAnswer(t *testing.T) {
 	h := newHarness(t, nil)
 	is := h.yt.addIssue("Pick a database", "Open")
