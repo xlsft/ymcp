@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -574,7 +575,11 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	h.ag.script(
 		func(t *fakeTurn) agent.Result {
 			t.Say("I could not run the build.")
-			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied"}}}
+			return agent.Result{Denied: []agent.ToolCall{
+				{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make build","description":"Build"}`)},
+				{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make build","description":"Build"}`)},
+				{Title: "Write", Status: "denied", Input: json.RawMessage(`{"file_path":"/tmp/out.txt","content":"x"}`)},
+			}}
 		},
 		func(t *fakeTurn) agent.Result {
 			t.Say("Built.")
@@ -583,7 +588,9 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	)
 	h.start()
 	run := h.waitStatus(1, store.StatusNeedsInput)
-	if !strings.Contains(run.NeedsInputReason, "Bash") {
+	// The reason says what /approve would allow, once per call.
+	if !strings.Contains(run.NeedsInputReason, "Bash, Write.") || strings.Count(run.NeedsInputReason, "- Bash: `make build`") != 1 ||
+		!strings.Contains(run.NeedsInputReason, "- Write: `/tmp/out.txt`") {
 		t.Errorf("reason = %q", run.NeedsInputReason)
 	}
 	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
@@ -592,10 +599,10 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	h.waitInvocations(run.ID, 2)
 	h.waitReview(1, is.Key)
 	starts := h.ag.startLog()
-	if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash"}) || !slices.Equal(starts[0].AllowedTools, []string{"mcp__ymcp"}) {
+	if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash", "Write"}) || !slices.Equal(starts[0].AllowedTools, []string{"mcp__ymcp"}) {
 		t.Errorf("allowed tools: %q / %q", starts[0].AllowedTools, starts[len(starts)-1].AllowedTools)
 	}
-	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
+	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash, Write") {
 		t.Errorf("prompt = %q", h.ag.promptLog()[1])
 	}
 }

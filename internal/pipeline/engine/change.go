@@ -24,9 +24,8 @@ const (
 
 // Keys of the run state that the change of a run uses.
 const (
-	stateVCSCursor   = "vcs_cursor"   // JSON vcs.Cursor of the change's comments
-	stateVCSComment  = "vcs_comment:" // + inbox external id: JSON vcs.Comment of a queued comment
-	stateFeedbackVCS = "feedback_vcs" // "1" while the run's last feedback came from its change
+	stateVCSCursor  = "vcs_cursor"   // JSON vcs.Cursor of the change's comments
+	stateVCSComment = "vcs_comment:" // + inbox external id: JSON vcs.Comment of a queued comment
 )
 
 // Kinds of Options.Notify.
@@ -176,9 +175,10 @@ func (r *Runner) changeNoun() string {
 	return "Pull request"
 }
 
-// decorateVCS marks text the runner writes on the code host.
+// decorateVCS marks text the runner writes on the code host; the run number
+// in the header doesn't link to an issue or pull request there.
 func (r *Runner) decorateVCS(number int, body string) string {
-	return text.Decorate(body, "@"+r.vcsMe, r.mark(number))
+	return text.DecorateCodeHost(body, "@"+r.vcsMe, r.mark(number))
 }
 
 // publishVCS writes body on the run's change as the message m: it edits m
@@ -230,16 +230,10 @@ func (r *Runner) publishVCS(ctx context.Context, run store.Run, m *store.Message
 	return msg, c, nil
 }
 
-// lastFromVCS reports whether the run's last feedback came from its change.
-func (r *Runner) lastFromVCS(ctx context.Context, runID int64) bool {
-	v, _, err := r.st.RunState(context.WithoutCancel(ctx), runID, stateFeedbackVCS)
-	return err == nil && v != ""
-}
-
-// mirror posts body on the run's change when its last feedback came from
-// there, so the people who wrote it see the question too.
+// mirror posts body on the run's change too, so whoever reviews it there
+// sees the question or the permission request and can answer it there.
 func (r *Runner) mirror(ctx context.Context, run store.Run, kind, body string) {
-	if !r.hasChange(run) || !r.lastFromVCS(ctx, run.ID) {
+	if !r.hasChange(run) {
 		return
 	}
 	if _, _, err := r.publishVCS(ctx, run, nil, nil, kind, stateDone, body); err != nil {
@@ -492,19 +486,16 @@ type vcsReply struct {
 
 // openVCSPlaceholders loads the comments of the change the turn's items
 // came from and answers each with a placeholder (in its thread where the
-// host has threads). It records whether the run's last feedback came from
-// the change.
+// host has threads).
 func (t *turn) openVCSPlaceholders() {
 	r, run := t.r, t.run
 	if len(t.items) == 0 {
 		return
 	}
-	fromVCS := false
 	for i, it := range t.items {
 		if !isVCSSource(it.Source) {
 			continue
 		}
-		fromVCS = true
 		if !r.hasChange(run) {
 			continue
 		}
@@ -513,13 +504,6 @@ func (t *turn) openVCSPlaceholders() {
 			c = vcs.Comment{Author: it.Author, Body: it.Body, URL: it.URL, Kind: vcs.CommentConversation}
 		}
 		t.vcsReplies = append(t.vcsReplies, &vcsReply{n: i + 1, to: c})
-	}
-	v := ""
-	if fromVCS {
-		v = "1"
-	}
-	if err := r.st.SetRunState(t.bg, run.ID, stateFeedbackVCS, v); err != nil {
-		r.log.Warn("saving the feedback source failed", "run", run.Number, "err", err)
 	}
 	for _, rp := range t.vcsReplies {
 		to := rp.to

@@ -110,7 +110,7 @@ func TestChangeOpenedAfterFirstPush(t *testing.T) {
 	if o.Title != is.Key+" Fix the login page" || o.Branch != run.Branch || o.Base != "main" || !o.Draft || o.IssueTitle != "" {
 		t.Errorf("open options = %+v", o)
 	}
-	if _, ok := text.ParseMarker(o.Body); !ok || !strings.Contains(o.Body, "@octo's agent #1 (backend)") {
+	if _, ok := text.ParseMarker(o.Body); !ok || !strings.Contains(o.Body, "@octo's agent #\u20601 (backend)") {
 		t.Errorf("the body is not marked: %q", o.Body)
 	}
 	body := text.StripHeader(o.Body)
@@ -233,7 +233,7 @@ func TestChangeFeedbackRepliesInThreads(t *testing.T) {
 	}
 	r0, ok := replyTo(rs, cs[0].ID)
 	if !ok || r0.Thread != "discussion_r501" || r0.Body != "Fixed the nil check.\n\nBoth handled." || r0.Edits != 1 ||
-		text.StripHeader(r0.History[0]) != text.Thinking || !strings.Contains(r0.Raw, "@octo's agent #1 (backend)") {
+		text.StripHeader(r0.History[0]) != text.Thinking || !strings.Contains(r0.Raw, "@octo's agent #\u20601 (backend)") {
 		t.Errorf("reply to the line comment = %+v", r0)
 	}
 	if r1, ok := replyTo(rs, cs[1].ID); !ok || r1.Body != "Yes, it is covered." {

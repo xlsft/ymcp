@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -924,7 +925,8 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 			return "Approved: " + strings.Join(denied, ", ") + ". Retry what was denied."
 		}
 		t.w.setRetry(denied)
-		reason := "The agent was not allowed to use: " + strings.Join(denied, ", ") + ". Reply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
+		reason := "The agent was not allowed to use: " + strings.Join(denied, ", ") + "." + deniedCalls(res.Denied) +
+			"\n\nReply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
 		body := reason
 		if answer != "" {
 			body = answer + t.changeLine() + "\n\n---\n\n**Needs input.** " + reason
@@ -1180,6 +1182,47 @@ func firstSentence(s string) string {
 		if i+2 < len(r) && unicode.IsSpace(r[i+1]) && unicode.IsUpper(r[i+2]) {
 			return string(r[:i+1])
 		}
+	}
+	return s
+}
+
+// deniedCalls lists what the agent tried to do with the tools it was
+// denied, so whoever answers sees what /approve allows: the command of a
+// shell call, the path of a file tool, else the input itself.
+func deniedCalls(calls []agent.ToolCall) string {
+	var lines []string
+	for _, c := range calls {
+		var in map[string]any
+		_ = json.Unmarshal(c.Input, &in)
+		what := ""
+		for _, k := range []string{"command", "file_path", "path", "url", "pattern"} {
+			if s, ok := in[k].(string); ok && s != "" {
+				what = s
+				break
+			}
+		}
+		if what == "" {
+			what = strings.TrimSpace(string(c.Input))
+		}
+		if what == "" {
+			continue
+		}
+		line := "- " + c.Title + ": `" + oneLineTrim(what, 200) + "`"
+		if !slices.Contains(lines, line) {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n" + strings.Join(lines, "\n")
+}
+
+// oneLineTrim puts s on one line and cuts it to at most n runes.
+func oneLineTrim(s string, n int) string {
+	s = strings.Join(strings.Fields(strings.ReplaceAll(s, "`", "'")), " ")
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
 	}
 	return s
 }
