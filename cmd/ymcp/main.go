@@ -36,6 +36,7 @@ Commands:
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
   logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is
   health    Check that a running HTTP server answers; --url, default http://127.0.0.1:8090
+  pipeline  Agent pipelines that work on YouTrack issues: ymcp pipeline help
   update    Update ymcp to the latest release
   version   Print the version
 
@@ -92,7 +93,7 @@ func run(args []string) error {
 
 	// The server logs what it does to stderr and the log file; interactive
 	// commands stay quiet so log lines don't break their forms.
-	serving := cmd == "serve" || cmd == "call"
+	serving := cmd == "serve" || cmd == "call" || (cmd == "pipeline" && pipelineForeground(rest))
 	level := logLevel(*verbose)
 	if !serving && !*verbose {
 		level = slog.LevelWarn
@@ -111,6 +112,8 @@ func run(args []string) error {
 		return auth(ctx, rest)
 	case "setup":
 		return setup(ctx, rest)
+	case "pipeline":
+		return pipelineCmd(ctx, rest, logger)
 	case "update":
 		return selfUpdate(ctx, rest)
 	case "check":
