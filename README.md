@@ -14,16 +14,26 @@
 
 </div>
 
-**ymcp** is a local [MCP](https://modelcontextprotocol.io) server for [YouTrack](https://www.jetbrains.com/youtrack/),
-including self-hosted instances behind a VPN. It speaks for you with your **login and password**, ships every tool of
-YouTrack’s built-in MCP server under the same names, and adds the ones it lacks: deleting things, sprints, attachments,
-history, time reports, commands and more.
+**ymcp** is a local toolchain for project work in [YouTrack](https://www.jetbrains.com/youtrack/), including
+self-hosted instances behind a VPN. It has two parts: an MCP server for any AI client, and pipelines that hand
+issues to coding agents.
+
+The [MCP](https://modelcontextprotocol.io) **server** speaks for you with your **login and password**, ships every tool
+of YouTrack’s built-in MCP server under the same names, and adds the ones it lacks: deleting things, sprints,
+attachments, history, time reports, commands and more.
 
 - **58 tools**: the 23 built-in ones, same names, arguments and limits, plus 35 extras
 - **Signs in like the web UI**, so there is no admin-issued token or OAuth client; the password lives in your system keychain
 - **Works without admin rights**: field schemas, groups and comments fall back to what a regular user can read
 - **One-command install** that registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and 8 more clients
 - **Single static binary** for macOS, Linux and Windows, with `ymcp update` built in
+
+**Pipelines** take the issues a YouTrack search finds and give each one to a coding agent on its own branch.
+
+- **Claude Code, Kimi, opencode or any ACP agent**, with the same YouTrack tools as the server
+- **Branches, GitHub pull requests or GitLab merge requests**, and the agent answers review comments
+- **Needs input** when the agent has a question or wants a permission, with a system notification
+- **A TUI** with a board per pipeline, or plain commands for scripts
 
 ## Install
 
@@ -61,7 +71,7 @@ Run `ymcp setup` again at any time to edit a profile, add or remove clients, or 
 ### Several YouTrack instances
 
 Each YouTrack instance is a profile, and each profile is its own MCP server. The profile's display name gives the
-server name: `YouTrack (xlsft)` becomes `youtrack-xlsft`, `youtrack-beget` stays as it is. A repeated `ymcp setup`
+server name: `YouTrack (work)` becomes `youtrack-work`, `youtrack-acme` stays as it is. A repeated `ymcp setup`
 lists your profiles: pick one to edit it, rename it (its client entries move along), or add or remove a profile.
 Clients run `ymcp --profile <key>`, so every instance shows up next to the others with its own tools.
 
@@ -96,6 +106,7 @@ cosign verify xlsoftware/ymcp:latest \
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
 | `ymcp health` | Check that a running HTTP server answers (`--url`, default `http://127.0.0.1:8090`) |
 | `ymcp logs` | Show what the server did; `-f` follows the log live, `-n 200` shows more lines |
+| `ymcp pipeline` | Open the pipelines TUI; `ymcp pipeline --help` lists `new`, `run`, `check`, `answer` and the rest, see [Pipelines](#pipelines) |
 | `ymcp update` | Replace the binary with the latest release (`--check` only reports) |
 | `ymcp version` | Print the version |
 
@@ -130,7 +141,7 @@ wrong value comes back with the list of valid ones.
 | Escape hatch | `call_api`: any YouTrack or Hub REST endpoint as you, for whatever the other tools don't cover |
 
 Every command takes `--profile <key>` (or `YMCP_PROFILE`) to pick the YouTrack instance, e.g.
-`ymcp --profile youtrack-beget check`. Without it ymcp uses the `youtrack` profile, or the only one there is.
+`ymcp --profile youtrack-acme check`. Without it ymcp uses the `youtrack` profile, or the only one there is.
 
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
@@ -176,6 +187,151 @@ A selection mixes groups and tool names, and `-` removes one: `issues,comments,a
 alone start from everything, e.g. `-api,-agile`. The start-up log shows what is served, e.g.
 `tools="19 of 58: issues, comments, -delete_issue"`.
 
+## Pipelines
+
+A pipeline watches a YouTrack search and gives each issue it finds to a coding agent. The agent works in its own git
+worktree on a new branch. ymcp pushes the branch, opens a pull or merge request and brings the agent the review
+comments until the change is merged. Pipelines need a local install: they are not in the Docker image. The agent works
+on this machine or on an SSH host (`workspace.host`, an alias from `~/.ssh/config`).
+
+Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
+runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
+issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
+and the agent's log, with a comment box (`r`) whose `/` completes the commands below. Shortcuts work on Cyrillic
+keyboard layouts too. Or from the command line:
+
+```sh
+ymcp pipeline new backend --profile youtrack --dir ~/src/backend --query 'project: BE #Unresolved tag: ai'
+ymcp pipeline backend edit     # adjust the stage commands to your workflow
+ymcp pipeline backend check    # profile, query, stages, git and agent
+ymcp pipeline backend run -d   # run in the background; `stop` stops it
+```
+
+`ymcp pipeline --help` lists every command, including `status`, `runs`, `logs`, `answer` and `cancel`. Each
+pipeline is a JSON file in `<config dir>/ymcp/pipelines/`, and runs are kept in `<config dir>/ymcp/state.db`.
+
+### Stages
+
+The source query uses the same syntax as a saved search. Each issue it finds moves along the pipeline's board:
+
+| Stage | |
+|---|---|
+| Backlog | Issues the source query finds and no run has taken yet |
+| Working | The agent works on the issue. ymcp applies the stage's YouTrack command, `State In Progress` by default |
+| Needs input | The agent asked a question, wants a permission, timed out or failed. ymcp says why in a comment and applies `tag needs-input` |
+| Review | The agent is done and the branch is pushed. Default command `State Fixed` |
+| Done | Off by default. Reached when the change is merged or the issue matches the stage's query |
+| Closed | The change was closed without a merge, or the issue matches the stage's query. Its optional command also runs on a `/cancel` reply |
+
+Each stage has an `enter` command, as typed in YouTrack's command dialog, and a `match` query that recognizes issues
+in it. The working command should take the issue out of the source query: moving it back there cancels the run. A
+canceled run (also `ymcp pipeline NAME cancel N`) closes its pull or merge request with a comment, keeps its branch and
+removes its worktree unless `workspace.keepWorktree` is set; a later run of the issue starts on a new branch. A
+change closed without a merge ends the run as closed. `workspace.parallel` sets how many issues run at once (1).
+
+### Agents
+
+| `agent.provider` | |
+|---|---|
+| `claude` | Claude Code through its CLI, `claude -p` with stream-json, one process per turn and `--resume` in between |
+| `kimi` | Kimi Code over [ACP](https://agentclientprotocol.com), `kimi acp` |
+| `opencode` | opencode over ACP, `opencode acp` |
+| `acp` | Any other agent that speaks ACP, started by `agent.command` |
+
+Each run gets its own MCP server on a loopback port with its own token, and the agent gets the YouTrack tools
+through it, as the pipeline's profile. The password and the YouTrack token stay in ymcp and never leave your machine.
+Two more tools reach the runner: `request_input` asks you a question, `report` posts a short status.
+
+What the agent may do is up to the agent's own settings: its mode (`agent.mode`, e.g. Claude's `acceptEdits`) and
+its arguments (`agent.args`, e.g. `--allowedTools`). When it asks for a tool it may not use, the pipeline's
+`permissions` decides: `ask` (default) puts the run in needs input, `allow` approves every request, `deny` refuses
+every one and the agent goes on without the tool. New Claude pipelines start with `--dangerously-skip-permissions` in
+`agent.args`, so Claude runs every tool without asking; replace it with a mode or `--allowedTools` to restrict it.
+New Kimi pipelines start in Kimi's `yolo` mode for the same reason; `auto` approves only what Kimi deems safe and
+`default` asks about everything.
+
+Before each turn ymcp fetches `origin`, so the agent can rebase onto the base branch without fetching itself.
+
+### Strategies
+
+| `strategy.kind` | |
+|---|---|
+| `branch` | Push the branch only (default). Feedback comes from YouTrack alone |
+| `github-pr` | A pull request |
+| `github-issue-pr` | A GitHub issue that mirrors the YouTrack issue, and a pull request that closes it |
+| `gitlab-mr` | A merge request on gitlab.com or a self-hosted GitLab, found from the `origin` URL |
+
+`strategy.draft` opens them as drafts. The token comes from `gh` or `glab`, whichever you are signed in to for that
+host, or from the system keychain (service `ymcp`, account `vcs:<host>`).
+
+### Agent messages
+
+Everything the agent writes, in YouTrack or on the pull request, starts with a hidden marker and a header:
+
+```
+<!-- ymcp:agent pipeline=backend run=17 msg=3f9a -->
+@xlsft's agent #17 (backend)
+
+Done: branch BE-123-fix-login, PR https://github.com/acme/api/pull/42
+```
+
+The marker is an HTML comment, so YouTrack, GitHub and GitLab don't show it; ymcp uses it to tell the agent's
+messages from yours. The header names whose agent it is, the run and the pipeline. When the agent starts on a
+message, ymcp replies right away with an animated ymcp logo, and later edits that comment into the
+answer, or into the reason the run stopped.
+
+### Feedback and needs input
+
+The agent reacts to comments from you: the profile's YouTrack account and the `gh` or `glab` account. Add other
+logins to `feedback.youtrack`, `feedback.github` and `feedback.gitlab`; comments from anyone else are skipped.
+Comments that arrive within `feedback.debounce` (60s) go to the agent together.
+
+A run waits in needs input when the agent asks a question, wants a permission, stays silent for `timeouts.silence`
+(10m), runs longer than `timeouts.total` (2h) or fails. The first reply from an allowed author continues it: a
+comment in YouTrack or on the pull request, the TUI's inbox, or `ymcp pipeline backend answer 17 "…"`. A permission
+request takes `/approve` or `/reject`; without a reply within `timeouts.permission` (30m) it is refused.
+For Claude, `/approve` allows exactly the calls that were denied for the rest of the run (`Bash(<command>)`,
+`Edit(//<path>)`, …), never the whole tool; a compound command gets a rule for each of its commands, and a call that
+can't be spelled as such a rule (a wildcard, a subshell) stays denied.
+
+Three more replies are carried out by ymcp itself, the agent never sees them:
+
+| Reply | |
+|---|---|
+| `/clear` | Hides every comment of the run, yours and the agent's, in YouTrack and on the pull or merge request. They stay in the history: YouTrack marks them deleted and can restore them, GitHub folds them as outdated, GitLab resolves their threads (a plain comment outside a thread stays visible) |
+| `/compact` | Has the agent sum the run up in the pipeline's `language`, then clears it and leaves the summary, with the links to the change and the branch, as the one comment |
+| `/cancel [why]` | Cancels the run as `ymcp pipeline NAME cancel N` does, and closes the issue with the closed stage's command |
+
+`"autoCompact": true` compacts every run that ends as done or closed. A command runs once: restoring its comment does
+not run it again.
+
+### Notifications
+
+By default, when a run needs input or fails, ymcp shows a system notification with its icon. A click opens the
+question, the pull request or the issue. It works on macOS, Windows and Linux (with a notification daemon on D-Bus).
+
+```sh
+ymcp pipeline notify                                   # what is on and whether it works here
+ymcp pipeline notify test                              # send a test notification
+ymcp pipeline notify set toast.events=needs_input,run_failed,review_ready
+```
+
+The events are `needs_input`, `run_failed`, `review_ready`, `run_done` and `runner_stopped`. A pipeline can narrow
+them with `"notifications": {"events": [...]}` in its JSON.
+
+### Prompt presets
+
+The agent's prompts come from a preset: `fix` (default), `bugfix-test-first`, `feature`, `refactor`, `docs` or
+`investigate`. `ymcp pipeline presets` shows what each is for. `prompts.start`, `prompts.feedback` and
+`prompts.answer` replace a preset's texts, with placeholders such as `{{issue.id}}` and `{{branch}}`.
+`language` (`English` by default) is the language of everything the agent writes in public: comments, pull requests
+and commit messages.
+
+The built-in presets are read-only; your own live in `presets/` next to the config file.
+`ymcp pipeline presets copy fix mine` makes one to change with `presets edit mine`, and
+`presets save NAME --from PIPELINE` keeps the prompts you tuned in a pipeline. `rename` and `rm` do what they say.
+A pipeline copies a preset's texts, so changing or removing a preset never changes a pipeline.
+
 ## Configuration
 
 `ymcp setup` and `ymcp auth` store each profile's name, URL, login and proxy in `<config dir>/ymcp/config.json`,
@@ -213,7 +369,7 @@ Environment variables override the stored values of the profile in use. That's h
 YMCP_HTTP_TOKEN=$(openssl rand -hex 32) ymcp serve --transport http --addr 127.0.0.1:8090
 ```
 
-The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-beget`. The default profile
+The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-acme`. The default profile
 is also served at `/`. `--profiles a,b` serves only those, and `--profile a` serves just one. A profile that can't sign
 in is skipped with a warning.
 
@@ -228,13 +384,14 @@ the client's entry for the URL. Without a token the server is open to anyone who
 
 The [`xlsoftware/ymcp`](https://hub.docker.com/r/xlsoftware/ymcp) image runs the HTTP server for linux/amd64 and linux/arm64.
 Profiles live in the `/config` volume. There is no keychain in a container, so passwords are kept in that volume's
-config file (mode 0600); treat the volume as a secret.
+config file (mode 0600); treat the volume as a secret. The image has the MCP server only; [pipelines](#pipelines)
+need a local install.
 
 Add a profile. `auth` asks for the URL, login and password and checks them before saving:
 
 ```sh
 docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth
-docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-beget auth   # another instance
+docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-acme auth   # another instance
 ```
 
 Run the server on port 8090 with a token:

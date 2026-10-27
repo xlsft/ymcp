@@ -132,7 +132,7 @@ func (t *toolset) createArticle(ctx context.Context, in createArticleIn) (any, e
 	}
 	body := map[string]any{"project": map[string]any{"id": p.ID}, "summary": in.Summary}
 	if in.Content != "" {
-		body["content"] = in.Content
+		body["content"] = t.marked(in.Content)
 	}
 	if in.ParentArticle != "" {
 		parent, err := t.articleDBID(ctx, in.ParentArticle)
@@ -165,7 +165,9 @@ func (t *toolset) updateArticle(ctx context.Context, in updateArticleIn) (any, e
 	}
 	if in.Content != nil {
 		content := *in.Content
-		if in.Append {
+		if !in.Append {
+			content = t.marked(content)
+		} else {
 			var cur struct {
 				Content string `json:"content"`
 			}

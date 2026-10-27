@@ -36,6 +36,7 @@ Commands:
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
   logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is
   health    Check that a running HTTP server answers; --url, default http://127.0.0.1:8090
+  pipeline  Agent pipelines that work on YouTrack issues: ymcp pipeline help
   update    Update ymcp to the latest release
   version   Print the version
 
@@ -47,6 +48,9 @@ Global flags:
 `
 
 func main() {
+	if clickRelaunch() {
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(os.Stderr, "ymcp:", err)
@@ -92,12 +96,12 @@ func run(args []string) error {
 
 	// The server logs what it does to stderr and the log file; interactive
 	// commands stay quiet so log lines don't break their forms.
-	serving := cmd == "serve" || cmd == "call"
+	serving := cmd == "serve" || cmd == "call" || (cmd == "pipeline" && pipelineForeground(rest))
 	level := logLevel(*verbose)
 	if !serving && !*verbose {
 		level = slog.LevelWarn
 	}
-	logger, logPath, closeLog := newLogger(level, serving)
+	logger, logPath, closeLog := newLogger(level, serving && prepareRunnerLog(cmd, rest))
 	defer closeLog()
 	// Late replies to the terminal queries made at startup would otherwise
 	// end up in a form, in the MCP stream or at the shell prompt.
@@ -111,6 +115,10 @@ func run(args []string) error {
 		return auth(ctx, rest)
 	case "setup":
 		return setup(ctx, rest)
+	case "pipeline":
+		return pipelineCmd(ctx, rest, logger)
+	case "notify":
+		return notifyHelper(rest)
 	case "update":
 		return selfUpdate(ctx, rest)
 	case "check":

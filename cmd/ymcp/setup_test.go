@@ -39,16 +39,16 @@ func TestSetupRenamesAddsAndRemovesProfiles(t *testing.T) {
 
 	// Rename the default profile: the client entry moves with it.
 	if _, err := captureStdout(t, func() error {
-		return run([]string{"setup", "--name", "YouTrack (xlsft)", "--clients", "cursor"})
+		return run([]string{"setup", "--name", "YouTrack (work)", "--clients", "cursor"})
 	}); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, cursor)
-	if !strings.Contains(got, `"youtrack-xlsft"`) || strings.Contains(got, `"youtrack":`) || !strings.Contains(got, `"--profile",`) {
+	if !strings.Contains(got, `"youtrack-work"`) || strings.Contains(got, `"youtrack":`) || !strings.Contains(got, `"--profile",`) {
 		t.Errorf("after rename, mcp.json:\n%s", got)
 	}
-	cfg, err := config.Load("youtrack-xlsft")
-	if err != nil || cfg.DisplayName != "YouTrack (xlsft)" || !cfg.Complete() {
+	cfg, err := config.Load("youtrack-work")
+	if err != nil || cfg.DisplayName != "YouTrack (work)" || !cfg.Complete() {
 		t.Errorf("renamed profile = %+v, %v", cfg, err)
 	}
 
@@ -58,7 +58,7 @@ func TestSetupRenamesAddsAndRemovesProfiles(t *testing.T) {
 	t.Setenv("YOUTRACK_PASSWORD", youtracktest.Password)
 	t.Setenv("YOUTRACK_PROXY", "none")
 	out, err := captureStdout(t, func() error {
-		return run([]string{"--profile", "beget", "setup", "--name", "youtrack-beget", "--all"})
+		return run([]string{"--profile", "acme", "setup", "--name", "youtrack-acme", "--all"})
 	})
 	if err != nil || !strings.Contains(out, "Logged in") {
 		t.Fatalf("add = %q, %v", out, err)
@@ -66,43 +66,43 @@ func TestSetupRenamesAddsAndRemovesProfiles(t *testing.T) {
 	for _, k := range []string{"YOUTRACK_URL", "YOUTRACK_LOGIN", "YOUTRACK_PASSWORD", "YOUTRACK_PROXY"} {
 		t.Setenv(k, "")
 	}
-	if got := read(t, cursor); !strings.Contains(got, `"youtrack-xlsft"`) || !strings.Contains(got, `"youtrack-beget"`) {
+	if got := read(t, cursor); !strings.Contains(got, `"youtrack-work"`) || !strings.Contains(got, `"youtrack-acme"`) {
 		t.Errorf("after add, mcp.json:\n%s", got)
 	}
 	if err := run([]string{"setup", "--all"}); err == nil || !strings.Contains(err.Error(), "--profile") {
 		t.Errorf("setup with two profiles and no --profile = %v", err)
 	}
-	if err := run([]string{"--profile", "youtrack-beget", "setup", "--name", "YouTrack (xlsft)", "--all"}); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := run([]string{"--profile", "youtrack-acme", "setup", "--name", "YouTrack (work)", "--all"}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("rename onto another profile = %v", err)
 	}
 
 	// Narrow its tools without a terminal, then widen them again.
 	if _, err := captureStdout(t, func() error {
-		return run([]string{"--profile", "youtrack-beget", "setup", "--tools", "issues,comments", "--all"})
+		return run([]string{"--profile", "youtrack-acme", "setup", "--tools", "issues,comments", "--all"})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if cfg, _ := config.Load("youtrack-beget"); strings.Join(cfg.Tools, ",") != "issues,comments" || !cfg.Complete() {
+	if cfg, _ := config.Load("youtrack-acme"); strings.Join(cfg.Tools, ",") != "issues,comments" || !cfg.Complete() {
 		t.Errorf("tools = %v, complete = %v", cfg.Tools, cfg.Complete())
 	}
-	if err := run([]string{"--profile", "youtrack-beget", "setup", "--tools", "issues,nope", "--all"}); err == nil || !strings.Contains(err.Error(), "unknown tool or group") {
+	if err := run([]string{"--profile", "youtrack-acme", "setup", "--tools", "issues,nope", "--all"}); err == nil || !strings.Contains(err.Error(), "unknown tool or group") {
 		t.Errorf("bad --tools = %v", err)
 	}
-	captureStdout(t, func() error { return run([]string{"--profile", "youtrack-beget", "setup", "--tools", "all", "--all"}) })
-	if cfg, _ := config.Load("youtrack-beget"); cfg.Tools != nil {
+	captureStdout(t, func() error { return run([]string{"--profile", "youtrack-acme", "setup", "--tools", "all", "--all"}) })
+	if cfg, _ := config.Load("youtrack-acme"); cfg.Tools != nil {
 		t.Errorf("tools after all = %v", cfg.Tools)
 	}
 
 	// Remove it again.
 	if _, err := captureStdout(t, func() error {
-		return run([]string{"--profile", "youtrack-beget", "setup", "--remove"})
+		return run([]string{"--profile", "youtrack-acme", "setup", "--remove"})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := read(t, cursor); strings.Contains(got, "youtrack-beget") || !strings.Contains(got, `"youtrack-xlsft"`) {
+	if got := read(t, cursor); strings.Contains(got, "youtrack-acme") || !strings.Contains(got, `"youtrack-work"`) {
 		t.Errorf("after remove, mcp.json:\n%s", got)
 	}
-	if list, _ := config.Profiles(); len(list) != 1 || list[0].Name != "youtrack-xlsft" {
+	if list, _ := config.Profiles(); len(list) != 1 || list[0].Name != "youtrack-work" {
 		t.Errorf("profiles = %+v", list)
 	}
 }

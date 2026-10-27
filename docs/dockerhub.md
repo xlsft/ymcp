@@ -4,10 +4,12 @@
 
 # ymcp: YouTrack MCP server
 
-[ymcp](https://github.com/xlsft/ymcp) gives AI clients the full YouTrack MCP toolset, plus deletes, sprints,
-attachments, history, time reports and a raw API tool. This image runs it as a
+[ymcp](https://github.com/xlsft/ymcp) is a toolchain for YouTrack: an MCP server and pipelines that hand issues to
+coding agents. The MCP server gives AI clients the full YouTrack MCP toolset, plus deletes, sprints, attachments,
+history, time reports and a raw API tool. This image runs it as a
 [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) server, serving every
 configured YouTrack instance (profile) on one port. It signs in with a login and password, like the YouTrack web UI.
+Pipelines are not in the image; they need a local install.
 
 ## Quick start
 
@@ -15,7 +17,7 @@ Add a profile. `auth` asks for the URL, login and password, and checks them befo
 
 ```sh
 docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth
-docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-beget auth   # another instance
+docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-acme auth   # another instance
 ```
 
 Run the server with a bearer token:
@@ -48,7 +50,7 @@ For a single instance without a volume, pass the connection instead:
 | `YMCP_LOG_LEVEL` | `debug` logs every YouTrack request |
 
 Arguments after the image name replace the default command, `serve --transport http --addr 0.0.0.0:8090`, e.g.
-`xlsoftware/ymcp serve --transport http --addr 0.0.0.0:8090 --profiles youtrack,youtrack-beget`.
+`xlsoftware/ymcp serve --transport http --addr 0.0.0.0:8090 --profiles youtrack,youtrack-acme`.
 
 The image has a `HEALTHCHECK` on `GET /healthz`, which answers without the token.
 

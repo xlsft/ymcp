@@ -354,7 +354,7 @@ func (t *toolset) updateIssueComment(ctx context.Context, in updateIssueCommentI
 	}
 	var c apiComment
 	path := "issues/" + url.PathEscape(in.IssueID) + "/comments/" + url.PathEscape(in.CommentID)
-	if err := t.yt.Post(ctx, path, url.Values{"fields": {commentFields}}, map[string]any{"text": in.Text}, &c); err != nil {
+	if err := t.yt.Post(ctx, path, url.Values{"fields": {commentFields}}, map[string]any{"text": t.marked(in.Text)}, &c); err != nil {
 		return nil, err
 	}
 	return map[string]any{"issueId": in.IssueID, "comment": c}, nil
@@ -422,7 +422,7 @@ func (t *toolset) addIssueComment(ctx context.Context, in addIssueCommentIn) (an
 	if in.Text == "" {
 		return nil, fmt.Errorf("text must not be empty")
 	}
-	body := map[string]any{"text": in.Text}
+	body := map[string]any{"text": t.marked(in.Text)}
 	vis, err := t.limitedVisibility(ctx, in.PermittedUsers, in.PermittedGroups)
 	if err != nil {
 		return nil, err

@@ -68,11 +68,11 @@ func TestLegacyFileBecomesDefaultProfile(t *testing.T) {
 		t.Fatalf("legacy Load = %+v, %v", got, err)
 	}
 	// Saving another profile rewrites the file in the profiles format.
-	if _, err := Save(Config{DisplayName: "YouTrack (beget)", URL: "https://beget.example.com", Login: "bob", Password: "b"}, ""); err != nil {
+	if _, err := Save(Config{DisplayName: "YouTrack (acme)", URL: "https://acme.example.com", Login: "bob", Password: "b"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	list, _ := Profiles()
-	if len(list) != 2 || list[0].Name != "youtrack" || list[1].Name != "youtrack-beget" || list[1].Title() != "YouTrack (beget)" {
+	if len(list) != 2 || list[0].Name != "youtrack" || list[1].Name != "youtrack-acme" || list[1].Title() != "YouTrack (acme)" {
 		t.Errorf("profiles = %+v", list)
 	}
 }
@@ -148,12 +148,12 @@ func TestChangingLoginDropsOldPassword(t *testing.T) {
 
 func TestSlug(t *testing.T) {
 	for in, want := range map[string]string{
-		"youtrack":         "youtrack",
-		"YouTrack (xlsft)": "youtrack-xlsft",
-		"youtrack-beget":   "youtrack-beget",
-		"  Work / Prod  ":  "work-prod",
-		"Ютрек":            "youtrack",
-		"":                 "youtrack",
+		"youtrack":        "youtrack",
+		"YouTrack (work)": "youtrack-work",
+		"youtrack-acme":   "youtrack-acme",
+		"  Work / Prod  ": "work-prod",
+		"Ютрек":           "youtrack",
+		"":                "youtrack",
 	} {
 		if got := Slug(in); got != want {
 			t.Errorf("Slug(%q) = %q, want %q", in, got, want)

@@ -61,7 +61,7 @@ homebrew_casks:
       name: homebrew-tap
       token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
     homepage: https://github.com/xlsft/ymcp
-    description: YouTrack MCP server with the full YouTrack toolset
+    description: YouTrack MCP server and pipelines that hand issues to coding agents
     license: MIT
     commit_author:
       name: github-actions[bot]
@@ -82,7 +82,7 @@ scoops:
       name: scoop-bucket
       token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
     homepage: https://github.com/xlsft/ymcp
-    description: YouTrack MCP server with the full YouTrack toolset
+    description: YouTrack MCP server and pipelines that hand issues to coding agents
     license: MIT
     commit_author:
       name: github-actions[bot]
@@ -93,15 +93,17 @@ winget:
   - name: ymcp
     publisher: xlsft
     package_identifier: xlsft.ymcp
-    short_description: YouTrack MCP server with the full YouTrack toolset
+    short_description: YouTrack MCP server and pipelines that hand issues to coding agents
     description: |
-      ymcp gives AI clients (Claude, Cursor, VS Code, Zed, Codex and others) the full YouTrack MCP toolset plus
-      deletes, sprints, attachments, history and reports, signing in with a YouTrack login and password.
+      ymcp is a toolchain for YouTrack project work. Its MCP server gives AI clients (Claude, Cursor, VS Code, Zed,
+      Codex and others) the full YouTrack MCP toolset plus deletes, sprints, attachments, history and reports, signing
+      in with a YouTrack login and password. Its pipelines hand YouTrack issues to coding agents (Claude Code, Kimi,
+      opencode or any ACP agent) and open pull or merge requests for their work.
     license: MIT
     homepage: https://github.com/xlsft/ymcp
     publisher_url: https://github.com/xlsft
     release_notes_url: https://github.com/xlsft/ymcp/releases/tag/{{ .Tag }}
-    tags: [youtrack, mcp, cli]
+    tags: [youtrack, mcp, cli, pipeline, agents]
     commit_author:
       name: github-actions[bot]
       email: 41898282+github-actions[bot]@users.noreply.github.com

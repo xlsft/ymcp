@@ -437,6 +437,23 @@ func (c *Client) send(ctx context.Context, scope, method string, u *url.URL, con
 	return resp, data, nil
 }
 
+// ServerTime returns the instance's clock, read from the Date header of a
+// cheap authenticated request; the header has second precision.
+func (c *Client) ServerTime(ctx context.Context) (time.Time, error) {
+	u := *c.baseURL
+	u.Path = u.Path + "/api/users/me"
+	u.RawQuery = Fields("id").Encode()
+	resp, _, err := c.exchange(ctx, "", http.MethodGet, &u, "", nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	t, err := http.ParseTime(resp.Header.Get("Date"))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("youtrack: no usable Date header: %w", err)
+	}
+	return t, nil
+}
+
 // Get is Do with GET.
 func (c *Client) Get(ctx context.Context, path string, query url.Values, out any) error {
 	return c.Do(ctx, http.MethodGet, path, query, nil, out)
