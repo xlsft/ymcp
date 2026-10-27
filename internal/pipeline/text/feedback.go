@@ -85,8 +85,9 @@ var answerRe = regexp.MustCompile(`^[ \t]*(?:[-*+•][ \t]+)?(?:\*\*)?\[(\d+)\](
 // to each item. A reply starts on a line beginning with "[n]" for an n in ns
 // and runs to the next such line; the text after the "[n]" on that line, minus
 // a ":" or dash separator, is its first line. Text before the first reply,
-// and text under numbers not in ns, goes to rest. Replies and rest are
-// trimmed; empty replies are dropped.
+// and text under numbers not in ns, goes to rest. A line of only "---" ends
+// the replies: what follows (the agent's closing summary) goes to rest too.
+// Replies and rest are trimmed; empty replies are dropped.
 func SplitAnswer(answer string, ns []int) (parts map[int]string, rest string) {
 	want := make(map[int]bool, len(ns))
 	for _, n := range ns {
@@ -98,6 +99,10 @@ func SplitAnswer(answer string, ns []int) (parts map[int]string, rest string) {
 	cur := 0
 	inPart := false
 	for _, line := range strings.Split(strings.ReplaceAll(answer, "\r\n", "\n"), "\n") {
+		if inPart && strings.TrimSpace(line) == "---" {
+			inPart = false
+			continue
+		}
 		if m := answerRe.FindStringSubmatch(line); m != nil {
 			if n, err := strconv.Atoi(m[1]); err == nil && want[n] {
 				cur, inPart = n, true
