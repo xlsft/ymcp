@@ -226,15 +226,6 @@ func pad(s string, w int) string {
 	return s
 }
 
-// padLeft is pad aligned to the right.
-func padLeft(s string, w int) string {
-	s = cut(s, w)
-	if n := w - ansi.StringWidth(s); n > 0 {
-		s = strings.Repeat(" ", n) + s
-	}
-	return s
-}
-
 // spread puts left and right on one line of width w, right-aligned; the
 // left part gives way when both do not fit.
 func spread(left, right string, w int) string {

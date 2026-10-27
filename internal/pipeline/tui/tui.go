@@ -4,9 +4,11 @@
 // tui/wizard; this package stacks them, routes messages and drives the
 // one-second refresh.
 //
-// The TUI only reads the state database and talks to runners through it
-// (answers, cancels) or through the CLI (`run -d`, `stop`); closing it
-// leaves the runners running.
+// The TUI reads the state database and talks to runners through it
+// (answers, cancels) or through the CLI (`run -d`, `stop`); the run card
+// also reads the run's YouTrack issue and posts comments on it as the
+// profile's user, which the runner picks up like any comment. Closing the
+// TUI leaves the runners running.
 package tui
 
 import (
@@ -149,6 +151,17 @@ func (a *App) toTop(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// tickUnder refreshes the screen under a modal, which shows around it.
+func (a *App) tickUnder(t views.Tick) tea.Cmd {
+	if _, ok := a.top().(views.Overlay); !ok || len(a.stack) < 2 {
+		return nil
+	}
+	i := len(a.stack) - 2
+	m, cmd := a.stack[i].Update(t)
+	a.stack[i] = m
+	return cmd
+}
+
 // push puts a screen on top and starts it at the current size.
 func (a *App) push(m tea.Model) tea.Cmd {
 	a.stack = append(a.stack, m)
@@ -177,7 +190,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width, a.height = msg.Width, msg.Height
 		return a, a.broadcast(msg)
 	case tickMsg:
-		return a, tea.Batch(a.toTop(views.Tick{Now: time.Time(msg)}), a.tick())
+		return a, tea.Batch(a.toTop(views.Tick{Now: time.Time(msg)}), a.tickUnder(views.Tick{Now: time.Time(msg)}), a.tick())
 	case views.Tick:
 		return a, a.toTop(msg)
 	case tea.KeyMsg:
@@ -196,6 +209,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.push(views.NewBoard(a.d, msg.Pipeline))
 	case views.OpenRun:
 		return a, a.push(views.NewRun(a.d, msg.Pipeline, msg.Number, msg.Answer))
+	case views.OpenLogs:
+		return a, a.push(views.NewLogs(a.d, msg.Pipeline))
 	case views.OpenInbox:
 		if _, ok := a.top().(*views.Inbox); ok {
 			return a, nil
@@ -293,9 +308,14 @@ func (a *App) start(name, note string) tea.Cmd {
 	}
 }
 
-// View shows the screen on top.
+// View shows the screen on top, a modal over the screen under it.
 func (a *App) View() string {
-	v := a.top().View()
+	var v string
+	if o, ok := a.top().(views.Overlay); ok && len(a.stack) > 1 {
+		v = o.Overlay(a.stack[len(a.stack)-2].View())
+	} else {
+		v = a.top().View()
+	}
 	if a.wizardErr == "" {
 		return v
 	}

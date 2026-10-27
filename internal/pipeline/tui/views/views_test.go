@@ -291,7 +291,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 		for _, c := range msg {
 			d.run(c, depth+1)
 		}
-	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenInbox, OpenWizard:
+	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenInbox, OpenWizard, OpenLogs:
 		d.nav = append(d.nav, msg)
 	default:
 		var next tea.Cmd
@@ -392,76 +392,6 @@ func TestProfilesUnconfigured(t *testing.T) {
 	f.d.Profiles = func() ([]config.Config, error) { return nil, nil }
 	d := drive(t, NewProfiles(&f.d), 100, 30)
 	d.has("youtrack-xlsft", "profile not configured", "backend")
-}
-
-func TestPipelines(t *testing.T) {
-	f := newFixture(t)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
-	d.has("youtrack-xlsft", "⚑ 2 need input",
-		"NAME", "RUNNER", "WORKING", "INPUT", "REVIEW", "DONE",
-		"backend", "● running", "Claude", "frontend", "○ stopped",
-		"runner", "pid 4242 on build-box", "source", "project: BE #Unresolved", "repo", "agent",
-		"enter board", "r run", "s stop", "d delete")
-
-	d.keys("enter")
-	if got := d.lastNav(); got != (OpenBoard{Pipeline: "backend"}) {
-		t.Errorf("enter: %#v", got)
-	}
-	d.keys("e")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Existing == nil || got.Existing.Name != "backend" || got.Profile != "youtrack-xlsft" {
-		t.Errorf("e: %#v", got)
-	}
-
-	// backend runs: r says so, s stops it, d refuses.
-	d.keys("r")
-	d.has("backend is already running.")
-	d.keys("s")
-	d.has("Stopped backend.")
-	d.keys("d")
-	d.has("backend is running: stop it first (s)")
-
-	// frontend is stopped: r starts it, d asks first.
-	d.keys("down", "r")
-	d.has("Started frontend in the background (pid 777)")
-	if want := []string{"stop backend", "start frontend"}; !slices.Equal(f.daemon.calls, want) {
-		t.Errorf("daemon calls %v, want %v", f.daemon.calls, want)
-	}
-	d.keys("d")
-	d.has("Delete pipeline frontend? Its run history stays.", "y yes", "n no")
-	d.keys("n")
-	d.has("Nothing changed.")
-	if len(f.deleted) != 0 {
-		t.Fatalf("deleted %v after no", f.deleted)
-	}
-	d.keys("d", "y")
-	if !slices.Equal(f.deleted, []string{"frontend"}) {
-		t.Fatalf("deleted %v", f.deleted)
-	}
-	d.has("Deleted pipeline frontend.")
-	d.hasNot("○ stopped")
-
-	d.keys("esc")
-	if got := d.lastNav(); got != (Back{}) {
-		t.Errorf("esc: %#v", got)
-	}
-}
-
-func TestPipelinesDaemonError(t *testing.T) {
-	f := newFixture(t)
-	f.daemon.err = errors.New("pipeline frontend: agent claude not found")
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
-	d.keys("down", "r")
-	d.has("✗ could not start frontend: pipeline frontend: agent claude not found")
-}
-
-func TestPipelinesEmpty(t *testing.T) {
-	f := newFixture(t)
-	d := drive(t, NewPipelines(&f.d, "youtrack-beget"), 80, 24)
-	d.has("No pipelines in youtrack-beget yet.", "Press n to create one.")
-	d.keys("n")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-beget" {
-		t.Errorf("n: %#v", got)
-	}
 }
 
 func TestBoard(t *testing.T) {
@@ -583,90 +513,7 @@ func TestBoardScrollsCards(t *testing.T) {
 	d.fits(100, 20)
 }
 
-func TestRunCard(t *testing.T) {
-	f := newFixture(t)
-	q := f.runs["BE-127"]
-	d := drive(t, NewRun(&f.d, "backend", q.Number, false), 100, 30)
-	d.has("backend #6", "BE-127", "CSV export", "⚑ NEEDS INPUT",
-		"stage working", "branch be-127-csv-export",
-		"captured", "BE-127 CSV export", "question", "Which date format",
-		"waiting 12m", "Press a to answer.",
-		"a answer", "c cancel", "o issue")
-
-	// a opens the box, enter sends, the answer lands in the run's inbox.
-	d.keys("a")
-	d.has("enter send", "alt+enter new line", "esc close")
-	d.typeText("ISO 8601, please.")
-	d.keys("enter")
-	d.has("Answer sent to #6", "✓ answer queued", "reply", "ISO 8601, please.")
-	items, err := f.st.PendingInbox(context.Background(), q.ID)
-	if err != nil || len(items) != 1 || items[0].Body != "ISO 8601, please." {
-		t.Fatalf("inbox %+v (%v)", items, err)
-	}
-
-	// Live feed.
-	f.event(q, 0, "agent.report", map[string]string{"text": "Switched the export to ISO 8601."})
-	d.tick()
-	d.has("report", "Switched the export to ISO 8601.")
-
-	d.keys("o")
-	if len(f.opened) != 1 || f.opened[0] != "https://xlsft.youtrack.cloud/issue/BE-127" {
-		t.Errorf("opened %v", f.opened)
-	}
-	d.keys("p")
-	d.has("run #6 has no pull request")
-
-	d.keys("c")
-	d.has("Cancel run #6 (BE-127)?")
-	d.keys("y")
-	d.has("Canceled run #6.", "CANCELED", "canceled")
-	d.keys("a")
-	d.has("run #6 has ended (canceled)")
-}
-
-func TestRunCardAnswerOnOpen(t *testing.T) {
-	f := newFixture(t)
-	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 100, 30)
-	d.has("enter send")
-	d.keys("esc")
-	d.has("a answer")
-	d.keys("esc")
-	if got := d.lastNav(); got != (Back{}) {
-		t.Errorf("esc: %#v", got)
-	}
-}
-
-func TestRunCardWorking(t *testing.T) {
-	f := newFixture(t)
-	w := f.runs["BE-123"]
-	d := drive(t, NewRun(&f.d, "backend", w.Number, false), 100, 30)
-	d.has("WORKING", "Claude · writing · 4m12s",
-		"thinking", "The session cookie", "tool", "agent", "I found the bug", "Fixing it now.",
-		"started 30m ago")
-	d.hasNot("NEEDS INPUT")
-	d.fits(100, 30)
-}
-
-func TestRunCardScroll(t *testing.T) {
-	f := newFixture(t)
-	w := f.runs["BE-123"]
-	for i := range 40 {
-		f.event(w, 0, "agent.tool_call", map[string]any{"tool": map[string]string{"title": fmt.Sprintf("Step %02d", i)}})
-	}
-	d := drive(t, NewRun(&f.d, "backend", w.Number, false), 100, 24)
-	d.has("Step 39")
-	d.keys("k", "k", "k", "k", "k")
-	d.has("↓ 5 more lines · end to follow", "Step 34")
-	d.hasNot("tool        Step 39")
-	d.keys("G")
-	d.has("Step 39")
-}
-
-func TestRunCardMissing(t *testing.T) {
-	f := newFixture(t)
-	d := drive(t, NewRun(&f.d, "backend", 99, false), 80, 24)
-	d.has("pipeline backend has no run #99")
-}
+// The run card is tested in run_test.go.
 
 func TestInbox(t *testing.T) {
 	f := newFixture(t)
@@ -681,7 +528,12 @@ func TestInbox(t *testing.T) {
 		t.Errorf("frontend's older question is not first:\n%s", v)
 	}
 
+	// enter opens the run card with its reply box; a answers in place.
 	d.keys("down", "enter")
+	if got := d.lastNav(); got != (OpenRun{Pipeline: "backend", Number: 6, Answer: true}) {
+		t.Errorf("enter: %#v", got)
+	}
+	d.keys("a")
 	d.has("enter send")
 	d.typeText("ISO")
 	d.keys("enter")

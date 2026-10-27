@@ -2,30 +2,54 @@ package views
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 )
 
 // daemonTimeout bounds `run -d` and `stop`, which wait for the runner.
 const daemonTimeout = 90 * time.Second
 
-// Pipelines lists the pipelines of one profile: whether their runner runs,
-// how many runs sit in each column and which wait for input.
+// The grid of pipeline cards.
+const (
+	// cardMinWidth is the narrowest a card gets while another column
+	// still fits; cards stretch to fill the width.
+	cardMinWidth = 36
+	// cardGap is the space between two cards of a row.
+	cardGap = 1
+	// cardLines is what a card shows inside its frame when the terminal
+	// is tall enough: name and runner, agent, publish, source, repo and
+	// run counts.
+	cardLines = 6
+	// labelWidth is the width of a card's field labels.
+	labelWidth = 8
+)
+
+// Pipelines shows the pipelines of one profile as a grid of cards, with
+// a last card that makes a new one. Enter opens a menu of what can be done
+// with the pipeline under the cursor.
 type Pipelines struct {
 	base
 	profile string
 	loaded  bool
 	err     error
 	rows    []pipelineRow
-	sel     int
+	sel     int // index into rows; len(rows) is the + card
+	top     int // first grid row on screen
+	want    string
 	home    string
+	menu    menu
+	prompt  namePrompt
 }
 
 type pipelinesLoaded struct {
@@ -59,8 +83,9 @@ func (m *Pipelines) load() tea.Msg {
 	return pipelinesLoaded{to: m.id, rows: out, err: err}
 }
 
+// selected is the pipeline under the cursor; false on the + card.
 func (m *Pipelines) selected() (pipelineRow, bool) {
-	if len(m.rows) == 0 {
+	if m.sel < 0 || m.sel >= len(m.rows) {
 		return pipelineRow{}, false
 	}
 	return m.rows[m.sel], true
@@ -76,38 +101,92 @@ func (m *Pipelines) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.to != m.id {
 			return m, nil
 		}
+		plus := m.loaded && m.sel >= len(m.rows)
 		m.loaded, m.err = true, msg.err
-		keep := ""
-		if r, ok := m.selected(); ok {
+		keep, found := m.want, false
+		if r, ok := m.selected(); ok && keep == "" {
 			keep = r.p.Name
 		}
+		m.want = ""
 		m.rows = msg.rows
+		m.sel = clamp(m.sel, len(m.rows)+1)
+		if plus && keep == "" {
+			m.sel = len(m.rows)
+		}
 		for i, r := range m.rows {
 			if r.p.Name == keep {
-				m.sel = i
+				m.sel, found = i, true
 			}
 		}
-		m.sel = clamp(m.sel, len(m.rows))
+		if !found { // the pipeline of the menu is gone
+			m.menu.open, m.prompt.open = false, false
+		}
 	case Tick:
 		return m, m.load
 	case tea.KeyMsg:
+		switch {
+		case m.prompt.open:
+			return m, m.prompt.key(msg)
+		case m.menu.open:
+			return m, m.menuKey(msg.String())
+		}
 		return m, m.key(msg.String())
+	default:
+		return m, m.prompt.update(msg)
 	}
 	return m, nil
+}
+
+// gridLayout is how many cards fit side by side and how wide each is.
+func gridLayout(w int) (cols, cw int) {
+	w = max(w, 1)
+	cols = max((w+cardGap)/(cardMinWidth+cardGap), 1)
+	return cols, (w - cardGap*(cols-1)) / cols
+}
+
+// move moves the cursor across the grid of n cards in cols columns.
+func (m *Pipelines) move(k string) {
+	cols, _ := gridLayout(m.width)
+	n := len(m.rows) + 1
+	switch k {
+	case "left", "h":
+		if m.sel%cols > 0 {
+			m.sel--
+		}
+	case "right", "l":
+		if m.sel%cols < cols-1 && m.sel+1 < n {
+			m.sel++
+		}
+	case "up", "k":
+		if m.sel >= cols {
+			m.sel -= cols
+		}
+	case "down", "j":
+		switch {
+		case m.sel+cols < n:
+			m.sel += cols
+		case m.sel/cols < (n-1)/cols: // the row below is shorter
+			m.sel = n - 1
+		}
+	case "home", "g":
+		m.sel = 0
+	case "end", "G":
+		m.sel = n - 1
+	}
 }
 
 func (m *Pipelines) key(k string) tea.Cmd {
 	switch k {
 	case "q":
 		return tea.Quit
-	case "esc", "left", "h":
+	case "esc":
 		return navigate(Back{})
 	case "?":
 		m.fullHelp = !m.fullHelp
-	case "up", "k":
-		m.sel = clamp(m.sel-1, len(m.rows))
-	case "down", "j":
-		m.sel = clamp(m.sel+1, len(m.rows))
+		return nil
+	case "left", "h", "right", "l", "up", "k", "down", "j", "home", "g", "end", "G":
+		m.move(k)
+		return nil
 	case "n":
 		return navigate(OpenWizard{Profile: m.profile})
 	case "i":
@@ -115,11 +194,83 @@ func (m *Pipelines) key(k string) tea.Cmd {
 	}
 	r, ok := m.selected()
 	if !ok {
+		if k == "enter" || k == " " {
+			return navigate(OpenWizard{Profile: m.profile})
+		}
 		return nil
 	}
+	if k == "enter" || k == " " {
+		m.menu = menu{open: true}
+		return nil
+	}
+	return m.act(k, r)
+}
+
+// menuKey handles a key while the menu is open.
+func (m *Pipelines) menuKey(k string) tea.Cmd {
+	r, ok := m.selected()
+	if !ok {
+		m.menu.open = false
+		return nil
+	}
+	items := m.menuItems(r)
+	pick, _ := m.menu.key(k, items)
+	if pick == nil {
+		return nil
+	}
+	if pick.why != "" {
+		m.fail(errors.New(pick.why))
+		return nil
+	}
+	m.menu.open = false
+	return pick.run()
+}
+
+// menuItems are the actions of a pipeline's menu, each with its direct
+// key and, when it cannot run now, why.
+func (m *Pipelines) menuItems(r pipelineRow) []menuItem {
+	name := r.p.Name
+	live, running := r.runner.state != runnerStopped, r.runner.state == runnerRunning
+	act := func(k string) func() tea.Cmd { return func() tea.Cmd { return m.act(k, r) } }
+	runner := menuItem{label: "Run in background", key: "r", run: act("r")}
+	if live {
+		runner = menuItem{label: "Stop runner", key: "s", run: act("s")}
+	}
+	if m.d.Daemon == nil {
+		runner.why = "Runners can't be started or stopped from here; use the ymcp pipeline command."
+	}
+	logs := menuItem{label: "Logs", key: "L", run: act("L")}
+	if m.d.RunnerLog == nil {
+		logs.why = "The runner log can't be read here; run `ymcp pipeline " + name + " logs`."
+	}
+	rename := menuItem{label: "Rename…", key: "R", run: act("R")}
+	del := menuItem{label: "Delete…", key: "d", run: act("d")}
+	switch {
+	case running:
+		rename.why = "Stop the runner before renaming (s)."
+		del.why = "Stop the runner before deleting (s)."
+	case r.active() > 0:
+		rename.why = fmt.Sprintf("%s has active runs, which stay filed under its name; finish or cancel them first.", name)
+	}
+	return []menuItem{
+		{label: "Open board", key: "o", run: act("o")},
+		runner,
+		{label: "Edit", key: "e", run: act("e")},
+		logs,
+		{label: "Copy…", key: "c", run: act("c")},
+		rename,
+		del,
+	}
+}
+
+// active is how many of a pipeline's runs are not finished.
+func (r pipelineRow) active() int { return r.c.working + r.c.input + r.c.review }
+
+// act runs one of a pipeline's actions by its key.
+func (m *Pipelines) act(k string, r pipelineRow) tea.Cmd {
 	name := r.p.Name
 	switch k {
-	case "enter", "right", "l":
+	case "o", "b":
 		return navigate(OpenBoard{Pipeline: name})
 	case "e":
 		p := r.p
@@ -128,6 +279,50 @@ func (m *Pipelines) key(k string) tea.Cmd {
 		return startRunner(&m.base, name, r.runner)
 	case "s":
 		return stopRunner(&m.base, name, r.runner)
+	case "L":
+		if m.d.RunnerLog == nil {
+			m.fail(fmt.Errorf("the runner log can't be read here; run `ymcp pipeline %s logs`", name))
+			return nil
+		}
+		return navigate(OpenLogs{Pipeline: name})
+	case "c":
+		return m.prompt.start("Copy "+name, name+"-copy", func(to string) (tea.Cmd, error) {
+			if err := spec.CheckName(to); err != nil {
+				return nil, err
+			}
+			if err := m.d.CopyPipeline(name, to); err != nil {
+				return nil, err
+			}
+			m.say("Copied " + name + " to " + to + ".")
+			m.want = to
+			return m.load, nil
+		})
+	case "R":
+		switch {
+		case r.runner.state == runnerRunning:
+			m.fail(fmt.Errorf("%s is running: stop it before renaming (s)", name))
+			return nil
+		case r.active() > 0:
+			m.fail(fmt.Errorf("%s has %d active run(s), which stay filed under its name; finish or cancel them before renaming", name, r.active()))
+			return nil
+		}
+		return m.prompt.start("Rename "+name, name, func(to string) (tea.Cmd, error) {
+			if to == name {
+				m.say("Nothing changed.")
+				return nil, nil
+			}
+			if err := spec.CheckName(to); err != nil {
+				return nil, err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+			defer cancel()
+			if err := m.d.RenamePipeline(ctx, m.d.Store, name, to); err != nil {
+				return nil, err
+			}
+			m.say("Renamed " + name + " to " + to + ".")
+			m.want = to
+			return m.load, nil
+		})
 	case "d":
 		if r.runner.state == runnerRunning {
 			m.fail(fmt.Errorf("%s is running: stop it first (s)", name))
@@ -211,108 +406,289 @@ func lastLine(out, def string) string {
 
 // View renders the screen.
 func (m *Pipelines) View() string {
-	w := m.width
+	w := max(m.width, 1)
 	waiting := 0
 	for _, r := range m.rows {
 		waiting += r.c.input
 	}
 	header := []string{spread(title("ymcp pipelines")+" "+theme.Bold.Render(m.profile), inputBadge(waiting), w), ""}
 	help := []binding{
-		{"enter", "board"}, {"n", "new"}, {"e", "edit"}, {"r", "run"}, {"s", "stop"},
-		{"d", "delete"}, {"i", "inbox"}, {"esc", "back"}, {"q", "quit"},
+		{"←→↑↓", "move"}, {"enter", "actions"}, {"o", "board"}, {"n", "new"}, {"r", "run"}, {"s", "stop"},
+		{"e", "edit"}, {"L", "logs"}, {"c", "copy"}, {"R", "rename"}, {"d", "delete"}, {"i", "inbox"},
+		{"esc", "back"}, {"q", "quit"},
 	}
-	var body []string
 	switch {
-	case !m.loaded:
-		body = []string{theme.Dim.Render("  Loading…")}
-	case len(m.rows) == 0:
-		body = []string{"  No pipelines in " + m.profile + " yet.", "", "  Press " + theme.Key.Render("n") + " to create one."}
-	default:
-		body = m.table(w)
+	case m.prompt.open:
+		help = promptHelp
+	case m.menu.open:
+		help = menuHelp
+	}
+	if !m.loaded {
+		return m.frame(header, []string{theme.Dim.Render("  Loading…")}, help)
+	}
+	room := m.height - len(header) - 1 - len(m.helpLines(help, w))
+	var body []string
+	if len(m.rows) == 0 {
+		body = append(body, "  No pipelines in "+m.profile+" yet. Press "+theme.Key.Render("n")+" or "+
+			theme.Key.Render("enter")+" on "+theme.Key.Render("+")+" to create one.", "")
 	}
 	if m.err != nil {
-		body = append(body, "", theme.Err.Render("  ! ")+oneLine(m.err.Error()))
+		body = append(body, theme.Err.Render("  ! ")+oneLine(m.err.Error()), "")
+	}
+	grid, ax, ay, aw := m.grid(w, max(room-len(body), 1))
+	ay += len(body)
+	body = append(body, grid...)
+	for len(body) < room {
+		body = append(body, "")
+	}
+	var pop []string
+	if r, ok := m.selected(); ok && m.menu.open {
+		pop = m.menu.view(r.p.Name, m.menuItems(r), w)
+	}
+	if m.prompt.open {
+		pop = m.prompt.view(w)
+	}
+	if pop != nil {
+		x, y := placePopup(ansi.StringWidth(pop[0]), len(pop), ax, ay, aw, w, max(room, 1))
+		body = popOver(body, pop, x, y)
 	}
 	return m.frame(header, body, help)
 }
 
-func (m *Pipelines) table(w int) []string {
-	nameW := 4
-	for _, r := range m.rows {
-		nameW = max(nameW, len(r.p.Name))
-	}
-	nameW = min(nameW, max(w/4, 8))
-	wide := w >= 72
-	num := func(n int) string {
-		if n == 0 {
-			return theme.Dim.Render("·")
+// grid renders the cards that fit in rows lines, scrolled to the
+// selected one, and where the selected card is (x, y, width).
+func (m *Pipelines) grid(w, rows int) (lines []string, ax, ay, aw int) {
+	cols, cw := gridLayout(w)
+	n := len(m.rows) + 1
+	gridRows := (n + cols - 1) / cols
+	// The tallest cards that fit, with a line for the scroll hint when
+	// not every row does.
+	content := 1
+	for _, c := range []int{cardLines, 2} {
+		need := c + 2
+		if gridRows*need > rows {
+			need++
 		}
-		return fmt.Sprint(n)
-	}
-	var lines []string
-	if wide {
-		lines = append(lines, theme.Header.Render("  "+pad("NAME", nameW)+"  "+pad("RUNNER", 17)+"  "+pad("AGENT", 10)+
-			"  "+padLeft("WORKING", 7)+"  "+padLeft("INPUT", 5)+"  "+padLeft("REVIEW", 6)+"  "+padLeft("DONE", 5)))
-	}
-	listRows := max(m.height-12, 3)
-	top := scrollTo(0, m.sel, listRows)
-	for i := top; i < len(m.rows) && i < top+listRows; i++ {
-		r := m.rows[i]
-		name := pad(r.p.Name, nameW)
-		if i == m.sel {
-			name = theme.Accent.Render(name)
+		if rows >= need {
+			content = c
+			break
 		}
-		var row string
-		if wide {
-			row = marker(i == m.sel) + name + "  " + pad(r.runner.label(), 17) + "  " + pad(r.p.Agent.Name, 10) +
-				"  " + padLeft(num(r.c.working), 7) + "  " + padLeft(num(r.c.input), 5) + "  " + padLeft(num(r.c.review), 6) +
-				"  " + padLeft(num(r.c.done), 5)
-		} else {
-			row = marker(i == m.sel) + name + "  " + r.runner.label()
+	}
+	height := content + 2
+	fit := max(rows/height, 1)
+	if gridRows > fit {
+		fit = max((rows-1)/height, 1)
+	}
+	m.sel = clamp(m.sel, n)
+	m.top = scrollTo(m.top, m.sel/cols, fit)
+	m.top = min(max(m.top, 0), max(gridRows-fit, 0))
+	for row := m.top; row < min(m.top+fit, gridRows); row++ {
+		cards := make([][]string, 0, cols)
+		for c := range cols {
+			i := row*cols + c
+			if i >= n {
+				break
+			}
+			if i == m.sel {
+				ax, ay, aw = c*(cw+cardGap), len(lines), cw
+			}
+			if i == len(m.rows) {
+				cards = append(cards, plusCard(cw, content, i == m.sel))
+			} else {
+				cards = append(cards, m.card(m.rows[i], cw, content, i == m.sel))
+			}
 		}
-		lines = append(lines, spread(row, inputBadge(r.c.input), w))
+		for l := range height {
+			parts := make([]string, len(cards))
+			for j, card := range cards {
+				parts[j] = card[l]
+			}
+			lines = append(lines, strings.Join(parts, strings.Repeat(" ", cardGap)))
+		}
 	}
-	if r, ok := m.selected(); ok {
-		lines = append(lines, "")
-		lines = append(lines, m.details(r, w)...)
+	if gridRows > fit {
+		var hint []string
+		if above := m.top * cols; above > 0 {
+			hint = append(hint, fmt.Sprintf("↑ %d more", above))
+		}
+		if below := n - min((m.top+fit)*cols, n); below > 0 {
+			hint = append(hint, fmt.Sprintf("↓ %d more", below))
+		}
+		lines = append(lines, spread("", theme.Dim.Render(strings.Join(hint, "  ")), w))
 	}
-	return lines
+	return lines, ax, ay, aw
 }
 
-// details describe the selected pipeline under the table.
-func (m *Pipelines) details(r pipelineRow, w int) []string {
-	p := r.p
-	where := homeShort(p.Workspace.Dir, m.home)
-	if p.Workspace.Host != "" {
-		where = p.Workspace.Host + ":" + where
+// card is one pipeline's card, cw cells wide with content lines inside.
+func (m *Pipelines) card(r pipelineRow, cw, content int, selected bool) []string {
+	iw := max(cw-4, 1)
+	edges, edge, name := solidEdges, theme.Dim, theme.Bold.Render(r.p.Name)
+	if selected {
+		edges, edge, name = heavyEdges, theme.Accent, theme.Accent.Render(r.p.Name)
 	}
-	agent := p.Agent.Name
-	if p.Agent.Model != "" {
-		agent += " · " + p.Agent.Model
+	head := spread(name, cardRunner(r.runner), iw)
+	var lines []string
+	switch content {
+	case 1:
+		lines = []string{head}
+	case 2:
+		lines = []string{head, countsLine(r.c, iw)}
+	default:
+		p := r.p
+		where := homeShort(p.Workspace.Dir, m.home)
+		if p.Workspace.Host != "" {
+			where = p.Workspace.Host + ":" + where
+		}
+		lines = []string{
+			head,
+			cardField("agent", agentLabel(p.Agent), iw, cut),
+			cardField("publish", strategyLabel(p.Strategy), iw, cut),
+			cardField("source", oneLine(p.Source.Query), iw, cut),
+			cardField("repo", where, iw, cutLeft),
+			countsLine(r.c, iw),
+		}
 	}
-	if p.Agent.Mode != "" {
-		agent += " · " + p.Agent.Mode
+	return box(lines, cw, edges, edge, "", cardBadges(r.c, cw-6))
+}
+
+// cardBadges flag a card's failed runs and the runs that wait for input,
+// in short forms when the long ones do not fit w.
+func cardBadges(c counts, w int) string {
+	failed, input := "", inputBadge(c.input)
+	if c.failed > 0 {
+		failed = theme.Err.Render(fmt.Sprintf("✗ %d failed", c.failed))
 	}
-	runner := r.runner.label()
-	switch r.runner.state {
+	join := func(a, b string) string {
+		if a == "" || b == "" {
+			return a + b
+		}
+		return a + " " + b
+	}
+	if all := join(failed, input); ansi.StringWidth(all) <= w {
+		return all
+	}
+	if c.failed > 0 {
+		failed = theme.Err.Render(fmt.Sprintf("✗ %d", c.failed))
+	}
+	if c.input > 0 {
+		input = theme.Badge.Render(fmt.Sprintf("⚑ %d", c.input))
+	}
+	return join(failed, input)
+}
+
+// plusCard is the last card, which makes a new pipeline.
+func plusCard(cw, content int, selected bool) []string {
+	iw := max(cw-4, 1)
+	edges, edge, plus, text := dashedEdges, theme.Dim, theme.Bold.Render("+"), theme.Dim.Render("New pipeline")
+	if selected {
+		edges, edge, plus, text = heavyDashedEdges, theme.Accent, theme.Accent.Render("+"), theme.Bold.Render("New pipeline")
+	}
+	var lines []string
+	switch content {
+	case 1:
+		lines = []string{centered(plus+" "+text, iw)}
+	case 2:
+		lines = []string{centered(plus, iw), centered(text, iw)}
+	default:
+		lines = make([]string, content)
+		mid := content/2 - 1
+		lines[mid], lines[mid+1] = centered(plus, iw), centered(text, iw)
+	}
+	return box(lines, cw, edges, edge, "", "")
+}
+
+// cardRunner is a runner's state as a card shows it.
+func cardRunner(r runnerInfo) string {
+	switch r.state {
 	case runnerRunning:
-		runner += theme.Dim.Render(fmt.Sprintf(" · pid %d on %s", r.runner.pid, r.runner.host))
+		return theme.OK.Render("●") + " running"
 	case runnerSilent:
-		runner += theme.Dim.Render(fmt.Sprintf(" · pid %d on %s, last heartbeat %s ago", r.runner.pid, r.runner.host, short(m.d.Now().Sub(r.runner.beat))))
+		return theme.Err.Render("! not responding")
 	}
-	label := func(s string) string { return "    " + theme.Dim.Render(pad(s, 9)) }
-	lines := []string{
-		"  " + theme.Bold.Render(p.Name) + theme.Dim.Render(" · "+r.c.summary()),
-		label("runner") + runner,
-		label("source") + oneLine(p.Source.Query),
-		label("repo") + where,
-		label("publish") + strategyLabel(p.Strategy),
-		label("agent") + agent,
+	return theme.Dim.Render("○ stopped")
+}
+
+// agentLabel is "provider · model · mode", leaving out what is unset.
+func agentLabel(a spec.Agent) string {
+	parts := []string{a.Provider}
+	if a.Provider == "" {
+		parts[0] = a.Name
 	}
-	if w < 50 {
-		lines = lines[:2]
+	for _, s := range []string{a.Model, a.Mode} {
+		if s != "" {
+			parts = append(parts, s)
+		}
 	}
-	return lines
+	return strings.Join(parts, " · ")
+}
+
+// cardField is a labelled line of a card, its value fitted to the width by
+// fit; narrow cards drop the label.
+func cardField(label, value string, w int, fit func(string, int) string) string {
+	if value == "" {
+		value = theme.Dim.Render("–")
+	}
+	if w < labelWidth+16 {
+		return fit(value, w)
+	}
+	return theme.Dim.Render(pad(label, labelWidth)) + fit(value, w-labelWidth)
+}
+
+// cutLeft shortens s to w cells from the left, starting with "…" when
+// something was cut: the end of a path is the part that tells it apart.
+func cutLeft(s string, w int) string {
+	sw := ansi.StringWidth(s)
+	switch {
+	case sw <= w:
+		return s
+	case w <= 1:
+		return cut("…", w)
+	}
+	return "…" + ansi.TruncateLeft(s, sw-(w-1), "")
+}
+
+// centered puts s in the middle of w cells.
+func centered(s string, w int) string {
+	return strings.Repeat(" ", max((w-ansi.StringWidth(s))/2, 0)) + s
+}
+
+// countsLine is "working 2 · input 1 · review 3 · done 5" with zeros
+// dimmed, shortened until it fits w. Failed runs are flagged on the
+// card's frame instead (cardBadges).
+func countsLine(c counts, w int) string {
+	type part struct {
+		long, short string
+		n           int
+		style       lipgloss.Style
+	}
+	parts := []part{
+		{"working", "work", c.working, theme.Bold},
+		{"input", "input", c.input, theme.Warn},
+		{"review", "review", c.review, theme.Bold},
+		{"done", "done", c.done, theme.OK},
+	}
+	render := func(short bool, sep string) string {
+		out := make([]string, len(parts))
+		for i, p := range parts {
+			label := p.long
+			if short {
+				label = p.short
+			}
+			if p.n == 0 {
+				out[i] = theme.Dim.Render(fmt.Sprintf("%s %d", label, p.n))
+			} else {
+				out[i] = label + " " + p.style.Render(fmt.Sprint(p.n))
+			}
+		}
+		return strings.Join(out, sep)
+	}
+	dot := theme.Dim.Render(" · ")
+	for _, try := range []string{render(false, dot), render(false, "  "), render(true, dot), render(true, "  "), render(true, " ")} {
+		if ansi.StringWidth(try) <= w {
+			return try
+		}
+	}
+	return cut(render(true, " "), w)
 }
 
 // strategyLabel says in words how finished work is published.
@@ -340,4 +716,45 @@ func pipelineByName(list []spec.Pipeline, name string) (spec.Pipeline, bool) {
 		}
 	}
 	return spec.Pipeline{}, false
+}
+
+// copyPipeline saves a pipeline under a new name, as `ymcp pipeline NAME
+// copy NEW` does.
+func copyPipeline(from, to string) error {
+	if err := spec.CheckName(to); err != nil {
+		return err
+	}
+	p, err := spec.Load(from)
+	if err != nil {
+		return err
+	}
+	if _, err := spec.Load(to); err == nil {
+		return fmt.Errorf("pipeline %q already exists", to)
+	} else if !errors.Is(err, spec.ErrNotFound) {
+		return err
+	}
+	p.Name = to
+	return spec.Save(p)
+}
+
+// renamePipeline gives a pipeline a new name under the CLI's rules: its
+// runner must be stopped and it must have no active runs, since runs are
+// filed under the name.
+func renamePipeline(ctx context.Context, st *store.Store, from, to string) error {
+	if err := spec.CheckName(to); err != nil {
+		return err
+	}
+	if _, _, beat, ok, err := st.Runner(ctx, from); err != nil {
+		return err
+	} else if ok && time.Since(beat) <= time.Minute {
+		return fmt.Errorf("pipeline %s is running; stop it before renaming", from)
+	}
+	active, err := st.Runs(ctx, from, true)
+	if err != nil {
+		return err
+	}
+	if len(active) > 0 {
+		return fmt.Errorf("pipeline %s has %d active run(s), which stay filed under its name; finish or cancel them before renaming", from, len(active))
+	}
+	return spec.Rename(from, to)
 }

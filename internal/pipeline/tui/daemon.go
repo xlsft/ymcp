@@ -7,25 +7,27 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/views"
-	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
-	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 // Defaults are the real services of the screens on top of the store:
-// runners started and stopped through this binary's CLI, the backlog from
-// YouTrack and links opened in the system browser.
+// runners started and stopped through this binary's CLI, the backlog and
+// the run card's issue and comments from YouTrack (one client per
+// profile), pull request threads from the code host and links opened in
+// the system browser.
 func Defaults(st *store.Store) views.Deps {
+	yt := &YouTrack{}
 	return views.Deps{
-		Store:   st,
-		Daemon:  CLIDaemon{},
-		Backlog: &YouTrackBacklog{},
-		OpenURL: OpenURL,
+		Store:     st,
+		Daemon:    CLIDaemon{},
+		RunnerLog: CLIDaemon{}.Log,
+		Backlog:   yt,
+		Issues:    yt,
+		Changes:   &CodeHost{},
+		OpenURL:   OpenURL,
 	}
 }
 
@@ -46,6 +48,14 @@ func (c CLIDaemon) Stop(ctx context.Context, pipeline string) (string, error) {
 	return c.run(ctx, "pipeline", pipeline, "stop")
 }
 
+// runnerLogLines is how much of a runner log the TUI reads.
+const runnerLogLines = "500"
+
+// Log runs `ymcp pipeline NAME logs -n 500`: the tail of the runner log.
+func (c CLIDaemon) Log(ctx context.Context, pipeline string) (string, error) {
+	return c.run(ctx, "pipeline", pipeline, "logs", "-n", runnerLogLines)
+}
+
 func (c CLIDaemon) run(ctx context.Context, args ...string) (string, error) {
 	exe := c.Exe
 	if exe == "" {
@@ -60,47 +70,6 @@ func (c CLIDaemon) run(ctx context.Context, args ...string) (string, error) {
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-// YouTrackBacklog searches a pipeline's source in YouTrack, one client per
-// profile.
-type YouTrackBacklog struct {
-	mu       sync.Mutex
-	watchers map[string]*ytwatch.Watcher
-}
-
-// Search runs query in the YouTrack of profile.
-func (b *YouTrackBacklog) Search(ctx context.Context, profile, query string) ([]ytwatch.Issue, error) {
-	w, err := b.watcher(profile)
-	if err != nil {
-		return nil, err
-	}
-	return w.Search(ctx, query)
-}
-
-func (b *YouTrackBacklog) watcher(profile string) (*ytwatch.Watcher, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if w := b.watchers[profile]; w != nil {
-		return w, nil
-	}
-	cfg, err := config.Load(profile)
-	if err != nil {
-		return nil, err
-	}
-	if !cfg.Complete() {
-		return nil, errors.New("profile " + profile + " is not configured")
-	}
-	yt, err := youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy})
-	if err != nil {
-		return nil, err
-	}
-	if b.watchers == nil {
-		b.watchers = map[string]*ytwatch.Watcher{}
-	}
-	w := ytwatch.New(yt)
-	b.watchers[profile] = w
-	return w, nil
 }
 
 // OpenURL opens an http(s) link in the system browser.

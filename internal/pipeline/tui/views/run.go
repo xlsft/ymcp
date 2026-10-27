@@ -10,17 +10,42 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
+	"github.com/xlsft/ymcp/internal/pipeline/vcs"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
 // feedKeep is how many of a run's latest events the card keeps.
 const feedKeep = 2000
 
-// Run is the card of one run: what it is, the live event feed, and the
-// answer box for a run that waits for input.
+// How often the card rereads the issue and the pull request, and how long
+// one request may take.
+const (
+	issueEvery  = 5 * time.Second
+	changeEvery = 15 * time.Second
+	ytTimeout   = 20 * time.Second
+)
+
+// The panes of the card that take the arrow keys.
+const (
+	paneThread = iota
+	paneLog
+)
+
+// The tabs of the thread.
+const (
+	tabYouTrack = iota
+	tabChange
+)
+
+// Run is the card of one run, drawn as a modal over the screen it was
+// opened from, laid out like a YouTrack issue: the issue with its fields,
+// description and comment thread on the left with a reply box that posts
+// real comments, the run's event log on the right.
 type Run struct {
 	base
 	pipeline string
@@ -35,13 +60,47 @@ type Run struct {
 	profiles []config.Config
 	events   []store.Event
 
-	feed      []string // rendered events, rebuilt on new events or a resize
-	feedWidth int
-	scroll    int // lines up from the bottom; 0 follows the feed
+	// The issue and its comments, from Deps.Issues.
+	ytLoaded  bool
+	ytLoading bool
+	ytAgain   bool // reload once the running load ends
+	ytAt      time.Time
+	issue     ytwatch.Issue
+	issueErr  error
+	comments  []IssueComment
+	threadErr error
+	pending   []pendingComment
+	seq       int
+
+	// The pull request conversation, from Deps.Changes.
+	tab        int
+	prLoaded   bool
+	prLoading  bool
+	prAt       time.Time
+	prComments []vcs.Comment
+	prErr      error
+
+	focus     int // paneThread or paneLog
+	docScroll int // lines up from the bottom; 0 follows the thread
+	docLen    int
+	docRows   int
+	logScroll int
+	logRows   int
+	logLines  []string
+	logWidth  int
+	logDirty  bool
 	frameN    int
 
-	answer     answerBox
-	wantAnswer bool
+	reply     replyBox
+	wantReply bool
+}
+
+// pendingComment is a comment posted from the card that YouTrack has not
+// confirmed yet.
+type pendingComment struct {
+	seq  int
+	text string
+	at   time.Time
 }
 
 type runLoaded struct {
@@ -54,19 +113,41 @@ type runLoaded struct {
 	err      error
 }
 
-// NewRun makes the card of a pipeline's run; answer opens the answer box
+type issueLoaded struct {
+	to        int64
+	issue     ytwatch.Issue
+	issueErr  error
+	comments  []IssueComment
+	threadErr error
+}
+
+type changeLoaded struct {
+	to       int64
+	comments []vcs.Comment
+	err      error
+}
+
+type commentSent struct {
+	to      int64
+	seq     int
+	text    string
+	comment IssueComment
+	err     error
+}
+
+// NewRun makes the card of a pipeline's run; reply focuses the reply box
 // at once.
-func NewRun(d *Deps, pipeline string, number int, answer bool) *Run {
+func NewRun(d *Deps, pipeline string, number int, reply bool) *Run {
 	home, _ := os.UserHomeDir()
-	return &Run{base: newBase(d), pipeline: pipeline, number: number, home: home, answer: newAnswerBox(), wantAnswer: answer}
+	return &Run{base: newBase(d), pipeline: pipeline, number: number, home: home, reply: newReplyBox(), wantReply: reply}
 }
 
 // Init loads the run.
 func (m *Run) Init() tea.Cmd { return m.reload() }
 
-// Answering reports whether the answer box is open, so the root app keeps
-// its own keys out of it.
-func (m *Run) Answering() bool { return m.answer.open }
+// Answering reports whether the reply box has the focus, so the root app
+// keeps its own keys out of it.
+func (m *Run) Answering() bool { return m.reply.focused }
 
 func (m *Run) reload() tea.Cmd {
 	if m.loading {
@@ -100,15 +181,63 @@ func (m *Run) load(info runInfo) tea.Msg {
 	return msg
 }
 
+// issueRef is how the card asks YouTrack for the run's issue: by database
+// id, which survives a move to another project.
+func issueRef(r store.Run) string {
+	if r.IssueID != "" {
+		return r.IssueID
+	}
+	return r.IssueKey
+}
+
+// loadIssue rereads the issue and its comments; force queues a reload when
+// one is running already.
+func (m *Run) loadIssue(force bool) tea.Cmd {
+	if m.d.Issues == nil || !m.loaded {
+		return nil
+	}
+	if m.ytLoading {
+		m.ytAgain = m.ytAgain || force
+		return nil
+	}
+	m.ytLoading, m.ytAt = true, m.d.Now()
+	iss, profile, ref, to := m.d.Issues, m.run.Profile, issueRef(m.run), m.id
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
+		defer cancel()
+		msg := issueLoaded{to: to}
+		msg.issue, msg.issueErr = iss.Issue(ctx, profile, ref)
+		msg.comments, msg.threadErr = iss.Comments(ctx, profile, ref)
+		return msg
+	}
+}
+
+// hasChange reports whether the card has a pull request tab.
+func (m *Run) hasChange() bool { return m.d.Changes != nil && m.run.PRNumber > 0 }
+
+func (m *Run) loadChange() tea.Cmd {
+	if !m.hasChange() || m.prLoading {
+		return nil
+	}
+	m.prLoading, m.prAt = true, m.d.Now()
+	ch, run, to := m.d.Changes, m.run, m.id
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
+		defer cancel()
+		cs, err := ch.Comments(ctx, run)
+		return changeLoaded{to: to, comments: cs, err: err}
+	}
+}
+
 // Update handles keys, ticks and reloads.
 func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if size, ok := msg.(tea.WindowSizeMsg); ok {
-		m.answer.resize(size.Width - 2)
-	}
 	if done, cmd := m.common(msg); done {
 		return m, cmd
 	}
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.reply.resize(m.leftWidth())
+		m.logDirty = true
 	case runLoaded:
 		if msg.to != m.id {
 			return m, nil
@@ -124,60 +253,119 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loaded = true
 		m.run, m.info, m.runner, m.profiles = msg.run, msg.info, msg.runner, msg.profiles
 		if len(msg.events) > 0 {
-			before := len(m.feed)
 			m.events = append(m.events, msg.events...)
 			if len(m.events) > feedKeep {
 				m.events = m.events[len(m.events)-feedKeep:]
 			}
-			m.rebuildFeed()
-			if m.scroll > 0 { // keep reading where the user was
-				m.scroll += len(m.feed) - before
+			m.logDirty = true
+		}
+		if first {
+			cmds := []tea.Cmd{m.loadIssue(false)}
+			if m.wantReply {
+				m.wantReply = false
+				cmds = append(cmds, m.focusReply())
+			}
+			return m, tea.Batch(cmds...)
+		}
+	case issueLoaded:
+		if msg.to != m.id {
+			return m, nil
+		}
+		m.ytLoading, m.ytLoaded = false, true
+		m.issueErr, m.threadErr = msg.issueErr, msg.threadErr
+		if msg.issueErr == nil {
+			m.issue = msg.issue
+		}
+		if msg.threadErr == nil {
+			m.comments = msg.comments
+		}
+		if m.ytAgain {
+			m.ytAgain = false
+			return m, m.loadIssue(false)
+		}
+	case changeLoaded:
+		if msg.to != m.id {
+			return m, nil
+		}
+		m.prLoading, m.prLoaded, m.prErr = false, true, msg.err
+		if msg.err == nil {
+			m.prComments = msg.comments
+		}
+	case commentSent:
+		if msg.to != m.id {
+			return m, nil
+		}
+		for i, p := range m.pending {
+			if p.seq == msg.seq {
+				m.pending = append(m.pending[:i:i], m.pending[i+1:]...)
+				break
 			}
 		}
-		if first && m.wantAnswer {
-			m.wantAnswer = false
-			return m, m.startAnswer()
+		if msg.err != nil {
+			m.fail(fmt.Errorf("comment not posted: %w", msg.err))
+			if m.reply.draft() == "" {
+				m.reply.set(msg.text)
+			}
+			return m, nil
 		}
+		if !m.hasComment(msg.comment.ID) {
+			m.comments = append(m.comments, msg.comment)
+		}
+		m.say(m.posted())
+		return m, m.loadIssue(true)
 	case Tick:
 		m.frameN++
-		return m, m.reload()
+		cmds := []tea.Cmd{m.reload()}
+		now := m.d.Now()
+		if m.loaded && now.Sub(m.ytAt) >= issueEvery {
+			cmds = append(cmds, m.loadIssue(false))
+		}
+		if m.tab == tabChange && now.Sub(m.prAt) >= changeEvery {
+			cmds = append(cmds, m.loadChange())
+		}
+		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
-		if m.answer.open {
-			send, text, cmd := m.answer.key(msg)
+		if m.reply.focused {
+			send, text, cmd := m.reply.key(msg)
 			if send {
-				return m, m.send(text)
+				m.reply.clear()
+				m.reply.blur()
+				return m, m.post(text)
 			}
 			return m, cmd
 		}
 		return m, m.key(msg.String())
 	default:
-		return m, m.answer.update(msg)
+		return m, m.reply.update(msg)
 	}
 	return m, nil
 }
 
-func (m *Run) startAnswer() tea.Cmd {
-	if m.run.Status.Final() {
-		m.fail(fmt.Errorf("run #%d has ended (%s)", m.number, statusLabel(m.run.Status)))
-		return nil
+func (m *Run) hasComment(id string) bool {
+	if id == "" {
+		return false
 	}
-	return m.answer.start(m.width - 2)
+	for _, c := range m.comments {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
-// send gives the answer to the runner through the store.
-func (m *Run) send(text string) tea.Cmd {
-	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
-	defer cancel()
-	if err := m.d.Answer(ctx, m.d.Store, m.pipeline, m.number, text); err != nil {
-		m.fail(err)
-		return nil
+// posted says where a comment went.
+func (m *Run) posted() string {
+	key := m.run.IssueKey
+	switch {
+	case m.run.Status.Final():
+		return fmt.Sprintf("Commented on %s. Run #%d has ended, so no agent reads it.", key, m.number)
+	case m.runner.state != runnerRunning:
+		return fmt.Sprintf("Commented on %s. The runner is stopped; it reads the comment when it starts.", key)
 	}
-	m.answer.close()
-	m.say(answerSent(m.number, m.runner))
-	return m.reload()
+	return fmt.Sprintf("Commented on %s. The runner passes it to the agent at its next poll.", key)
 }
 
-// answerSent tells where an answer went.
+// answerSent tells where an answer given through the store went.
 func answerSent(number int, r runnerInfo) string {
 	if r.state == runnerRunning {
 		return fmt.Sprintf("Answer sent to #%d; the runner passes it on at its next poll.", number)
@@ -185,32 +373,102 @@ func answerSent(number int, r runnerInfo) string {
 	return fmt.Sprintf("Answer saved for #%d; the runner is stopped and passes it on when it starts.", number)
 }
 
+// post comments on the issue as the profile's user, showing the comment at
+// once.
+func (m *Run) post(text string) tea.Cmd {
+	if m.d.Issues == nil {
+		m.fail(errors.New("YouTrack is not connected here; open the issue with o to comment"))
+		m.reply.set(text)
+		return nil
+	}
+	m.seq++
+	m.pending = append(m.pending, pendingComment{seq: m.seq, text: text, at: m.d.Now()})
+	m.docScroll, m.focus = 0, paneThread
+	iss, profile, ref, to, seq := m.d.Issues, m.run.Profile, issueRef(m.run), m.id, m.seq
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
+		defer cancel()
+		c, err := iss.AddComment(ctx, profile, ref, text)
+		return commentSent{to: to, seq: seq, text: text, comment: c, err: err}
+	}
+}
+
+func (m *Run) focusReply() tea.Cmd {
+	if !m.loaded {
+		return nil
+	}
+	if m.d.Issues == nil {
+		m.fail(errors.New("YouTrack is not connected here; open the issue with o to comment"))
+		return nil
+	}
+	m.focus = paneThread
+	return m.reply.focus(m.leftWidth())
+}
+
+// waitsOnPermission reports whether the run waits for /approve or /reject.
+func (m *Run) waitsOnPermission() bool {
+	r := m.run
+	if r.Status != store.StatusNeedsInput {
+		return false
+	}
+	return strings.Contains(r.NeedsInputReason, "/approve") || strings.Contains(strings.ToLower(r.NeedsInputReason), "permission")
+}
+
+// quick posts /approve or /reject after a yes.
+func (m *Run) quick(command string) tea.Cmd {
+	m.confirm(fmt.Sprintf("Post %s on %s?", command, m.run.IssueKey), func() tea.Cmd { return m.post(command) })
+	return nil
+}
+
 func (m *Run) key(k string) tea.Cmd {
-	page := max(m.feedRows()-1, 1)
+	page := max(m.docRows-1, 1)
+	scroll := &m.docScroll
+	if m.focus == paneLog {
+		page, scroll = max(m.logRows-1, 1), &m.logScroll
+	}
 	switch k {
 	case "q":
 		return tea.Quit
-	case "esc", "backspace", "left", "h":
+	case "esc", "backspace":
 		return navigate(Back{})
 	case "?":
 		m.fullHelp = !m.fullHelp
+	case "tab", "shift+tab":
+		m.focus = 1 - m.focus
 	case "up", "k":
-		m.scroll++
+		*scroll++
 	case "down", "j":
-		m.scroll--
+		*scroll--
 	case "pgup", "b":
-		m.scroll += page
+		*scroll += page
 	case "pgdown", " ", "f":
-		m.scroll -= page
+		*scroll -= page
 	case "home", "g":
-		m.scroll = len(m.feed)
+		*scroll = 1 << 30
 	case "end", "G":
-		m.scroll = 0
-	case "a", "enter":
-		if !m.loaded {
+		*scroll = 0
+	case "r", "enter":
+		return m.focusReply()
+	case "a":
+		if m.waitsOnPermission() {
+			return m.quick("/approve")
+		}
+		return m.focusReply()
+	case "x":
+		if m.waitsOnPermission() {
+			return m.quick("/reject")
+		}
+		m.fail(errors.New("the run does not wait for a permission"))
+	case "t", "[", "]":
+		if !m.hasChange() {
+			m.fail(fmt.Errorf("run #%d has no pull request to show", m.number))
 			return nil
 		}
-		return m.startAnswer()
+		m.tab = 1 - m.tab
+		m.docScroll = 0
+		if m.tab == tabChange && (!m.prLoaded || m.d.Now().Sub(m.prAt) >= changeEvery) {
+			return m.loadChange()
+		}
 	case "c":
 		if !m.loaded {
 			return nil
@@ -221,7 +479,11 @@ func (m *Run) key(k string) tea.Cmd {
 		}
 		return cancelRun(&m.base, m.pipeline, m.run, m.reload)
 	case "o":
-		return openURL(&m.base, issueURL(m.profiles, m.run.Profile, m.run.IssueKey), m.run.IssueKey)
+		url := m.issue.URL
+		if url == "" {
+			url = issueURL(m.profiles, m.run.Profile, m.run.IssueKey)
+		}
+		return openURL(&m.base, url, m.run.IssueKey)
 	case "p":
 		if m.run.PRURL == "" {
 			m.fail(fmt.Errorf("run #%d has no pull request", m.number))
@@ -231,68 +493,269 @@ func (m *Run) key(k string) tea.Cmd {
 	case "i":
 		return navigate(OpenInbox{})
 	}
-	m.scroll = clamp(m.scroll, len(m.feed)+1)
+	*scroll = max(*scroll, 0)
 	return nil
 }
 
-func (m *Run) rebuildFeed() {
-	w := max(m.width, 20)
-	m.feedWidth = w
-	m.feed = m.feed[:0]
-	for _, e := range m.events {
-		m.feed = append(m.feed, feedLines(e, w)...)
+// Layout.
+
+// wideFrom is the inner width from which the log sits beside the issue.
+const wideFrom = 70
+
+// inner is the content width and height of the box at the current size,
+// and whether it has a border.
+func (m *Run) inner() (cw, ch int, border bool) {
+	_, _, bw, bh := modalRect(max(m.width, 1), max(m.height, 1))
+	border = bw >= 24 && bh >= 6
+	if border {
+		return max(bw-4, 1), bh - 2, true
 	}
+	return bw, bh, false
 }
 
-// View renders the card.
-func (m *Run) View() string {
-	w := m.width
-	if m.loaded && m.feedWidth != max(w, 20) {
-		m.rebuildFeed()
+// split is the width of the issue and the log side by side, or 0 for the
+// log when they take turns.
+func split(cw int) (lw, rw int) {
+	if cw < wideFrom {
+		return cw, 0
 	}
-	help := []binding{
-		{"a", "answer"}, {"c", "cancel"}, {"o", "issue"}, {"p", "PR"}, {"↑↓", "scroll"},
-		{"end", "follow"}, {"i", "inbox"}, {"esc", "back"}, {"q", "quit"},
+	rw = min(max(cw*32/100, 24), 64)
+	return cw - rw - 3, rw
+}
+
+func (m *Run) leftWidth() int {
+	cw, _, _ := m.inner()
+	lw, _ := split(cw)
+	return lw
+}
+
+// View renders the card over a blank screen; the root app draws it over
+// the screen it was opened from through Overlay.
+func (m *Run) View() string { return m.Overlay("") }
+
+// Overlay draws the card over under.
+func (m *Run) Overlay(under string) string {
+	w, h := max(m.width, 1), max(m.height, 1)
+	x, y, bw, bh := modalRect(w, h)
+	return modalOver(under, m.box(bw, bh), x, y, w, h)
+}
+
+// box is the card: bw×bh with its border.
+func (m *Run) box(bw, bh int) []string {
+	cw, ih, border := m.inner()
+	// The status line shows only when it says something; on tiny screens
+	// it takes the help's place.
+	foot := m.helpLines(m.help(), cw)
+	if ih < 8 {
+		foot = foot[:1]
 	}
-	if m.answer.open {
-		help = answerHelp
+	if s := m.statusLine(); s != "" {
+		if ih < 8 {
+			foot = nil
+		}
+		foot = append([]string{s}, foot...)
 	}
+	rows := max(ih-len(foot), 0)
 	head := title(fmt.Sprintf("%s #%d", m.pipeline, m.number))
-	if !m.loaded {
-		return m.frame([]string{head, ""}, []string{theme.Dim.Render("  Loading…")}, help)
+	right := ""
+	if m.loaded {
+		right = statusStyle(m.run.Status)
 	}
-	r := m.run
-	header := []string{
-		spread(head+" "+theme.Bold.Render(r.IssueKey)+" "+oneLine(m.info.summary), statusStyle(r.Status), w),
-		theme.Dim.Render(m.facts()),
-		m.agentLine(),
-		theme.Dim.Render(strings.Repeat("─", max(w, 1))),
+	var body []string
+	if !border && rows > 0 {
+		body = append(body, spread(head, right, cw))
+		rows--
 	}
-	bottom := m.bottom(w)
-	rows := m.height - len(header) - len(bottom) - 1 - len(m.helpLines(help, max(w, 1)))
-	body := m.feedWindow(max(rows, 0))
-	body = append(body, bottom...)
-	return m.frame(header, body, help)
+	switch {
+	case rows <= 0:
+	case !m.loaded:
+		body = append(body, theme.Dim.Render("Loading…"))
+	default:
+		body = append(body, m.panes(cw, rows)...)
+	}
+	inner := make([]string, 0, ih)
+	inner = append(inner, body[:min(len(body), max(ih-len(foot), 0))]...)
+	for len(inner) < ih-len(foot) {
+		inner = append(inner, "")
+	}
+	inner = append(inner, foot...)
+	if len(inner) > ih {
+		inner = inner[len(inner)-ih:]
+	}
+	if !border {
+		for i, l := range inner {
+			inner[i] = pad(l, bw)
+		}
+		return inner
+	}
+	for i, l := range inner {
+		inner[i] = " " + pad(l, cw) + " "
+	}
+	return frameBox(inner, bw-2, head, right)
 }
 
-// facts is the second header line: stage, branch, worktree, PR.
-func (m *Run) facts() string {
-	r := m.run
-	var parts []string
-	if r.Stage != "" {
-		parts = append(parts, "stage "+r.Stage)
+// panes lays out the issue and the log, side by side when wide enough,
+// else the focused one.
+func (m *Run) panes(cw, rows int) []string {
+	lw, rw := split(cw)
+	if rw == 0 {
+		if m.focus == paneLog {
+			return m.logPane(cw, rows, false)
+		}
+		return m.issuePane(cw, rows, false)
 	}
+	left := m.issuePane(lw, rows, true)
+	right := m.logPane(rw, rows, true)
+	sep := theme.Dim.Render(" │ ")
+	out := make([]string, rows)
+	for i := range rows {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out[i] = pad(l, lw) + sep + pad(r, rw)
+	}
+	return out
+}
+
+// rule is a horizontal line, in the brand colour on the focused pane.
+func rule(w int, focused bool) string {
+	line := strings.Repeat("─", max(w, 1))
+	if focused {
+		return theme.Accent.Render(line)
+	}
+	return theme.Dim.Render(line)
+}
+
+// issuePane is the left side: title, chips, the thread and the reply box.
+func (m *Run) issuePane(w, rows int, wide bool) []string {
+	head := m.titleLines(w)
+	head = append(head, m.chipLines(w)...)
+	head = append(head, cut(m.agentLine(), w))
+	if m.hasChange() {
+		head = append(head, m.tabsLine(w))
+	}
+	if !wide {
+		head = append(head, cut(theme.Dim.Render("tab shows the log"), w))
+	}
+	head = append(head, rule(w, wide && m.focus == paneThread && !m.reply.focused))
+	foot := m.replyArea(w, rows)
+	doc := m.docLines(w)
+	docRows := rows - len(head) - len(foot)
+	if docRows < 2 && len(head) > 2 { // small: keep the title and the rule
+		head = []string{head[0], head[len(head)-1]}
+		docRows = rows - len(head) - len(foot)
+	}
+	if docRows < 0 {
+		keep := max(rows-len(head), 0)
+		foot = foot[max(len(foot)-keep, 0):]
+		docRows = 0
+	}
+	if m.docScroll > 0 && m.docLen > 0 && len(doc) != m.docLen {
+		m.docScroll += len(doc) - m.docLen // keep reading where the user was
+	}
+	m.docLen, m.docRows = len(doc), docRows
+	out := append([]string(nil), head...)
+	win := scrollWindow(doc, docRows, &m.docScroll)
+	out = append(out, win...)
+	for range docRows - len(win) {
+		out = append(out, "")
+	}
+	out = append(out, foot...)
+	if len(out) > rows {
+		out = out[:rows]
+	}
+	return out
+}
+
+// titleLines is the issue key and summary, on up to two lines.
+func (m *Run) titleLines(w int) []string {
+	summary := m.issue.Summary
+	if summary == "" {
+		summary = m.info.summary
+	}
+	lines := wrap(theme.Accent.Render(m.run.IssueKey)+" "+theme.Bold.Render(oneLine(summary)), max(w, 1))
+	if len(lines) > 2 {
+		lines = []string{lines[0], cut(lines[1]+" …", w)}
+	}
+	return lines
+}
+
+// keyFields are the YouTrack fields shown as chips, in this order.
+var keyFields = []string{"State", "Type", "Priority", "Assignee"}
+
+// chipLines are the chips of the issue's key fields and the run, on up to
+// two lines.
+func (m *Run) chipLines(w int) []string {
+	r := m.run
+	var chips []string
+	for _, f := range keyFields {
+		if v := strings.TrimSpace(m.issue.Fields[f]); v != "" {
+			chips = append(chips, chipStyle.Render(f+": "+v))
+		}
+	}
+	if r.Stage != "" {
+		chips = append(chips, chipStyle.Render("stage "+r.Stage))
+	}
+	chips = append(chips, statusChip(r.Status))
 	if r.Branch != "" {
-		parts = append(parts, "branch "+r.Branch)
+		chips = append(chips, chipStyle.Render("⎇ "+r.Branch))
 	}
 	if r.PRURL != "" {
-		parts = append(parts, fmt.Sprintf("PR #%d %s", r.PRNumber, r.PRURL))
+		chips = append(chips, chipStyle.Render(fmt.Sprintf("PR #%d", r.PRNumber)))
 	}
-	parts = append(parts, "started "+short(m.d.Now().Sub(r.CreatedAt))+" ago")
-	if r.Worktree != "" {
-		parts = append(parts, homeShort(r.Worktree, m.home))
+	var lines []string
+	line := ""
+	for _, c := range chips {
+		next := c
+		if line != "" {
+			next = line + " " + c
+		}
+		if line != "" && ansi.StringWidth(next) > w {
+			lines = append(lines, line)
+			line = c
+			continue
+		}
+		line = next
 	}
-	return strings.Join(parts, " · ")
+	lines = append(lines, line)
+	if len(lines) > 2 {
+		lines = []string{lines[0], lines[1] + " …"}
+	}
+	for i, l := range lines {
+		lines[i] = cut(l, w)
+	}
+	return lines
+}
+
+// statusChip is the run status as a chip; needs input stands out.
+func statusChip(s store.RunStatus) string {
+	label := statusLabel(s)
+	switch s {
+	case store.StatusNeedsInput:
+		return theme.Badge.Render("⚑ " + label)
+	case store.StatusDone, store.StatusClosed, store.StatusReview:
+		return chipStyle.Foreground(theme.Green).Render(label)
+	case store.StatusFailed:
+		return chipStyle.Foreground(theme.Red).Render(label)
+	}
+	return chipStyle.Bold(true).Render(label)
+}
+
+// tabsLine switches between the YouTrack thread and the pull request's.
+func (m *Run) tabsLine(w int) string {
+	names := []string{"YouTrack", fmt.Sprintf("Pull request #%d", m.run.PRNumber)}
+	for i, n := range names {
+		if i == m.tab {
+			names[i] = tabActive.Render(n)
+		} else {
+			names[i] = theme.Dim.Render(n)
+		}
+	}
+	return cut(names[0]+theme.Dim.Render(" │ ")+names[1]+theme.Dim.Render("   t switches"), w)
 }
 
 // agentLine says what the agent is doing.
@@ -302,6 +765,7 @@ func (m *Run) agentLine() string {
 	if who == "" {
 		who = "agent"
 	}
+	started := theme.Dim.Render(" · started " + short(m.d.Now().Sub(r.CreatedAt)) + " ago")
 	switch {
 	case r.Status.Final():
 		return theme.Dim.Render(fmt.Sprintf("%s · finished %s ago", who, short(m.d.Now().Sub(*finishedAt(r)))))
@@ -311,13 +775,13 @@ func (m *Run) agentLine() string {
 			what = "working"
 		}
 		return theme.Accent.Render(spinner[m.frameN%len(spinner)]) + " " + who + " · " + what +
-			theme.Dim.Render(" · "+elapsed(m.d.Now().Sub(in.turnStart)))
+			theme.Dim.Render(" · "+elapsed(m.d.Now().Sub(in.turnStart))) + started
 	case m.runner.state != runnerRunning:
-		return theme.Dim.Render(who + " · idle · the runner is stopped")
+		return theme.Dim.Render(who+" · idle · the runner is stopped") + started
 	case in.pending > 0:
-		return theme.Warn.Render(fmt.Sprintf("⟳ %d new message(s) for the agent", in.pending))
+		return theme.Warn.Render(fmt.Sprintf("⟳ %d new message(s) for the agent", in.pending)) + started
 	}
-	return theme.Dim.Render(who + " · idle")
+	return theme.Dim.Render(who+" · idle") + started
 }
 
 func finishedAt(r store.Run) *time.Time {
@@ -327,65 +791,165 @@ func finishedAt(r store.Run) *time.Time {
 	return &r.UpdatedAt
 }
 
-// bottom is what sits under the feed: the question of a run that waits
-// for input and the answer box.
-func (m *Run) bottom(w int) []string {
-	var out []string
+// replyArea is what sits under the thread: what the run waits for, the
+// quick answers to a permission request and the reply box.
+func (m *Run) replyArea(w, rows int) []string {
 	r := m.run
+	out := []string{rule(w, m.reply.focused)}
 	if r.Status == store.StatusNeedsInput {
-		out = append(out, theme.Dim.Render(strings.Repeat("─", max(w, 1))))
 		head := theme.Badge.Render("⚑ NEEDS INPUT") + theme.Dim.Render(" · waiting "+short(m.d.Now().Sub(waitingSince(r))))
 		if m.info.pending > 0 {
-			head += theme.OK.Render("  ✓ answer queued")
+			head += theme.OK.Render("  ✓ reply queued")
 		}
-		out = append(out, head)
+		out = append(out, cut(head, w))
 		reason := strings.TrimSpace(r.NeedsInputReason)
 		if reason == "" {
 			reason = "The agent waits for an answer."
 		}
-		lines := wrap(reason, max(w-2, 10))
-		if limit := max(m.height/4, 2); len(lines) > limit {
-			lines = append(lines[:limit-1], "…")
+		limit := 1
+		if rows >= 24 {
+			limit = 2
 		}
-		for _, l := range lines {
-			out = append(out, "  "+l)
+		lines := wrap(oneLine(reason), max(w, 1))
+		if len(lines) > limit {
+			lines = append(lines[:limit-1], cut(lines[limit-1]+" …", w))
 		}
-		if !m.answer.open {
-			out = append(out, theme.Dim.Render("  Press a to answer."))
-		}
+		out = append(out, lines...)
 	}
-	if m.answer.open {
-		if r.Status != store.StatusNeedsInput {
-			out = append(out, theme.Dim.Render(strings.Repeat("─", max(w, 1))),
-				theme.Dim.Render("Feedback for the agent; it starts a new turn with it."))
-		}
-		out = append(out, m.answer.view()...)
+	if m.waitsOnPermission() && !m.reply.focused {
+		out = append(out, cut(theme.Warn.Render("Permission")+"  "+theme.Key.Render("a")+" /approve  "+
+			theme.Key.Render("x")+" /reject  "+theme.Dim.Render("posts the comment"), w))
+	}
+	hint := "r to comment on " + r.IssueKey
+	if r.Status.Final() {
+		hint += " (the run has ended)"
+	}
+	if m.d.Issues == nil {
+		hint = "YouTrack is not connected here: no comments"
+	}
+	return append(out, m.reply.lines(w, hint)...)
+}
+
+// docLines is the scrolling part of the issue pane: the description and
+// the comments, or the pull request's conversation.
+func (m *Run) docLines(w int) []string {
+	if m.tab == tabChange && m.hasChange() {
+		return m.changeLines(w)
+	}
+	now := m.d.Now()
+	if m.d.Issues == nil {
+		return wrap(theme.Dim.Render("YouTrack is not connected here, so the issue and its comments are not shown. o opens the issue in the browser."), w)
+	}
+	if !m.ytLoaded {
+		return []string{theme.Dim.Render("Loading the issue…")}
+	}
+	var out []string
+	if m.issueErr != nil {
+		out = append(out, wrap(theme.Err.Render("✗ ")+"Could not read the issue: "+oneLine(m.issueErr.Error()), w)...)
+	} else if desc := mdLines(m.issue.Description, w); len(desc) > 0 {
+		out = append(out, desc...)
+	} else {
+		out = append(out, theme.Dim.Render("No description."))
+	}
+	out = append(out, "")
+	n := len(m.comments)
+	head := "Comments"
+	if n > 0 {
+		head = fmt.Sprintf("Comments · %d", n)
+	}
+	out = append(out, theme.Header.Render(head))
+	if m.threadErr != nil {
+		out = append(out, wrap(theme.Err.Render("✗ ")+"Could not read the comments: "+oneLine(m.threadErr.Error()), w)...)
+	}
+	if n == 0 && len(m.pending) == 0 && m.threadErr == nil {
+		out = append(out, theme.Dim.Render("No comments yet."))
+	}
+	for _, c := range m.comments {
+		out = append(out, "")
+		out = append(out, issueItem(c).lines(w, now, m.frameN)...)
+	}
+	for _, p := range m.pending {
+		out = append(out, "")
+		out = append(out, threadItem{author: "you", body: p.text, at: p.at, pending: true}.lines(w, now, m.frameN)...)
 	}
 	return out
 }
 
-func (m *Run) feedRows() int {
-	return max(m.height-8, 1)
+// changeLines is the pull request's conversation, read-only.
+func (m *Run) changeLines(w int) []string {
+	now := m.d.Now()
+	out := wrap(theme.Dim.Render("Read-only: the reply box comments on the YouTrack issue; p opens the pull request."), w)
+	switch {
+	case !m.prLoaded:
+		return append(out, "", theme.Dim.Render("Loading the pull request…"))
+	case m.prErr != nil:
+		return append(append(out, ""), wrap(theme.Err.Render("✗ ")+"Could not read the pull request: "+oneLine(m.prErr.Error()), w)...)
+	case len(m.prComments) == 0:
+		return append(out, "", theme.Dim.Render("No comments on the pull request yet."))
+	}
+	for _, c := range m.prComments {
+		out = append(out, "")
+		out = append(out, changeItem(c).lines(w, now, m.frameN)...)
+	}
+	return out
 }
 
-// feedWindow is the part of the feed that fits in rows lines.
-func (m *Run) feedWindow(rows int) []string {
-	if rows <= 0 {
-		return nil
+// logPane is the right side: the run's events, one line each.
+func (m *Run) logPane(w, rows int, wide bool) []string {
+	if m.logDirty || m.logWidth != w {
+		m.logLines = m.logLines[:0]
+		for _, e := range logEntries(m.events) {
+			m.logLines = append(m.logLines, e.line(w))
+		}
+		m.logWidth, m.logDirty = w, false
 	}
-	if len(m.feed) == 0 {
-		return []string{theme.Dim.Render("No events yet.")}
+	name := "Log"
+	focused := m.focus == paneLog && !m.reply.focused
+	if focused && wide {
+		name = theme.Accent.Render(name)
+	} else {
+		name = theme.Bold.Render(name)
 	}
-	m.scroll = clamp(m.scroll, max(len(m.feed)-rows+2, 1))
-	if m.scroll == 0 {
-		return append([]string(nil), m.feed[max(len(m.feed)-rows, 0):]...)
+	if !wide {
+		name += theme.Dim.Render(" · tab shows the issue")
 	}
-	end := len(m.feed) - m.scroll
-	out := append([]string(nil), m.feed[max(end-(rows-1), 0):end]...)
-	return append(out, theme.Dim.Render(fmt.Sprintf("↓ %d more lines · end to follow", m.scroll)))
+	out := []string{spread(name, m.runner.label(), w)}
+	if m.run.Worktree != "" {
+		out = append(out, cut(theme.Dim.Render(homeShort(m.run.Worktree, m.home)), w))
+	}
+	out = append(out, rule(w, focused && wide))
+	m.logRows = max(rows-len(out), 0)
+	if len(m.logLines) == 0 {
+		return append(out, theme.Dim.Render("No events yet."))
+	}
+	return append(out, scrollWindow(m.logLines, m.logRows, &m.logScroll)...)
 }
 
-// feedKinds are the labels and colours of the event kinds in the feed.
+// help is the help line of the card.
+func (m *Run) help() []binding {
+	if m.reply.focused {
+		return []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
+	}
+	h := []binding{{"r", "reply"}}
+	if m.waitsOnPermission() {
+		h = append(h, binding{"a", "approve"}, binding{"x", "reject"})
+	}
+	other := "log"
+	if m.focus == paneLog {
+		other = "issue"
+	}
+	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"})
+	if m.hasChange() {
+		h = append(h, binding{"t", "PR thread"})
+	}
+	h = append(h, binding{"o", "issue"})
+	if m.run.PRURL != "" {
+		h = append(h, binding{"p", "PR"})
+	}
+	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"esc", "close"}, binding{"q", "quit"})
+}
+
+// feedKinds are the labels and colours of the event kinds in the log.
 var feedKinds = map[string]struct {
 	label string
 	style func(...string) string
@@ -421,60 +985,8 @@ var feedKinds = map[string]struct {
 	"worktree.removed":     {"worktree", theme.Dim.Render},
 }
 
-// feedHidden are event kinds the feed leaves out: noise for people.
+// feedHidden are event kinds the log leaves out: noise for people.
 var feedHidden = map[string]bool{"agent.usage": true, "agent.session": true, "agent.tool_update": true}
-
-const feedLabel = 11
-
-// feedLines renders one event as "15:04:05  label  text", the text
-// wrapped under itself and cut to a few lines.
-func feedLines(e store.Event, w int) []string {
-	if feedHidden[e.Kind] && !failedTool(e) {
-		return nil
-	}
-	kind, ok := feedKinds[e.Kind]
-	if !ok {
-		kind.label, kind.style = e.Kind, theme.Dim.Render
-		if e.Kind == "agent.tool_update" {
-			kind.label, kind.style = "tool", theme.Err.Render
-		}
-	}
-	text := feedText(e)
-	limit := 3
-	if e.Kind == "agent.text" || e.Kind == "agent.request_input" || e.Kind == "agent.report" || e.Kind == "inbox" {
-		limit = 8
-	}
-	prefix := theme.Dim.Render(e.At.Local().Format("15:04:05")) + " " + kind.style(pad(kind.label, feedLabel)) + " "
-	indent := strings.Repeat(" ", 9+feedLabel+1)
-	tw := w - len(indent)
-	if tw < 16 { // too narrow for a side-by-side layout: text under the label
-		prefix, indent, tw = kind.style(kind.label)+" "+theme.Dim.Render(e.At.Local().Format("15:04")), "  ", w-2
-		lines := []string{prefix}
-		for _, l := range limitLines(wrap(text, max(tw, 1)), limit) {
-			lines = append(lines, indent+l)
-		}
-		return lines
-	}
-	body := limitLines(wrap(text, tw), limit)
-	if len(body) == 0 {
-		body = []string{""}
-	}
-	lines := []string{prefix + body[0]}
-	for _, l := range body[1:] {
-		lines = append(lines, indent+l)
-	}
-	return lines
-}
-
-func limitLines(lines []string, n int) []string {
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > n {
-		lines = append(lines[:n-1], theme.Dim.Render("…"))
-	}
-	return lines
-}
 
 func failedTool(e store.Event) bool {
 	if e.Kind != "agent.tool_update" {
@@ -486,7 +998,7 @@ func failedTool(e store.Event) bool {
 	return json.Unmarshal(e.Data, &v) == nil && v.Tool.Status == "failed"
 }
 
-// feedText is the text of an event for the feed.
+// feedText is the text of an event for the log.
 func feedText(e store.Event) string {
 	f := fields(e.Data)
 	switch e.Kind {

@@ -14,7 +14,8 @@ import (
 )
 
 // Inbox lists every run of every pipeline that waits for input, oldest
-// question first, and answers them in place.
+// question first: enter opens a run's card with its reply box, a answers
+// in place through the store.
 type Inbox struct {
 	base
 	loaded   bool
@@ -192,7 +193,9 @@ func (m *Inbox) key(k string) tea.Cmd {
 		return nil
 	}
 	switch k {
-	case "enter", "a":
+	case "enter":
+		return navigate(OpenRun{Pipeline: r.Pipeline, Number: r.Number, Answer: true})
+	case "a":
 		return m.answer.start(m.width - 4)
 	case "v", "right", "l":
 		return navigate(OpenRun{Pipeline: r.Pipeline, Number: r.Number})
@@ -216,7 +219,7 @@ func (m *Inbox) View() string {
 		right = theme.Badge.Render(fmt.Sprintf("⚑ %d runs need input", n))
 	}
 	header := []string{spread(title("Inbox"), right, w), ""}
-	help := []binding{{"↑↓", "move"}, {"enter", "answer"}, {"v", "view run"}, {"o", "issue"}, {"esc", "back"}, {"q", "quit"}}
+	help := []binding{{"↑↓", "move"}, {"enter", "reply"}, {"a", "quick answer"}, {"v", "view run"}, {"o", "issue"}, {"esc", "back"}, {"q", "quit"}}
 	if m.answer.open {
 		help = answerHelp
 	}

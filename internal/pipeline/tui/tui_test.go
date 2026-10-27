@@ -107,6 +107,7 @@ func newFixture(t *testing.T, profiles ...string) *fixture {
 			Profiles:  func() ([]config.Config, error) { return f.profiles, nil },
 			Pipelines: func() ([]spec.Pipeline, error) { return f.list, nil },
 			Daemon:    f.daemon,
+			RunnerLog: func(context.Context, string) (string, error) { return "runner started\n", nil },
 		},
 		TickEvery: -1,
 		Wizard: func(_ context.Context, existing *spec.Pipeline) tea.Model {
@@ -226,6 +227,8 @@ func TestNavigation(t *testing.T) {
 		t.Errorf("pipelines of %s", p.Profile())
 	}
 	f.keys("enter")
+	f.has(t, "Open board", "Run in background")
+	f.keys("enter")
 	if b := topIs[*views.Board](t, f); b.Pipeline() != "backend" {
 		t.Errorf("board of %s", b.Pipeline())
 	}
@@ -236,6 +239,13 @@ func TestNavigation(t *testing.T) {
 		t.Errorf("depth %d", f.app.Depth())
 	}
 	f.keys("esc", "esc")
+	topIs[*views.Pipelines](t, f)
+	f.keys("L")
+	if l := topIs[*views.Logs](t, f); l.Pipeline() != "backend" {
+		t.Errorf("logs of %s", l.Pipeline())
+	}
+	f.has(t, "runner log", "runner started")
+	f.keys("esc")
 	topIs[*views.Pipelines](t, f)
 	f.keys("q")
 	if !f.quit {
@@ -292,7 +302,7 @@ func TestWizardNewAndRun(t *testing.T) {
 
 func TestWizardEditRenames(t *testing.T) {
 	f := newFixture(t, "a")
-	f.keys("enter") // backend's board
+	f.keys("o") // backend's board
 	f.next = spec.Pipeline{Name: "api", Profile: "a"}
 	f.keys("e")
 	w := topIs[*fakeWizard](t, f)
