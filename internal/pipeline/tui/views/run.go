@@ -592,6 +592,7 @@ func (m *Run) box(bw, bh int) []string {
 	}
 	rows := max(ih-len(foot)-gap, 0)
 	var body []string
+	ruleAt := -1
 	if !border && rows > 0 {
 		right := ""
 		if m.loaded {
@@ -610,6 +611,9 @@ func (m *Run) box(bw, bh int) []string {
 			top = top[:min(1, len(top))]
 		}
 		body = append(body, top...)
+		if rows > len(top) {
+			ruleAt = len(body) // panes start with the rule
+		}
 		body = append(body, m.panes(cw, rows-len(top))...)
 	}
 	inner := make([]string, 0, ih)
@@ -619,6 +623,7 @@ func (m *Run) box(bw, bh int) []string {
 	}
 	inner = append(inner, foot...)
 	if len(inner) > ih {
+		ruleAt -= len(inner) - ih
 		inner = inner[len(inner)-ih:]
 	}
 	if !border {
@@ -633,7 +638,11 @@ func (m *Run) box(bw, bh int) []string {
 	for range py {
 		padded = append(padded, "")
 	}
-	for _, l := range inner {
+	for i, l := range inner {
+		if i == ruleAt { // the rule runs through the padding to the frame
+			padded = append(padded, m.ruleLine(cw, px))
+			continue
+		}
 		padded = append(padded, side+pad(l, cw)+side)
 	}
 	for range py {
@@ -765,7 +774,7 @@ func (m *Run) panes(cw, rows int) []string {
 	air := rows >= 14
 	out := make([]string, 0, rows)
 	if rw == 0 {
-		out = append(out, rule(cw, false))
+		out = append(out, m.ruleLine(cw, 0))
 		if air {
 			out = append(out, "")
 		}
@@ -775,8 +784,7 @@ func (m *Run) panes(cw, rows int) []string {
 		}
 		return append(out, m.issuePane(cw, left, false)...)
 	}
-	thread := m.focus == paneThread && !m.reply.focused
-	out = append(out, rule(lw, thread)+theme.Dim.Render("──┬──")+rule(rw, m.focus == paneLog && !m.reply.focused))
+	out = append(out, m.ruleLine(cw, 0))
 	if air {
 		out = append(out, pad("", lw)+gutter())
 	}
@@ -794,6 +802,19 @@ func (m *Run) panes(cw, rows int) []string {
 		out = append(out, pad(l, lw)+gutter()+pad(r, rw))
 	}
 	return out
+}
+
+// ruleLine is the line between the top bar and the panes, over cw cells
+// plus extra on each side: in the brand colour over the focused pane, with
+// a junction where the gutter between the panes starts.
+func (m *Run) ruleLine(cw, extra int) string {
+	lw, rw := split(cw)
+	if rw == 0 {
+		return rule(cw+2*extra, false)
+	}
+	thread := m.focus == paneThread && !m.reply.focused
+	log := m.focus == paneLog && !m.reply.focused
+	return rule(lw+extra, thread) + theme.Dim.Render("──┬──") + rule(rw+extra, log)
 }
 
 // rule is a horizontal line, in the brand colour on the focused pane.

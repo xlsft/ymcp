@@ -514,3 +514,42 @@ func TestIsWorking(t *testing.T) {
 		}
 	}
 }
+
+// TestRuleReachesTheFrame: the line under the top bar runs through the
+// padding to the frame on both sides, at the side-by-side and the narrow
+// layout.
+func TestRuleReachesTheFrame(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {160, 45}, {70, 30}} {
+		f := newFixture(t)
+		withIssues(f)
+		d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), size[0], size[1])
+		found := false
+		for _, l := range strings.Split(ansi.Strip(d.m.View()), "\n") {
+			s := strings.TrimSpace(l)
+			if strings.HasPrefix(s, "│─") && strings.HasSuffix(s, "─│") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%dx%d: no rule from frame to frame:\n%s", size[0], size[1], ansi.Strip(d.m.View()))
+		}
+	}
+}
+
+// TestModalOverHidesTheScreensHelp: below the card the screen is blank, so
+// the key help of the screen underneath doesn't show.
+func TestModalOverHidesTheScreensHelp(t *testing.T) {
+	under := "head\nrow\nrow\nr run  s stop  q quit"
+	got := strings.Split(modalOver(under, []string{"BOX"}, 2, 1, 20, 4), "\n")
+	if len(got) != 4 {
+		t.Fatalf("%d lines", len(got))
+	}
+	if !strings.Contains(ansi.Strip(got[0]), "head") {
+		t.Errorf("the screen above the card is gone: %q", got[0])
+	}
+	for _, i := range []int{2, 3} {
+		if strings.TrimSpace(ansi.Strip(got[i])) != "" || ansi.StringWidth(got[i]) != 20 {
+			t.Errorf("line %d under the card is %q", i, got[i])
+		}
+	}
+}

@@ -52,7 +52,13 @@ func modalOver(under string, box []string, x, y, w, h int) string {
 		}
 		line = pad(line, w)
 		j := i - y
-		if j < 0 || j >= len(box) {
+		if j >= len(box) {
+			// Below the card, where the screen's own key help is: blank,
+			// so its keys aren't mistaken for the card's.
+			out[i] = strings.Repeat(" ", w)
+			continue
+		}
+		if j < 0 {
 			out[i] = dimLine(line)
 			continue
 		}
