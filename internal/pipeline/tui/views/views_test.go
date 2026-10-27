@@ -1,6 +1,7 @@
 package views
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -210,13 +211,20 @@ type driver struct {
 	t   *testing.T
 	m   tea.Model
 	nav []tea.Msg
+	// wait is how long a command may take before it counts as a timer
+	// (a cursor blink) and is skipped; 0 is 100ms.
+	wait time.Duration
 }
 
 func drive(t *testing.T, m tea.Model, w, h int) *driver {
 	t.Helper()
 	d := &driver{t: t, m: m}
 	d.send(tea.WindowSizeMsg{Width: w, Height: h})
+	// The first load reads the store, which a busy CI machine under -race
+	// may take longer for; dropping it would leave an empty screen.
+	d.wait = 400 * time.Millisecond
 	d.run(m.Init(), 0)
+	d.wait = 0
 	return d
 }
 
@@ -284,7 +292,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 	var msg tea.Msg
 	select {
 	case msg = <-ch:
-	case <-time.After(100 * time.Millisecond): // a timer (cursor blink): skip
+	case <-time.After(cmp.Or(d.wait, 100*time.Millisecond)): // a timer (cursor blink): skip
 		return
 	}
 	switch msg := msg.(type) {

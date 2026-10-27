@@ -119,10 +119,15 @@ func (e *cmdError) Error() string {
 
 func (e *cmdError) Unwrap() error { return e.err }
 
-// run executes git with args in dir and returns trimmed stdout.
+// run executes git with args in dir and returns trimmed stdout. A git
+// command that only reads or sets config is run again when git crashed
+// (see crashed).
 func run(ctx context.Context, h Host, dir string, args ...string) (string, error) {
 	argv := append([]string{"git"}, args...)
 	stdout, stderr, err := h.Run(ctx, dir, argv, nil)
+	for try := 1; try < 3 && crashed(err) && rerunnable(args) && ctx.Err() == nil; try++ {
+		stdout, stderr, err = h.Run(ctx, dir, argv, nil)
+	}
 	out := trim(string(stdout))
 	if err == nil {
 		return out, nil
@@ -135,6 +140,33 @@ func run(ctx context.Context, h Host, dir string, args ...string) (string, error
 		msg = out
 	}
 	return out, &cmdError{cmd: shorten("git "+join(args), 120), msg: shorten(msg, 600), err: err}
+}
+
+// crashed reports whether git died of a crash of its own, a segfault or a
+// bus error, which git on a busy macOS machine now and then does.
+func crashed(err error) bool {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return false
+	}
+	s := ee.Error()
+	return s == "signal: segmentation fault" || s == "signal: bus error"
+}
+
+// rerunnable reports whether a git command can simply run again after a
+// crash: it reads, fetches or sets config, and changes nothing else.
+func rerunnable(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "config", "rev-parse", "rev-list", "fetch", "status", "log", "diff", "show-ref", "for-each-ref",
+		"symbolic-ref", "check-ref-format", "ls-remote", "merge-base", "remote":
+		return true
+	case "worktree":
+		return len(args) > 1 && args[1] == "list"
+	}
+	return false
 }
 
 // reason is the human-readable cause of a failed git call, for check details.
