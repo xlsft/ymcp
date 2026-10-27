@@ -31,7 +31,9 @@ func pipelineRun(ctx context.Context, name string, args []string, logger *slog.L
 	}
 	defer st.Close()
 
-	r, err := engine.New(ctx, engine.Options{Pipeline: p, Store: st, Logger: logger, Version: version})
+	notes := newRunnerNotifier(p, logger)
+	defer notes.close()
+	r, err := engine.New(ctx, engine.Options{Pipeline: p, Store: st, Logger: logger, Version: version, Notify: notes.hook()})
 	if err != nil {
 		return err
 	}
@@ -40,6 +42,7 @@ func pipelineRun(ctx context.Context, name string, args []string, logger *slog.L
 		if errors.Is(err, store.ErrRunnerBusy) {
 			return fmt.Errorf("%w; check `ymcp pipeline %s status`", err, name)
 		}
+		notes.stopped(name, err)
 		return err
 	}
 	return nil
