@@ -46,10 +46,12 @@ type Source struct {
 // command that moves an issue into it, the search that recognises issues
 // in it and, for needsInput, the command that undoes Enter.
 type Stage struct {
-	Enter   string `json:"enter,omitempty"`
-	Match   string `json:"match,omitempty"`
-	Exit    string `json:"exit,omitempty"`
-	Enabled *bool  `json:"enabled,omitempty"` // nil = enabled
+	Enter string `json:"enter,omitempty"`
+	Match string `json:"match,omitempty"`
+	Exit  string `json:"exit,omitempty"`
+	// Enabled is nil for "on", except for Done, which is off unless set to
+	// true (WithDefaults writes false for it).
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // On reports whether the stage is in use.
