@@ -128,6 +128,18 @@ func TestDoParsesError(t *testing.T) {
 	}
 }
 
+func TestServerTime(t *testing.T) {
+	date := time.Date(2026, 10, 27, 13, 27, 10, 0, time.UTC)
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Date", date.Format(http.TimeFormat))
+		meHandler(w, r)
+	})
+	got, err := c.ServerTime(context.Background())
+	if err != nil || !got.Equal(date) {
+		t.Errorf("ServerTime = %v, %v; want %v", got, err, date)
+	}
+}
+
 func TestDoRejectsNonJSON(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
