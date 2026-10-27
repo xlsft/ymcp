@@ -83,6 +83,15 @@ func newPeopleStep(sh *shared) *peopleStep {
 			},
 		},
 		{
+			id: "autoCompact", inline: true,
+			desc: "When a run ends: hide its comments, leave a summary (/compact).",
+			ctl: &toggleCtl{
+				label: "Compact finished runs",
+				get:   func() bool { return sh.p.AutoCompact },
+				set:   func(v bool) tea.Cmd { sh.p.AutoCompact = v; return nil },
+			},
+		},
+		{
 			id: "advanced", inline: true,
 			ctl: &disclosureCtl{label: "Advanced: feedback delay", open: &s.advanced, force: func() bool { return s.durErr != "" }, note: func() string {
 				if s.durErr != "" {

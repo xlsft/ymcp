@@ -1012,3 +1012,20 @@ func TestViews(t *testing.T) {
 		}
 	}
 }
+
+// TestAutoCompactToggle: the People step switches autoCompact, and the
+// review sums it up.
+func TestAutoCompactToggle(t *testing.T) {
+	f := newFakes()
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"}}
+	d := start(t, f.deps, &existing)
+	d.goStep(4)
+	d.focus("autoCompact")
+	d.must("Compact finished runs", "leave a summary (/compact)")
+	d.keys("space")
+	if !d.m.sh.p.AutoCompact {
+		t.Fatal("autoCompact not switched on")
+	}
+	d.goStep(5)
+	d.must("compact finished runs")
+}

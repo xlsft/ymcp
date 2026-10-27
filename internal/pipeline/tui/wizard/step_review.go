@@ -158,7 +158,11 @@ func (s *reviewStep) summary(width int) string {
 	}
 	row("Agent", ag+" · permissions "+p.Permissions)
 	row("Prompts", p.Prompts.Preset+" · "+p.Language)
-	row("Feedback", "youtrack "+orDash(strings.Join(p.Feedback.YouTrack, ", "))+" · github "+orDash(strings.Join(p.Feedback.GitHub, ", "))+" · gitlab "+orDash(strings.Join(p.Feedback.GitLab, ", ")))
+	fb := "youtrack " + orDash(strings.Join(p.Feedback.YouTrack, ", ")) + " · github " + orDash(strings.Join(p.Feedback.GitHub, ", ")) + " · gitlab " + orDash(strings.Join(p.Feedback.GitLab, ", "))
+	if p.AutoCompact {
+		fb += " · compact finished runs"
+	}
+	row("Feedback", fb)
 	notify := "the machine's settings"
 	if n := p.Notifications; n != nil {
 		notify = "providers " + orDash(strings.Join(n.Providers, ", ")) + " · events " + orDash(strings.Join(n.Events, ", "))

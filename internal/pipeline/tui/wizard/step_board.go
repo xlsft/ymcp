@@ -64,7 +64,7 @@ var stageDefs = []stageDef{
 		name: "Closed", key: "closed",
 		about:       "people closed the issue: the run ends as closed",
 		enterLabel:  "Command when closed",
-		enterDesc:   "Optional.",
+		enterDesc:   "Optional; runs when the PR/MR is closed and on a /cancel reply.",
 		matchLabel:  "Search for them",
 		matchDesc:   "A match ends the run as closed.",
 		enterHolder: "none", matchHolder: "e.g. State: {Won't fix}",
