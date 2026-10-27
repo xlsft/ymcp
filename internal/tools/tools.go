@@ -18,7 +18,21 @@ import (
 // Register adds the tools to s, backed by yt: those in enabled, or all of
 // them when enabled is nil (see Select).
 func Register(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool) {
-	t := &toolset{yt: yt}
+	RegisterWith(s, yt, enabled, Options{})
+}
+
+// Options changes how the tools write to YouTrack.
+type Options struct {
+	// Mark rewrites text the client writes in full: new and replaced
+	// comments (with a command too), issue descriptions on create and
+	// update, and article content on create and replace. Appends and
+	// find-and-replace edits are left alone. Nil changes nothing.
+	Mark func(text string) string
+}
+
+// RegisterWith is Register with options.
+func RegisterWith(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool, opts Options) {
+	t := &toolset{yt: yt, mark: opts.Mark}
 	defer func() {
 		if enabled == nil {
 			return
@@ -57,7 +71,8 @@ func Register(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool) {
 }
 
 type toolset struct {
-	yt *youtrack.Client
+	yt   *youtrack.Client
+	mark func(string) string // Options.Mark
 
 	meMu sync.Mutex
 	me   *apiUser
@@ -72,6 +87,14 @@ func (t *toolset) clock() time.Time {
 		return t.now()
 	}
 	return time.Now()
+}
+
+// marked applies Options.Mark to non-empty text the client writes.
+func (t *toolset) marked(text string) string {
+	if t.mark == nil || text == "" {
+		return text
+	}
+	return t.mark(text)
 }
 
 // currentUser returns the authenticated user, cached after the first call.

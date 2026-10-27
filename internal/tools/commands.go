@@ -94,7 +94,7 @@ func (t *toolset) applyCommand(ctx context.Context, in applyCommandIn) (any, err
 
 	apply := map[string]any{"query": in.Command, "issues": issues, "silent": in.Silent}
 	if in.Comment != "" {
-		apply["comment"] = in.Comment
+		apply["comment"] = t.marked(in.Comment)
 	}
 	if err := t.yt.Post(ctx, "commands", nil, apply, nil); err != nil {
 		return nil, err

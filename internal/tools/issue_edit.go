@@ -99,7 +99,7 @@ func (t *toolset) createIssue(ctx context.Context, in createIssueIn) (any, error
 		"summary": in.Summary,
 	}
 	if in.Description != "" {
-		body["description"] = in.Description
+		body["description"] = t.marked(in.Description)
 	}
 	if len(in.CustomFields) > 0 {
 		fields, err := t.customFieldsFor(ctx, p, in.CustomFields)
@@ -158,7 +158,7 @@ func (t *toolset) updateIssue(ctx context.Context, in updateIssueIn) (any, error
 		changed = append(changed, "summary")
 	}
 	if in.Description != nil {
-		body["description"] = *in.Description
+		body["description"] = t.marked(*in.Description)
 		changed = append(changed, "description")
 	}
 	if len(in.CustomFields) > 0 {
