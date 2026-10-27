@@ -383,31 +383,3 @@ func (r *Runner) event(ctx context.Context, runID int64, kind string, data any) 
 		r.log.Warn("recording an event failed", "kind", kind, "err", err)
 	}
 }
-
-// errFinal is returned by updateRun for a run that already ended.
-var errFinal = errors.New("the run has ended")
-
-// updateRun reads the run, applies fn and saves it in one transaction. It
-// returns errFinal, without calling fn, when the run has a final status,
-// so a run canceled from the CLI is never revived by a stale copy.
-func (r *Runner) updateRun(ctx context.Context, id int64, fn func(run *store.Run)) (store.Run, error) {
-	ctx = context.WithoutCancel(ctx)
-	var out store.Run
-	err := r.st.Tx(ctx, func(tx *store.Store) error {
-		run, err := tx.Run(ctx, id)
-		if err != nil {
-			return err
-		}
-		if run.Status.Final() {
-			out = run
-			return errFinal
-		}
-		fn(&run)
-		if err := tx.UpdateRun(ctx, run); err != nil {
-			return err
-		}
-		out, err = tx.Run(ctx, id)
-		return err
-	})
-	return out, err
-}

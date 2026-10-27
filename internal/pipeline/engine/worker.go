@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -65,9 +67,7 @@ type worker struct {
 
 	mu        sync.Mutex
 	turning   bool
-	questions []string        // request_input calls of the running turn
-	approved  map[string]bool // tool titles approved for the run
-	retry     []string        // denied tools a later /approve or /reject is about
+	questions []string // request_input calls of the running turn
 }
 
 // startWorker returns the run's worker, starting it when there is none.
@@ -81,10 +81,9 @@ func (r *Runner) startWorker(run store.Run) *worker {
 	w := &worker{
 		r: r, id: run.ID, number: run.Number, issueID: run.IssueID, issueKey: run.IssueKey,
 		ctx: ctx, cancel: cancel,
-		wake:     make(chan struct{}, 1),
-		intr:     make(chan string, 1),
-		done:     make(chan struct{}),
-		approved: map[string]bool{},
+		wake: make(chan struct{}, 1),
+		intr: make(chan string, 1),
+		done: make(chan struct{}),
 	}
 	w.token = r.mcp.Grant(mcpserver.RunInfo{ID: run.ID, Number: run.Number, Pipeline: r.p.Name, Mention: r.mention()})
 	r.workers[run.ID] = w
@@ -251,8 +250,9 @@ func needsInputBody(reason string) string {
 // applyEnter is set, applies the needsInput stage command. It returns the
 // run as saved.
 func (r *Runner) setNeedsInput(ctx context.Context, runID int64, reason string, applyEnter bool) (store.Run, error) {
-	run, err := r.updateRun(ctx, runID, func(run *store.Run) {
+	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), runID, func(run *store.Run) error {
 		run.Status, run.NeedsInputReason = store.StatusNeedsInput, reason
+		return nil
 	})
 	if err != nil {
 		return run, err
@@ -270,7 +270,7 @@ func (r *Runner) setNeedsInput(ctx context.Context, runID int64, reason string, 
 func (r *Runner) toNeedsInput(ctx context.Context, run store.Run, reason, body string, m *store.Message, applyEnter bool) {
 	saved, err := r.setNeedsInput(ctx, run.ID, reason, applyEnter)
 	if err != nil {
-		if !errors.Is(err, errFinal) {
+		if !errors.Is(err, store.ErrRunFinished) {
 			r.log.Warn("saving needs_input failed", "run", run.Number, "err", err)
 		}
 		return
@@ -342,44 +342,107 @@ func (c callbacks) Report(ctx context.Context, runID int64, body string) error {
 	return nil
 }
 
+// Keys of the run state (store.SetRunState) that hold the permission state
+// of a run, so that it survives a restart of the runner.
+const (
+	stateApproved = "approved_tools"  // JSON list of the tool titles approved for the run
+	statePending  = "pending_approve" // JSON list of the denied tools a later /approve or /reject is about
+)
+
+// bg is the context for bookkeeping that must outlive the worker.
+func (w *worker) bg() context.Context { return context.WithoutCancel(w.ctx) }
+
+// loadList reads a JSON list of strings from the run state.
+func loadList(ctx context.Context, st *store.Store, runID int64, key string) ([]string, error) {
+	v, ok, err := st.RunState(ctx, runID, key)
+	if err != nil || !ok {
+		return nil, err
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(v), &out); err != nil {
+		return nil, fmt.Errorf("decoding state %q of run %d: %w", key, runID, err)
+	}
+	return out, nil
+}
+
+// saveList writes a JSON list of strings to the run state; an empty list
+// deletes the key.
+func saveList(ctx context.Context, st *store.Store, runID int64, key string, list []string) error {
+	if len(list) == 0 {
+		return st.SetRunState(ctx, runID, key, "")
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	return st.SetRunState(ctx, runID, key, string(b))
+}
+
 // approve remembers tools approved for the run.
 func (w *worker) approve(titles []string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, t := range titles {
-		w.approved[t] = true
+	ctx := w.bg()
+	err := w.r.st.Tx(ctx, func(tx *store.Store) error {
+		list, err := loadList(ctx, tx, w.id, stateApproved)
+		if err != nil {
+			return err
+		}
+		for _, t := range titles {
+			if !slices.Contains(list, t) {
+				list = append(list, t)
+			}
+		}
+		slices.Sort(list)
+		return saveList(ctx, tx, w.id, stateApproved, list)
+	})
+	if err != nil {
+		w.r.log.Warn("saving approved tools failed", "run", w.number, "err", err)
 	}
 }
 
 func (w *worker) isApproved(title string) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.approved[title]
+	return slices.Contains(w.approvedTools(), title)
 }
 
+// approvedTools lists the tool titles approved for the run, sorted.
 func (w *worker) approvedTools() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	out := make([]string, 0, len(w.approved))
-	for t := range w.approved {
-		out = append(out, t)
+	list, err := loadList(w.bg(), w.r.st, w.id, stateApproved)
+	if err != nil {
+		w.r.log.Warn("reading approved tools failed", "run", w.number, "err", err)
 	}
-	slices.Sort(out)
-	return out
+	slices.Sort(list)
+	return list
 }
 
 // setRetry records the denied tools a later /approve or /reject is about.
 func (w *worker) setRetry(titles []string) {
 	w.mu.Lock()
-	w.retry = slices.Clone(titles)
-	w.mu.Unlock()
+	defer w.mu.Unlock()
+	if err := saveList(w.bg(), w.r.st, w.id, statePending, titles); err != nil {
+		w.r.log.Warn("saving the pending approval failed", "run", w.number, "err", err)
+	}
 }
 
+// takeRetry returns the tools recorded by setRetry and forgets them.
 func (w *worker) takeRetry() []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	out := w.retry
-	w.retry = nil
+	ctx := w.bg()
+	var out []string
+	err := w.r.st.Tx(ctx, func(tx *store.Store) error {
+		var err error
+		if out, err = loadList(ctx, tx, w.id, statePending); err != nil {
+			return err
+		}
+		return saveList(ctx, tx, w.id, statePending, nil)
+	})
+	if err != nil {
+		w.r.log.Warn("reading the pending approval failed", "run", w.number, "err", err)
+		return nil
+	}
 	return out
 }
 

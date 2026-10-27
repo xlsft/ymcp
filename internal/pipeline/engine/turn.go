@@ -124,8 +124,9 @@ func (t *turn) run1(answer string) string {
 			r.event(t.bg, run.ID, "stage.command", map[string]string{"stage": stageWorking, "command": st.Enter})
 		}
 	}
-	saved, err := r.updateRun(t.bg, run.ID, func(run *store.Run) {
+	saved, err := r.st.ModifyRun(t.bg, run.ID, func(run *store.Run) error {
 		run.Status, run.Stage, run.NeedsInputReason = store.StatusWorking, stageWorking, ""
+		return nil
 	})
 	if err != nil {
 		t.end("run ended")
@@ -223,7 +224,7 @@ func (t *turn) prepareWorkspace() error {
 		return fmt.Errorf("workspace.commitPrefix: %w", err)
 	}
 	if w.wt.Path == "" {
-		email, err := gitUserEmail(t.ctx, r.host, r.p.Workspace.Dir)
+		email, err := workspace.UserEmail(t.ctx, r.host, r.p.Workspace.Dir)
 		if err != nil {
 			return err
 		}
@@ -237,8 +238,9 @@ func (t *turn) prepareWorkspace() error {
 			return err
 		}
 		w.wt = wt
-		saved, err := r.updateRun(t.bg, run.ID, func(run *store.Run) {
+		saved, err := r.st.ModifyRun(t.bg, run.ID, func(run *store.Run) error {
 			run.Worktree, run.Branch, run.Base, run.Host = wt.Path, wt.Branch, wt.Base, r.host.Name()
+			return nil
 		})
 		if err == nil {
 			t.run = saved
@@ -252,17 +254,6 @@ func (t *turn) prepareWorkspace() error {
 	t.vars["base"] = w.wt.Base
 	t.vars["commit.prefix"] = prefix
 	return nil
-}
-
-// gitUserEmail reads user.email of the repository, the base of the agent's
-// commit address.
-func gitUserEmail(ctx context.Context, h workspace.Host, dir string) (string, error) {
-	out, _, err := h.Run(ctx, dir, []string{"git", "config", "user.email"}, nil)
-	email := strings.TrimSpace(string(out))
-	if err != nil || email == "" {
-		return "", fmt.Errorf("git user.email is not set in %s: the agent's commit address is derived from it", dir)
-	}
-	return email, nil
 }
 
 // prompts renders the turn's prompt and the system prompt.
@@ -372,7 +363,10 @@ func (t *turn) saveSession(id string) {
 	if id == "" || id == t.run.AgentSession {
 		return
 	}
-	saved, err := t.r.updateRun(t.bg, t.run.ID, func(run *store.Run) { run.AgentSession = id })
+	saved, err := t.r.st.ModifyRun(t.bg, t.run.ID, func(run *store.Run) error {
+		run.AgentSession = id
+		return nil
+	})
 	if err == nil {
 		t.run = saved
 	}
@@ -682,8 +676,9 @@ func (t *turn) closePermission() {
 	if st := r.p.Stages.Working; st.On() && st.Enter != "" {
 		r.applyStage(t.bg, t.run, stageWorking, st.Enter)
 	}
-	saved, err := r.updateRun(t.bg, t.run.ID, func(run *store.Run) {
+	saved, err := r.st.ModifyRun(t.bg, t.run.ID, func(run *store.Run) error {
 		run.Status, run.NeedsInputReason = store.StatusWorking, ""
+		return nil
 	})
 	if err == nil {
 		t.run = saved
@@ -928,8 +923,9 @@ func (t *turn) publishAnswer(answer string, extra error) {
 // refused command puts it into needs_input.
 func (t *turn) toReview() {
 	r := t.r
-	saved, err := r.updateRun(t.bg, t.run.ID, func(run *store.Run) {
+	saved, err := r.st.ModifyRun(t.bg, t.run.ID, func(run *store.Run) error {
 		run.Status, run.Stage, run.NeedsInputReason = store.StatusReview, stageReview, ""
+		return nil
 	})
 	if err != nil {
 		return

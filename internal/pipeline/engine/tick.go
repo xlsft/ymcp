@@ -117,9 +117,10 @@ func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issu
 // capture moves a new run into the working stage and starts its worker.
 // A working command YouTrack refuses puts the run into needs_input.
 func (r *Runner) capture(ctx context.Context, run store.Run, summary string) {
-	run, err := r.updateRun(ctx, run.ID, func(run *store.Run) {
+	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), run.ID, func(run *store.Run) error {
 		run.Stage, run.Status = stageWorking, store.StatusWorking
 		run.Agent, run.Host = r.p.Agent.Name, r.host.Name()
+		return nil
 	})
 	if err != nil {
 		r.log.Warn("starting a run failed", "issue", run.IssueKey, "err", err)
@@ -243,10 +244,11 @@ func (r *Runner) checkMembership(ctx context.Context, source map[string]ytwatch.
 
 // cancelRun ends a run as canceled and stops its agent; the worktree stays.
 func (r *Runner) cancelRun(ctx context.Context, w *worker, reason string) {
-	run, err := r.updateRun(ctx, w.id, func(run *store.Run) {
+	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), w.id, func(run *store.Run) error {
 		run.Status, run.NeedsInputReason = store.StatusCanceled, reason
+		return nil
 	})
-	if err != nil && !errors.Is(err, errFinal) {
+	if err != nil && !errors.Is(err, store.ErrRunFinished) {
 		r.log.Warn("canceling a run failed", "run", w.number, "err", err)
 		return
 	}
@@ -258,11 +260,12 @@ func (r *Runner) cancelRun(ctx context.Context, w *worker, reason string) {
 // finishRun ends a run whose issue a human moved to the done or closed
 // stage; the worktree is removed unless the pipeline keeps it.
 func (r *Runner) finishRun(ctx context.Context, w *worker, status store.RunStatus, stage string) {
-	run, err := r.updateRun(ctx, w.id, func(run *store.Run) {
+	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), w.id, func(run *store.Run) error {
 		run.Status, run.Stage, run.NeedsInputReason = status, stage, ""
+		return nil
 	})
 	if err != nil {
-		if !errors.Is(err, errFinal) {
+		if !errors.Is(err, store.ErrRunFinished) {
 			r.log.Warn("finishing a run failed", "run", w.number, "err", err)
 		}
 		return

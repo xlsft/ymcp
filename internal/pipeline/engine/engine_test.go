@@ -91,6 +91,8 @@ type harness struct {
 	p      spec.Pipeline
 	// realAgent uses agent.New instead of the fake.
 	realAgent bool
+	// now, when set, is the engine's clock (Options.Now) and the store's.
+	now func() time.Time
 
 	cancel context.CancelFunc
 	done   chan error
@@ -141,6 +143,10 @@ func (h *harness) options() Options {
 		Connect: func(context.Context, string, *slog.Logger) (*youtrack.Client, config.Config, error) {
 			return h.yt.client(h.t), config.Config{Name: "test"}, nil
 		},
+	}
+	if h.now != nil {
+		o.Now = h.now
+		h.st.SetClock(h.now)
 	}
 	if !h.realAgent {
 		o.NewAgent = func(spec.Agent, *slog.Logger) (agent.Agent, error) { return h.ag, nil }
@@ -538,6 +544,96 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	}
 	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
 		t.Errorf("prompt = %q", h.ag.promptLog()[1])
+	}
+}
+
+// TestApprovalSurvivesRestart: the denied tools a reply is about and the
+// approved ones are kept in the store, so a restarted runner still knows
+// what /approve means.
+func TestApprovalSurvivesRestart(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Agent = spec.Agent{Provider: "claude", Name: "Claude"} })
+	is := h.yt.addIssue("Build it", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			t.Say("I could not run the build.")
+			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied"}}}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Built.")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Built again.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	h.waitFor("the permission comment", func() bool { return contains(h.yt.agentComments(is.Key), "Reply `/approve`") })
+	if v, ok, err := h.st.RunState(context.Background(), run.ID, statePending); err != nil || !ok || !strings.Contains(v, "Bash") {
+		t.Fatalf("pending state = %q, %v, %v", v, ok, err)
+	}
+	h.stop()
+
+	// A new runner, a new process as far as memory goes.
+	h.start()
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	if v, _, _ := h.st.RunState(context.Background(), run.ID, statePending); v != "" {
+		t.Errorf("pending state after the answer = %q", v)
+	}
+	if v, ok, _ := h.st.RunState(context.Background(), run.ID, stateApproved); !ok || !strings.Contains(v, "Bash") {
+		t.Errorf("approved state = %q, %v", v, ok)
+	}
+	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
+		t.Errorf("prompt = %q", h.ag.promptLog()[1])
+	}
+	h.stop()
+
+	// The approval outlives another restart: the next turn allows Bash from the start.
+	h.start()
+	h.yt.addComment(is.Key, "alice", "Once more")
+	h.waitInvocations(run.ID, 3)
+	h.waitReview(1, is.Key)
+	starts := h.ag.startLog()
+	if len(starts) != 3 || !slices.Contains(starts[1].AllowedTools, "Bash") || !slices.Contains(starts[2].AllowedTools, "Bash") {
+		t.Errorf("allowed tools: %+v", starts)
+	}
+}
+
+// TestFakeClockStampsStore: with a fake clock set on both the engine and
+// the store, what the store writes follows it, inbox items included.
+func TestFakeClockStampsStore(t *testing.T) {
+	// An hour behind the real time: comments carry YouTrack's own (here real)
+	// timestamps, and one written before a run's CreatedAt is not feedback.
+	began := time.Now()
+	base := began.Add(-time.Hour)
+	early := began.Add(-30 * time.Minute)
+	// The debounce is long, so the feedback stays in the inbox to be looked at.
+	h := newHarness(t, func(p *spec.Pipeline) { p.Feedback.Debounce = dur(time.Hour) })
+	h.now = func() time.Time { return base.Add(time.Since(began)) }
+	is := h.yt.addIssue("Clocked", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	if !run.CreatedAt.Before(early) || !run.UpdatedAt.Before(early) {
+		t.Errorf("run times = %v / %v", run.CreatedAt, run.UpdatedAt)
+	}
+	h.yt.addComment(is.Key, "alice", "More please")
+	var items []store.InboxItem
+	h.waitFor("the inbox item", func() bool {
+		items, _ = h.st.PendingInbox(context.Background(), run.ID)
+		return len(items) == 1
+	})
+	if !items[0].CreatedAt.Before(early) {
+		t.Errorf("inbox item created at %v, want the fake clock (before %v)", items[0].CreatedAt, early)
+	}
+	for _, e := range h.events(run.ID, "") {
+		if !e.At.Before(early) {
+			t.Errorf("event %s at %v", e.Kind, e.At)
+		}
 	}
 }
 
