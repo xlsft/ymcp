@@ -32,8 +32,11 @@ const cancelGrace = 10 * time.Second
 // drainTimeout bounds waiting for the events of a closed session.
 const drainTimeout = 5 * time.Second
 
-// The pipeline tools every agent may call.
-var pipelineTools = []string{"mcp__ymcp__request_input", "mcp__ymcp__report"}
+// The tools every agent may call: the whole ymcp MCP server, so the
+// YouTrack tools the prompts point to (get_issue, get_issue_comments, …)
+// work next to request_input and report. Only claude reads this list (as
+// --allowedTools); ACP agents ask through permission requests.
+var pipelineTools = []string{"mcp__ymcp"}
 
 // turn is one agent turn of a run.
 type turn struct {

@@ -330,7 +330,7 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	if len(s0.MCP) != 1 || s0.MCP[0].Name != "ymcp" || !strings.HasSuffix(s0.MCP[0].URL, "/test") || !strings.HasPrefix(s0.MCP[0].Headers["Authorization"], "Bearer ") {
 		t.Errorf("MCP = %+v", s0.MCP)
 	}
-	if !slices.Contains(s0.AllowedTools, "mcp__ymcp__request_input") || s0.Dir != run.Worktree || s0.SessionID != "" {
+	if !slices.Equal(s0.AllowedTools, []string{"mcp__ymcp"}) || s0.Dir != run.Worktree || s0.SessionID != "" {
 		t.Errorf("start options = %+v", s0)
 	}
 	// Comments: the report and the placeholder edited into the answer.
@@ -548,7 +548,7 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	h.waitInvocations(run.ID, 2)
 	h.waitReview(1, is.Key)
 	starts := h.ag.startLog()
-	if len(starts) != 2 || !slices.Contains(starts[1].AllowedTools, "Bash") || slices.Contains(starts[0].AllowedTools, "Bash") {
+	if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash"}) || !slices.Equal(starts[0].AllowedTools, []string{"mcp__ymcp"}) {
 		t.Errorf("allowed tools: %q / %q", starts[0].AllowedTools, starts[len(starts)-1].AllowedTools)
 	}
 	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
