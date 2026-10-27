@@ -226,10 +226,28 @@ func (w *worker) step() {
 // its placeholder says so and the run waits for a human.
 func (r *Runner) interrupted(ctx context.Context, run store.Run) {
 	const reason = "The runner stopped while the agent was working, so this turn did not finish."
+	r.markInterrupted(ctx, run.ID)
 	m := r.finalizeThinking(ctx, run)
 	onChange := r.finalizeVCSThinking(ctx, run, needsInputBody(reason))
 	r.needsInput(ctx, NotifyNeedsInput, run, reason, needsInputBody(reason), m, true, !onChange)
 }
+
+// stateInterrupted is the run state key set when a turn was stopped before
+// it finished; the reply that continues the run then gets the resume
+// prompt, not the one for an answer to a question.
+const stateInterrupted = "interrupted_turn"
+
+// markInterrupted records that the run's last turn did not finish.
+func (r *Runner) markInterrupted(ctx context.Context, runID int64) {
+	if err := r.st.SetRunState(context.WithoutCancel(ctx), runID, stateInterrupted, "1"); err != nil {
+		r.log.Warn("recording an interrupted turn failed", "run", runID, "err", err)
+	}
+}
+
+// resumePrompt continues a run whose last turn did not finish with the
+// human's reply.
+const resumePrompt = "Your previous turn on {{issue.id}} was interrupted before it finished. Continue where you left off; " +
+	"look at the worktree first, as the turn may have left changes behind.\n\nThe human said:\n\n{{answer}}"
 
 // finalizeThinking marks placeholders left over from an unfinished turn;
 // it returns the newest one so the caller can reuse it.

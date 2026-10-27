@@ -1450,6 +1450,15 @@ func TestRestartDuringTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitReview(1, is.Key)
+	// Nobody asked a question: the reply resumes the cut-short turn.
+	p := h.ag.promptLog()[1]
+	if !strings.Contains(p, "Your previous turn on "+is.Key+" was interrupted") || !strings.Contains(p, "go on") || strings.Contains(p, "Reply to your question") {
+		t.Errorf("prompt = %q", p)
+	}
+	// It is said once: the next answer is an answer again.
+	if v, _, _ := h.st.RunState(context.Background(), run.ID, stateInterrupted); v != "" {
+		t.Errorf("interrupted state = %q", v)
+	}
 }
 
 func TestNoResumeStartsNewSessionWithRecap(t *testing.T) {

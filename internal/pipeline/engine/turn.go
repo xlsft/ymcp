@@ -343,7 +343,15 @@ func (t *turn) prompts(answer string) (prompt, system string, err error) {
 			answer = t.answerText(t.items[0].Body)
 		}
 		t.vars["answer"] = answer
-		prompt, err = text.Render(r.prompts.Answer, t.vars)
+		tmpl := r.prompts.Answer
+		if v, ok, _ := r.st.RunState(t.bg, t.run.ID, stateInterrupted); ok && v != "" {
+			// Nobody asked anything: the last turn was cut short.
+			tmpl = resumePrompt
+			if err := r.st.SetRunState(t.bg, t.run.ID, stateInterrupted, ""); err != nil {
+				r.log.Warn("clearing the interrupted turn failed", "run", t.run.Number, "err", err)
+			}
+		}
+		prompt, err = text.Render(tmpl, t.vars)
 	default:
 		prompt, err = text.Render(r.prompts.Start, t.vars)
 	}
@@ -895,6 +903,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 	case causeShutdown, causeCanceled:
 		return t.stopped(cause)
 	case causePaused:
+		r.markInterrupted(t.bg, t.run.ID)
 		t.end("paused")
 		t.needsInput(NotifyNeedsInput, t.pauseReason, needsInputBody(t.pauseReason), false)
 		return ""
@@ -912,6 +921,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		if _, err := t.commitAndPush(answer); err != nil {
 			reason += "\n\n" + capitalize(err.Error())
 		}
+		r.markInterrupted(t.bg, t.run.ID)
 		return t.fail("timeout: "+cause, reason)
 	}
 	if perr != nil {
