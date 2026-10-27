@@ -240,7 +240,14 @@ func normalizeDir(host, dir string) string {
 // pathSuggest completes local directories; git repositories are marked.
 func pathSuggest(text string, _ int) func(context.Context) ([]Suggestion, error) {
 	return func(context.Context) ([]Suggestion, error) {
-		expanded := expandHome(text)
+		base := text
+		if base == "~" { // the home directory itself: list what is in it
+			base = "~" + string(filepath.Separator)
+		}
+		expanded := expandHome(base)
+		if strings.HasSuffix(base, string(filepath.Separator)) && !strings.HasSuffix(expanded, string(filepath.Separator)) {
+			expanded += string(filepath.Separator) // Join drops it: keep listing inside
+		}
 		dir, prefix := filepath.Split(expanded)
 		if dir == "" {
 			dir = "."
@@ -249,7 +256,9 @@ func pathSuggest(text string, _ int) func(context.Context) ([]Suggestion, error)
 		if err != nil {
 			return nil, nil
 		}
-		keep := text[:len(text)-len(prefix)]
+		// What the user typed before the last element; prefix comes from
+		// the expanded path, so trim rather than slice by its length.
+		keep := strings.TrimSuffix(base, prefix)
 		var out []Suggestion
 		for _, e := range entries {
 			name := e.Name()
