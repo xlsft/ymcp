@@ -128,7 +128,9 @@ func TestACPPermissionRoundTrip(t *testing.T) {
 
 	e := s.wait(t, EventPermission, nil)
 	p := e.Permission
-	if p.RequestID == "" || p.Tool.Title != "Bash" || p.Tool.Kind != "execute" || !strings.Contains(string(p.Tool.Input), "git status") {
+	// Kind is left out: the SDK may deliver the request before the tool_call
+	// update that carries it, and kimi doesn't send one at all.
+	if p.RequestID == "" || p.Tool.Title != "Bash" || !strings.Contains(string(p.Tool.Input), "git status") {
 		t.Errorf("permission = %+v", p)
 	}
 	if len(p.Options) != 3 || p.Options[0] != (Option{ID: "approve_once", Name: "Approve once", Kind: "allow_once"}) || p.Options[2].Kind != "reject_once" {
