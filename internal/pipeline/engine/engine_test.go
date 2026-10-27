@@ -387,7 +387,7 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	}
 	// Comments: the report and the placeholder edited into the answer.
 	agentSaid := h.yt.agentComments(is.Key)
-	if !contains(agentSaid, "Halfway there") || !contains(agentSaid, "Fixed the login page.") || contains(agentSaid, "Working...") {
+	if !contains(agentSaid, "Halfway there") || !contains(agentSaid, "Fixed the login page.") || contains(agentSaid, "working.gif") {
 		t.Errorf("agent comments = %q", agentSaid)
 	}
 	if all := h.yt.issueComments(is.Key); !contains(all, "@alice's agent #1 (backend)") {
@@ -499,7 +499,7 @@ func TestRequestInputThenCLIAnswer(t *testing.T) {
 	}
 	h.waitFor("the question", func() bool {
 		said := h.yt.agentComments(is.Key)
-		return contains(said, "Postgres or SQLite? I recommend SQLite.") && !contains(said, "Working...")
+		return contains(said, "Postgres or SQLite? I recommend SQLite.") && !contains(said, "working.gif")
 	})
 
 	if err := Answer(context.Background(), h.st, h.p.Name, 1, "use SQLite"); err != nil {
@@ -1443,7 +1443,7 @@ func TestRestartDuringTurn(t *testing.T) {
 		t.Errorf("reason = %q", run.NeedsInputReason)
 	}
 	h.waitFor("the placeholder edit", func() bool { return contains(h.yt.agentComments(is.Key), "runner stopped") })
-	if contains(h.yt.agentComments(is.Key), "Working...") {
+	if contains(h.yt.agentComments(is.Key), "working.gif") {
 		t.Errorf("a placeholder was left: %q", h.yt.agentComments(is.Key))
 	}
 	if err := Answer(context.Background(), h.st, h.p.Name, 1, "go on"); err != nil {

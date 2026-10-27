@@ -495,3 +495,22 @@ func TestDump(t *testing.T) {
 		write(fmt.Sprintf("run-slash-%dx%d.txt", w, h), perm.m.(*Run).Overlay(board.m.View()))
 	}
 }
+
+func TestIsWorking(t *testing.T) {
+	old := "![](https://raw.githubusercontent.com/xlsft/ymcp/main/docs/working.gif) Working..."
+	for _, tc := range []struct {
+		body string
+		want bool
+	}{
+		{text.Working, true},
+		{old, true},
+		{"  " + text.Working + "\n", true},
+		{"Done. " + text.Working, false},
+		{"Working...", false},
+		{"Fixed it.", false},
+	} {
+		if got := isWorking(tc.body); got != tc.want {
+			t.Errorf("isWorking(%q) = %v, want %v", tc.body, got, tc.want)
+		}
+	}
+}

@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// Working is the placeholder comment an agent posts while it works, with
-// the animated ymcp loader in front; the answer later replaces it in place.
-const Working = "![](https://raw.githubusercontent.com/xlsft/ymcp/main/docs/working.gif) Working..."
+// Working is the placeholder comment an agent posts while it works: the
+// animated ymcp loader alone. The answer later replaces it in place.
+const Working = "![](https://raw.githubusercontent.com/xlsft/ymcp/main/docs/working.gif)"
 
 // Mark identifies a message written by an agent run.
 type Mark struct {

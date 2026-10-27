@@ -39,13 +39,15 @@ func agentHeader(raw, author string) (label, body string, ok bool) {
 	return text.Prefix(mention, mk), text.StripHeader(raw), true
 }
 
-// isWorking reports whether an agent's message is the Working… placeholder.
+// isWorking reports whether an agent's message is the working placeholder:
+// the loader alone, or the loader with "Working..." as older runs wrote it.
 func isWorking(body string) bool {
 	b := strings.TrimSpace(body)
 	if b == text.Working {
 		return true
 	}
-	return strings.TrimSpace(mdImage.ReplaceAllString(b, "")) == "Working..." && strings.Contains(b, "working.gif")
+	rest := strings.TrimSpace(mdImage.ReplaceAllString(b, ""))
+	return (rest == "" || rest == "Working...") && strings.Contains(b, "working.gif")
 }
 
 func issueItem(c IssueComment) threadItem {

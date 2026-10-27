@@ -86,7 +86,7 @@ func TestDecorateIdempotentAndReplaces(t *testing.T) {
 		if n := strings.Count(once, "ymcp:agent"); n != 1 {
 			t.Errorf("%d markers in %q", n, once)
 		}
-		// Replacing "Working..." by the answer keeps one header, with the new one.
+		// Replacing the loader by the answer keeps one header, with the new one.
 		re := Decorate(once, "@someone", other)
 		if n := strings.Count(re, "ymcp:agent"); n != 1 {
 			t.Errorf("%d markers after redecorate: %q", n, re)

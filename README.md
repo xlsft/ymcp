@@ -269,7 +269,7 @@ Done: branch BE-123-fix-login, PR https://github.com/acme/api/pull/42
 
 The marker is an HTML comment, so YouTrack, GitHub and GitLab don't show it; ymcp uses it to tell the agent's
 messages from yours. The header names whose agent it is, the run and the pipeline. When the agent starts on a
-message, ymcp replies right away with an animated ymcp logo and `Working...`, and later edits that comment into the
+message, ymcp replies right away with an animated ymcp logo, and later edits that comment into the
 answer, or into the reason the run stopped.
 
 ### Feedback and needs input
