@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +109,8 @@ type harness struct {
 	notes *notes
 	// host, when set, is Options.Host.
 	host workspace.Host
+	// logs has every log line of the runners.
+	logs *logLines
 
 	cancel context.CancelFunc
 	done   chan error
@@ -137,7 +141,7 @@ func newHarness(t *testing.T, mod func(p *spec.Pipeline)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, yt: newFakeYT(t), ag: &fakeAgent{}, st: st, repo: repo, origin: origin, p: testPipeline(repo), notes: &notes{}}
+	h := &harness{t: t, yt: newFakeYT(t), ag: &fakeAgent{}, st: st, repo: repo, origin: origin, p: testPipeline(repo), notes: &notes{}, logs: &logLines{}}
 	if mod != nil {
 		mod(&h.p)
 	}
@@ -152,7 +156,7 @@ func (h *harness) options() Options {
 	o := Options{
 		Pipeline: h.p,
 		Store:    h.st,
-		Logger:   slog.New(slog.NewTextHandler(testWriter{h.t}, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Logger:   slog.New(slog.NewTextHandler(io.MultiWriter(testWriter{h.t}, h.logs), &slog.HandlerOptions{Level: slog.LevelDebug})),
 		Version:  "test",
 		Connect: func(context.Context, string, *slog.Logger) (*youtrack.Client, config.Config, error) {
 			return h.yt.client(h.t), config.Config{Name: "test"}, nil
@@ -173,6 +177,36 @@ func (h *harness) options() Options {
 	}
 	o.Notify = h.notes.add
 	return o
+}
+
+// logLines keeps log lines for the test to look at.
+type logLines struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *logLines) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, strings.Split(strings.TrimRight(string(p), "\n"), "\n")...)
+	return len(p), nil
+}
+
+// matching returns the lines that contain every one of subs.
+func (l *logLines) matching(subs ...string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []string
+	for _, line := range l.lines {
+		ok := true
+		for _, s := range subs {
+			ok = ok && strings.Contains(line, s)
+		}
+		if ok {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // testWriter sends log lines to t.Log while the test runs.
@@ -1189,6 +1223,63 @@ func TestDeletedIssueCancels(t *testing.T) {
 	run := h.waitStatus(1, store.StatusCanceled)
 	if !strings.Contains(run.NeedsInputReason, "deleted") {
 		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+}
+
+// TestDeletedIssueDuringTurnIsQuiet: the placeholder of an issue deleted
+// during a turn can't be edited; that is no warning.
+func TestDeletedIssueDuringTurnIsQuiet(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Doomed", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.Hang()
+		return agent.Result{}
+	})
+	h.start()
+	h.waitFor("the turn", func() bool { return len(h.ag.promptLog()) == 1 })
+	h.waitFor("In Progress", func() bool { return h.yt.state(is.Key) == "In Progress" })
+	h.yt.deleteIssue(is.Key)
+	run := h.waitStatus(1, store.StatusCanceled)
+	h.waitInvocations(run.ID, 1)
+	h.waitFor("the placeholder edit", func() bool { return len(h.logs.matching("placeholder failed")) > 0 })
+	if warns := h.logs.matching("level=WARN", "placeholder"); len(warns) != 0 {
+		t.Errorf("warnings: %q", warns)
+	}
+}
+
+// TestIssueOfAnotherPipelineIsLoggedOnce: an issue of the source that
+// another pipeline's run has is not captured, and the log says so once.
+func TestIssueOfAnotherPipelineIsLoggedOnce(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Taken", "Open")
+	if _, err := h.st.CreateRun(context.Background(), "frontend", "test", is.ID, is.Key); err != nil {
+		t.Fatal(err)
+	}
+	h.start()
+	h.waitFor("the log line", func() bool { return len(h.logs.matching("another pipeline's run has", is.Key)) > 0 })
+	time.Sleep(200 * time.Millisecond) // a few more polls
+	if n := len(h.logs.matching("another pipeline's run has")); n != 1 {
+		t.Errorf("logged %d times", n)
+	}
+	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 0 {
+		t.Errorf("captured: %+v", runs)
+	}
+}
+
+// TestEveryPromptHasTheLanguageRule: feedback and answer turns repeat the
+// pipeline's language rule, not only the first prompt.
+func TestEveryPromptHasTheLanguageRule(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Language = "Russian" })
+	is := h.yt.addIssue("Speak Russian", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.yt.addComment(is.Key, "alice", "One more thing")
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	for i, p := range h.ag.promptLog() {
+		if !strings.Contains(p, "questions) in Russian;") {
+			t.Errorf("prompt %d lacks the language rule: %q", i, p)
+		}
 	}
 }
 

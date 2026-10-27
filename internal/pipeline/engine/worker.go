@@ -246,7 +246,7 @@ func (r *Runner) finalizeThinking(ctx context.Context, run store.Run) *store.Mes
 		}
 		if last != nil {
 			if _, err := r.publish(ctx, run, last, msgAnswer, stateFailed, "This turn did not finish."); err != nil {
-				r.log.Warn("editing a placeholder failed", "run", run.Number, "err", err)
+				r.warnUnlessGone("editing a placeholder failed", run, err)
 			}
 		}
 		last = &m

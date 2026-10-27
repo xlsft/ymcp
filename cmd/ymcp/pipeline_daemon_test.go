@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -359,5 +360,13 @@ func TestPipelineRunnerLogMissing(t *testing.T) {
 	}
 	if _, err := pipelineOut(t, "api", "logs", "1", "2"); err == nil {
 		t.Error("two run numbers worked")
+	}
+}
+
+func TestDaemonEnvironDropsMallocDebugging(t *testing.T) {
+	in := []string{"PATH=/bin", "MallocStackLogging=1", "MallocStackLoggingNoCompact=1", "HOME=/h", "MY_MallocStackLogging=x"}
+	got := daemonEnviron(in)
+	if want := []string{"PATH=/bin", "HOME=/h", "MY_MallocStackLogging=x"}; !slices.Equal(got, want) {
+		t.Errorf("daemonEnviron = %q, want %q", got, want)
 	}
 }

@@ -184,7 +184,7 @@ func (t *turn) run1(answer string) string {
 		}
 	} else if leftover != nil {
 		if _, err := r.publish(t.bg, run, leftover, msgAnswer, stateFailed, "This turn did not finish."); err != nil {
-			r.log.Warn("editing a placeholder failed", "run", run.Number, "err", err)
+			r.warnUnlessGone("editing a placeholder failed", run, err)
 		}
 	}
 	t.openVCSPlaceholders()
@@ -350,6 +350,13 @@ func (t *turn) prompts(answer string) (prompt, system string, err error) {
 	if err != nil {
 		return "", "", err
 	}
+	// Every turn repeats the language rule: a session's first prompt alone
+	// does not keep later answers in the pipeline's language.
+	rule, err := text.Render(spec.LanguageRule, t.vars)
+	if err != nil {
+		return "", "", err
+	}
+	prompt = strings.TrimRight(prompt, "\n") + "\n\n" + rule
 	tmpl := spec.LanguageRule
 	if r.p.ServiceEnabled() {
 		tmpl = spec.ServiceInstruction
@@ -871,7 +878,7 @@ func (t *turn) stopped(cause string) string {
 		}
 		if t.placeholder != nil {
 			if _, err := t.r.publish(t.bg, t.run, t.placeholder, msgAnswer, stateFailed, body); err != nil {
-				t.r.log.Warn("editing the placeholder failed", "run", t.run.Number, "err", err)
+				t.r.warnUnlessGone("editing the placeholder failed", t.run, err)
 			}
 		}
 		t.finishVCS(stateFailed, body)

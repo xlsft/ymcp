@@ -75,6 +75,11 @@ func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issu
 			delete(r.suppressed, id)
 		}
 	}
+	for id := range r.held {
+		if _, in := source[id]; !in {
+			delete(r.held, id)
+		}
+	}
 
 	active, err := r.st.Runs(ctx, r.p.Name, true)
 	if err != nil {
@@ -99,7 +104,13 @@ func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issu
 		}
 		run, err := r.st.CreateRun(ctx, r.p.Name, r.profile, is.ID, is.Key)
 		if errors.Is(err, store.ErrActiveRun) {
-			continue // another pipeline of the profile has it
+			// Another pipeline of the profile has it; said once while it
+			// stays in the source.
+			if !r.held[is.ID] {
+				r.held[is.ID] = true
+				r.log.Info("not capturing an issue another pipeline's run has", "issue", is.Key)
+			}
+			continue
 		}
 		if err != nil {
 			r.log.Warn("creating a run failed", "issue", is.Key, "err", err)

@@ -120,6 +120,7 @@ type Runner struct {
 
 	// Touched only by the polling loop.
 	suppressed map[string]bool     // issue ids not captured again while they stay in the source
+	held       map[string]bool     // issue ids of the source another pipeline's run has, logged once
 	vcsWait    map[int64]time.Time // runs whose change is not polled until then (rate limits)
 }
 
@@ -210,6 +211,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		now:        opts.Now,
 		workers:    map[int64]*worker{},
 		suppressed: map[string]bool{},
+		held:       map[string]bool{},
 	}, nil
 }
 

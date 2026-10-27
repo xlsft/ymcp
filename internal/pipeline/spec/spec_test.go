@@ -435,6 +435,10 @@ func TestPresets(t *testing.T) {
 		if !strings.Contains(p.Feedback, "{{feedback}}") {
 			t.Errorf("preset %s feedback lacks {{feedback}}", p.Name)
 		}
+		// Agents echoed "[2] and [3]" in their prose.
+		if !strings.Contains(p.Feedback, "don't refer to item numbers in the text of a reply") {
+			t.Errorf("preset %s feedback lets the agent cite item numbers", p.Name)
+		}
 		for _, s := range []string{p.Start, p.Feedback, p.Answer} {
 			if strings.Count(s, "{{") != strings.Count(s, "}}") {
 				t.Errorf("preset %s has unbalanced braces", p.Name)

@@ -70,6 +70,17 @@ func isNotFound(err error) bool {
 	return errors.As(err, &ye) && ye.Status == http.StatusNotFound
 }
 
+// warnUnlessGone logs a failed write of a run's message as a warning, or
+// quietly at debug level when YouTrack answered 404: the issue was deleted,
+// which the run learns about on its own.
+func (r *Runner) warnUnlessGone(msg string, run store.Run, err error) {
+	if isNotFound(err) {
+		r.log.Debug(msg, "run", run.Number, "issue", run.IssueKey, "err", err)
+		return
+	}
+	r.log.Warn(msg, "run", run.Number, "err", err)
+}
+
 // publish writes body to YouTrack as a message of the run: it edits the
 // message m when there is one (posting anew when a human deleted it) and
 // posts a new comment otherwise. It records the message with the state and

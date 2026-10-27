@@ -151,7 +151,7 @@ func pipelineRunDetached(ctx context.Context, name string, verbose bool) error {
 		return err
 	}
 	cmd := exec.Command(exe, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(daemonEnviron(os.Environ()), env...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, logFile, logFile
 	detachProcess(cmd)
 	if err := cmd.Start(); err != nil {
@@ -184,6 +184,20 @@ func pipelineRunDetached(ctx context.Context, name string, verbose bool) error {
 			}
 		}
 	}
+}
+
+// daemonEnviron is the environment of a detached runner: this process's,
+// without macOS malloc debugging (MallocStackLogging and friends, which a
+// shell or a debugger may have set), which makes every process the runner
+// starts print "MallocStackLogging: …" noise into its output.
+func daemonEnviron(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "MallocStackLogging") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func printRunnerHints(name, logPath string) {
