@@ -282,6 +282,32 @@ func TestGitLabOpenChange(t *testing.T) {
 	}
 }
 
+func TestGitLabClose(t *testing.T) {
+	f := newFakeAPI(t)
+	states := map[string]string{"1": "opened", "2": "closed", "3": "merged"}
+	f.handle("GET "+glProject+"/merge_requests/{iid}", func(w http.ResponseWriter, r *http.Request) {
+		iid, _ := strconv.Atoi(r.PathValue("iid"))
+		writeJSON(w, r, 200, map[string]any{"iid": iid, "state": states[r.PathValue("iid")]}, false)
+	})
+	f.handle("PUT "+glProject+"/merge_requests/{iid}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{"iid": 1, "state": "closed"}, false)
+	})
+	l := newGitLab(t, f)
+	ctx := ctxT(t)
+	for _, iid := range []int{1, 2, 3} {
+		if err := l.Close(ctx, iid); err != nil {
+			t.Fatalf("Close(%d): %v", iid, err)
+		}
+	}
+	puts := f.find("PUT", "/api/v4/projects/team/sub/proj/merge_requests/1")
+	if len(puts) != 1 || puts[0].Body["state_event"] != "close" {
+		t.Errorf("closes = %+v", puts)
+	}
+	if n := len(f.find("PUT", "/api/v4/projects/team/sub/proj/merge_requests/2")) + len(f.find("PUT", "/api/v4/projects/team/sub/proj/merge_requests/3")); n != 0 {
+		t.Errorf("%d writes to closed or merged MRs", n)
+	}
+}
+
 func TestParseNoteID(t *testing.T) {
 	if iid, n, ok := parseNoteID("!12#note_345"); !ok || iid != 12 || n != 345 {
 		t.Errorf("parse = %d %d %v", iid, n, ok)

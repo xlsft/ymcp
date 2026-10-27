@@ -333,6 +333,79 @@ func TestMergedChangeEndsRunDone(t *testing.T) {
 
 // TestClosedChangeEndsRunClosed: a change closed without a merge ends the
 // run as closed with the closed command; keepWorktree keeps the worktree.
+// TestCanceledRunClosesItsChange: canceling a run closes its change with a
+// comment that says why, keeps the branch, commits and removes the
+// worktree and takes the needs-input tag off a run that was waiting.
+func TestCanceledRunClosesItsChange(t *testing.T) {
+	for _, how := range []string{"backlog", "cli", "cli while stopped"} {
+		t.Run(how, func(t *testing.T) {
+			h := vcsHarness(t, vcs.KindGitHubPR, func(p *spec.Pipeline) { p.Stages.NeedsInput.Exit = "tag -blocked" })
+			is := h.yt.addIssue("Fix the login page", "Open")
+			h.ag.script(
+				fixTurn("Fixed it."),
+				func(t *fakeTurn) agent.Result {
+					writeFile(t, "wip.go", "package wip\n")
+					if _, err := t.Tool("request_input", map[string]any{"question": "Which way?"}); err != nil {
+						t.Say(err.Error())
+					}
+					return agent.Result{}
+				},
+			)
+			h.start()
+			run := h.waitReview(1, is.Key)
+			h.yt.addComment(is.Key, "alice", "Also the logout page")
+			h.waitInvocations(run.ID, 2)
+			run = h.waitStatus(1, store.StatusNeedsInput)
+			if run.PRNumber != 42 {
+				t.Fatalf("run = %+v", run)
+			}
+			git(t, run.Worktree, "reset", "--soft", "HEAD~1") // uncommitted work in the worktree
+			why := "Canceled from the CLI by "
+			switch how {
+			case "backlog":
+				h.yt.setState(is.Key, "Open")
+				why = "Canceled: the issue was moved back to the backlog."
+			case "cli":
+				if err := Cancel(context.Background(), h.st, h.p.Name, 1); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				h.stop()
+				if err := Cancel(context.Background(), h.st, h.p.Name, 1); err != nil {
+					t.Fatal(err)
+				}
+				h.start()
+			}
+			run = h.waitStatus(1, store.StatusCanceled)
+			h.waitFor("the cleanup", func() bool {
+				v, _, _ := h.st.RunState(context.Background(), run.ID, stateCanceled)
+				return v == ""
+			})
+			if closes := h.vcs.closeLog(); !slices.Equal(closes, []int{42}) {
+				t.Errorf("closes = %v", closes)
+			}
+			var said bool
+			for _, rp := range h.vcs.agentReplies() {
+				if strings.Contains(rp.Body, why) && strings.Contains(rp.Body, "The branch "+run.Branch+" is kept.") {
+					said = true
+				}
+			}
+			if !said {
+				t.Errorf("no %q on the change: %+v", why, h.vcs.agentReplies())
+			}
+			if _, err := os.Stat(run.Worktree); !os.IsNotExist(err) {
+				t.Errorf("the worktree is still there: %v", err)
+			}
+			if files := git(t, h.repo, "show", "--name-only", "--format=%s", run.Branch); !strings.Contains(files, "wip.go") || !strings.Contains(files, "canceled") {
+				t.Errorf("the leftovers were not committed to the branch: %q", files)
+			}
+			if !slices.Contains(h.yt.commandLog(), is.Key+": tag -blocked") {
+				t.Errorf("commands = %q", h.yt.commandLog())
+			}
+		})
+	}
+}
+
 func TestClosedChangeEndsRunClosed(t *testing.T) {
 	h := vcsHarness(t, vcs.KindGitHubPR, func(p *spec.Pipeline) { p.Workspace.KeepWorktree = true })
 	is := h.yt.addIssue("Close me", "Open")

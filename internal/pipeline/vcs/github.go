@@ -285,6 +285,32 @@ func (g *github) Change(ctx context.Context, number int) (Change, error) {
 	return ch, nil
 }
 
+// Close closes an open PR, and for github-issue-pr its open mirror issue
+// as not planned.
+func (g *github) Close(ctx context.Context, number int) error {
+	pr, err := g.pull(ctx, number)
+	if err != nil {
+		return err
+	}
+	ch := g.change(pr)
+	if ch.State == StateOpen {
+		if err := g.write(ctx, http.MethodPatch, g.path("/pulls/"+strconv.Itoa(number)), map[string]string{"state": "closed"}, nil); err != nil {
+			return err
+		}
+	}
+	if ch.Issue > 0 && !ch.Merged {
+		var is ghIssue
+		if err := g.get(ctx, g.path("/issues/"+strconv.Itoa(ch.Issue)), nil, &is); err != nil {
+			return err
+		}
+		if is.State == "open" {
+			return g.write(ctx, http.MethodPatch, g.path("/issues/"+strconv.Itoa(ch.Issue)),
+				map[string]string{"state": "closed", "state_reason": "not_planned"}, nil)
+		}
+	}
+	return nil
+}
+
 // issueFor finds the mirror issue of a PR: from the cursor, the cache, or
 // the PR body.
 func (g *github) issueFor(ctx context.Context, number int, cur Cursor) (int, error) {

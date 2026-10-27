@@ -122,7 +122,7 @@ func (t *turn) needsInput(kind, reason, body string, applyEnter bool) {
 func (t *turn) gone() string {
 	t.end("issue deleted")
 	if w := t.w; w != nil {
-		t.r.cancelRun(t.bg, w, "The issue was deleted.")
+		t.r.cancelRun(t.bg, w, reasonDeleted, "Canceled: the issue was deleted.")
 	}
 	return ""
 }
@@ -263,7 +263,9 @@ func (t *turn) prepareWorkspace() error {
 		if err != nil {
 			return fmt.Errorf("workspace.branch: %w", err)
 		}
-		branch = b
+		if branch, err = r.freshBranch(t.ctx, run, b); err != nil {
+			return err
+		}
 	}
 	prefix, err := text.Render(r.p.Workspace.CommitPrefix, t.vars)
 	if err != nil {

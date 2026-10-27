@@ -734,6 +734,34 @@ func TestForcePushWithLease(t *testing.T) {
 	}
 }
 
+func TestCheckedOut(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := Local()
+	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != "" {
+		t.Errorf("before = %q, %v", p, err)
+	}
+	wt, err := Create(ctx, h, f.repo, filepath.Join(t.TempDir(), "other-pipeline"), "BE-13", "", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != wt.Path {
+		t.Errorf("CheckedOut = %q, %v; want %q", p, err, wt.Path)
+	}
+	if p, _ := CheckedOut(ctx, h, f.repo, "main"); realPath(t, p) != realPath(t, f.repo) {
+		t.Errorf("main is checked out at %q", p)
+	}
+	if err := Remove(ctx, h, f.repo, wt); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != "" {
+		t.Errorf("after removal = %q, %v", p, err)
+	}
+	if _, err := CheckedOut(ctx, h, t.TempDir(), "x"); err == nil {
+		t.Error("not a repository: no error")
+	}
+}
+
 func TestRemove(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

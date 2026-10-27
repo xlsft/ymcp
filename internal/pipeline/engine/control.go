@@ -44,8 +44,10 @@ func Answer(ctx context.Context, st *store.Store, pipeline string, run int, text
 	return st.AddEvent(ctx, r.ID, "inbox", map[string]string{"source": sourceCLI, "author": author, "text": trimText(text, 500)})
 }
 
-// Cancel marks the run canceled. A live runner notices on its next poll,
-// stops the agent and keeps the worktree.
+// Cancel marks the run canceled. A live runner notices on its next poll
+// (otherwise the next runner, when it starts), stops the agent, closes the
+// run's pull or merge request and removes its worktree unless the pipeline
+// keeps worktrees; the branch stays.
 func Cancel(ctx context.Context, st *store.Store, pipeline string, run int) error {
 	r, err := st.RunByNumber(ctx, pipeline, run)
 	if err != nil {
@@ -54,20 +56,11 @@ func Cancel(ctx context.Context, st *store.Store, pipeline string, run int) erro
 		}
 		return err
 	}
-	err = st.Tx(ctx, func(tx *store.Store) error {
-		cur, err := tx.Run(ctx, r.ID)
-		if err != nil {
-			return err
-		}
-		if cur.Status.Final() {
-			return fmt.Errorf("run #%d of %s has already ended (%s)", run, pipeline, cur.Status)
-		}
-		cur.Status, cur.NeedsInputReason = store.StatusCanceled, "Canceled by "+localUser()+"."
-		if err := tx.UpdateRun(ctx, cur); err != nil {
-			return err
-		}
-		return tx.AddEvent(ctx, r.ID, "run.canceled", map[string]string{"reason": cur.NeedsInputReason})
-	})
+	who := localUser()
+	cur, err := markCanceled(ctx, st, r.ID, "Canceled by "+who+".", "Canceled from the CLI by "+who+".")
+	if errors.Is(err, store.ErrRunFinished) {
+		return fmt.Errorf("run #%d of %s has already ended (%s)", run, pipeline, cur.Status)
+	}
 	return err
 }
 

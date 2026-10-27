@@ -440,6 +440,12 @@ func (r *Runner) resume(ctx context.Context) error {
 			r.suppressed[id] = true
 		}
 	}
+	// Runs canceled while no runner ran, or while the last one stopped.
+	for _, run := range all {
+		if run.Status == store.StatusCanceled {
+			r.cleanupCanceled(ctx, run.ID)
+		}
+	}
 	return nil
 }
 

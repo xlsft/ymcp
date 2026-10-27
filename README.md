@@ -221,6 +221,8 @@ The source query uses the same syntax as a saved search. Each issue it finds mov
 
 Each stage has an `enter` command, as typed in YouTrack's command dialog, and a `match` query that recognizes issues
 in it. The working command should take the issue out of the source query: moving it back there cancels the run. A
+canceled run (also `ymcp pipeline NAME cancel N`) closes its pull or merge request with a comment, keeps its branch and
+removes its worktree unless `workspace.keepWorktree` is set; a later run of the issue starts on a new branch. A
 change closed without a merge ends the run as closed. `workspace.parallel` sets how many issues run at once (1).
 
 ### Agents

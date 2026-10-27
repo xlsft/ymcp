@@ -35,6 +35,7 @@ type fakeVCS struct {
 	replies  map[string]string   // reply id -> id of the comment it answers
 	edits    map[string]int      // comment id -> number of edits
 	bodies   map[string][]string // comment id -> every body it had
+	closes   []int               // the changes Close was called for
 }
 
 type fakeVCSComment struct {
@@ -75,8 +76,9 @@ func (f *fakeVCS) Open(_ context.Context, o vcs.OpenOptions) (vcs.Change, error)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.opens = append(f.opens, o)
-	if f.change.Number == 0 {
-		f.change = vcs.Change{Number: 42, URL: "https://github.test/acme/api/pull/42", State: vcs.StateOpen, Draft: o.Draft}
+	if f.change.Number == 0 || f.change.State != vcs.StateOpen {
+		n := max(f.change.Number+1, 42) // the first change is #42
+		f.change = vcs.Change{Number: n, URL: "https://github.test/acme/api/pull/" + strconv.Itoa(n), State: vcs.StateOpen, Draft: o.Draft}
 		if f.kind == vcs.KindGitHubIssuePR {
 			f.change.Issue, f.change.IssueURL = 7, "https://github.test/acme/api/issues/7"
 		}
@@ -157,6 +159,16 @@ func (f *fakeVCS) Reply(_ context.Context, number int, to vcs.Comment, body stri
 	return c, nil
 }
 
+func (f *fakeVCS) Close(_ context.Context, number int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closes = append(f.closes, number)
+	if number == f.change.Number && f.change.State == vcs.StateOpen {
+		f.change.State = vcs.StateClosed
+	}
+	return nil
+}
+
 func (f *fakeVCS) Post(_ context.Context, number int, body string) (vcs.Comment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -222,6 +234,12 @@ func (f *fakeVCS) limitUntil(t time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.limited = t
+}
+
+func (f *fakeVCS) closeLog() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.closes)
 }
 
 func (f *fakeVCS) openLog() []vcs.OpenOptions {

@@ -185,6 +185,15 @@ func (l *gitlab) Change(ctx context.Context, number int) (Change, error) {
 	return mrChange(mr), nil
 }
 
+// Close closes an open merge request.
+func (l *gitlab) Close(ctx context.Context, number int) error {
+	ch, err := l.Change(ctx, number)
+	if err != nil || ch.State != StateOpen {
+		return err
+	}
+	return l.write(ctx, http.MethodPut, l.mrPath(number, ""), map[string]string{"state_event": "close"}, nil)
+}
+
 // noteURL is the web address of a note on merge request iid.
 func (l *gitlab) noteURL(iid int, id int64) string {
 	return l.c.web + "/" + l.repo.Path + "/-/merge_requests/" + strconv.Itoa(iid) + "#note_" + strconv.FormatInt(id, 10)

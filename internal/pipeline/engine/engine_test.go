@@ -1045,13 +1045,75 @@ func TestMovedBackToBacklogCancels(t *testing.T) {
 	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 1 {
 		t.Fatalf("captured again: %d runs", len(runs))
 	}
-	if _, err := os.Stat(run.Worktree); err != nil {
-		t.Errorf("the worktree of a canceled run was removed: %v", err)
+	// The worktree goes, the branch stays.
+	h.waitFor("the worktree removal", func() bool {
+		_, err := os.Stat(run.Worktree)
+		return os.IsNotExist(err)
+	})
+	if b := git(t, h.repo, "branch", "--list", run.Branch); b == "" {
+		t.Error("the branch of a canceled run was removed")
 	}
 	h.yt.setState(is.Key, "Postponed")
 	time.Sleep(100 * time.Millisecond)
 	h.yt.setState(is.Key, "Open")
-	h.waitReview(2, is.Key)
+	// The next run starts afresh on a branch of its own.
+	run2 := h.waitReview(2, is.Key)
+	if run2.Branch != run.Branch+"-2" || run2.Worktree == run.Worktree {
+		t.Errorf("run 2 on %q in %q; run 1 was on %q in %q", run2.Branch, run2.Worktree, run.Branch, run.Worktree)
+	}
+}
+
+// TestCanceledRunKeepsWorktree: with workspace.keepWorktree the worktree
+// of a canceled run stays.
+func TestCanceledRunKeepsWorktree(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Workspace.KeepWorktree = true })
+	is := h.yt.addIssue("Do it", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.yt.setState(is.Key, "Open")
+	run = h.waitStatus(1, store.StatusCanceled)
+	h.waitFor("the cleanup", func() bool {
+		v, _, _ := h.st.RunState(context.Background(), run.ID, stateCanceled)
+		return v == ""
+	})
+	if _, err := os.Stat(run.Worktree); err != nil {
+		t.Errorf("the kept worktree was removed: %v", err)
+	}
+}
+
+// TestOtherPipelineGetsItsOwnBranch: a run of another pipeline on the same
+// issue renders the same branch name, but never takes over the branch or
+// the worktree of the first pipeline's run, canceled or not.
+func TestOtherPipelineGetsItsOwnBranch(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Workspace.KeepWorktree = true })
+	is := h.yt.addIssue("Shared issue", "Open")
+	h.start()
+	first := h.waitReview(1, is.Key)
+	if err := Cancel(context.Background(), h.st, h.p.Name, 1); err != nil {
+		t.Fatal(err)
+	}
+	h.waitStatus(1, store.StatusCanceled)
+	h.stop()
+
+	h.p.Name = "frontend"
+	h.yt.setState(is.Key, "Open")
+	h.start()
+	h.waitFor("the frontend run", func() bool {
+		r, err := h.st.RunByNumber(context.Background(), "frontend", 1)
+		return err == nil && r.Status == store.StatusReview
+	})
+	second, _ := h.st.RunByNumber(context.Background(), "frontend", 1)
+	if second.Branch != first.Branch+"-2" {
+		t.Errorf("branch = %q, the first pipeline's is %q", second.Branch, first.Branch)
+	}
+	cache, _ := os.UserCacheDir()
+	want, _ := filepath.EvalSymlinks(filepath.Join(cache, "ymcp", "worktrees", "frontend", second.Branch))
+	if got, _ := filepath.EvalSymlinks(second.Worktree); got != want || want == "" {
+		t.Errorf("worktree = %q, want %q", second.Worktree, want)
+	}
+	if _, err := os.Stat(first.Worktree); err != nil {
+		t.Errorf("the first pipeline's kept worktree: %v", err)
+	}
 }
 
 func TestMovedBackDuringTurnStopsAgent(t *testing.T) {
@@ -1164,9 +1226,10 @@ func TestCancelFromCLI(t *testing.T) {
 	if run.Status != store.StatusCanceled {
 		t.Errorf("status = %s", run.Status)
 	}
-	if _, err := os.Stat(run.Worktree); err != nil {
-		t.Errorf("worktree: %v", err)
-	}
+	h.waitFor("the worktree removal", func() bool {
+		_, err := os.Stat(run.Worktree)
+		return os.IsNotExist(err)
+	})
 	if err := Cancel(context.Background(), h.st, h.p.Name, 1); err == nil {
 		t.Error("canceling twice worked")
 	}

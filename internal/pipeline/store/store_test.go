@@ -279,6 +279,29 @@ func TestRunsListing(t *testing.T) {
 	}
 }
 
+func TestBranchUsed(t *testing.T) {
+	s := open(t)
+	a, _ := s.CreateRun(ctx, "a", "yt", "1", "")
+	b, _ := s.CreateRun(ctx, "b", "yt", "2", "")
+	a.Branch, a.Status = "BE-1-x", StatusCanceled
+	if err := s.UpdateRun(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		branch string
+		except int64
+		want   bool
+	}{
+		{"BE-1-x", b.ID, true}, // a canceled run of another pipeline has it
+		{"BE-1-x", a.ID, false},
+		{"BE-2-y", b.ID, false},
+	} {
+		if got, err := s.BranchUsed(ctx, tc.branch, tc.except); err != nil || got != tc.want {
+			t.Errorf("BranchUsed(%q, %d) = %v, %v", tc.branch, tc.except, got, err)
+		}
+	}
+}
+
 func TestMessages(t *testing.T) {
 	s := open(t)
 	r, _ := s.CreateRun(ctx, "p", "yt", "1", "")

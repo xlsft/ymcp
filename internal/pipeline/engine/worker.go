@@ -135,14 +135,20 @@ func (w *worker) loop() {
 }
 
 // exit revokes the run's MCP access, forgets the worker and, for a run
-// that finished, removes its worktree unless the pipeline keeps it.
+// that finished, removes its worktree unless the pipeline keeps it; a
+// canceled run is cleaned up (see cleanupCanceled).
 func (w *worker) exit() {
 	r := w.r
 	r.mcp.Revoke(w.token)
 	r.mu.Lock()
 	delete(r.workers, w.id)
 	r.mu.Unlock()
-	if !errors.Is(context.Cause(w.ctx), errFinished) || r.p.Workspace.KeepWorktree {
+	cause := context.Cause(w.ctx)
+	if errors.Is(cause, errCanceled) {
+		r.cleanupCanceled(w.ctx, w.id)
+		return
+	}
+	if !errors.Is(cause, errFinished) || r.p.Workspace.KeepWorktree {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)

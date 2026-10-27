@@ -207,7 +207,7 @@ func (r *Runner) checkMembership(ctx context.Context, source map[string]ytwatch.
 			}
 			if w.backlogTicks++; w.backlogTicks >= confirmTicks {
 				r.suppressed[run.IssueID] = true
-				r.cancelRun(ctx, w, "The issue was moved back to the backlog.")
+				r.cancelRun(ctx, w, "The issue was moved back to the backlog.", "Canceled: the issue was moved back to the backlog.")
 			}
 			continue
 		}
@@ -234,7 +234,7 @@ func (r *Runner) checkMembership(ctx context.Context, source map[string]ytwatch.
 			continue
 		}
 		if !exists {
-			r.cancelRun(ctx, w, "The issue was deleted.")
+			r.cancelRun(ctx, w, reasonDeleted, "Canceled: the issue was deleted.")
 			continue
 		}
 		if w.outsideTicks++; w.outsideTicks >= confirmTicks && run.Status != store.StatusNeedsInput {
@@ -243,18 +243,19 @@ func (r *Runner) checkMembership(ctx context.Context, source map[string]ytwatch.
 	}
 }
 
-// cancelRun ends a run as canceled and stops its agent; the worktree stays.
-func (r *Runner) cancelRun(ctx context.Context, w *worker, reason string) {
-	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), w.id, func(run *store.Run) error {
-		run.Status, run.NeedsInputReason = store.StatusCanceled, reason
-		return nil
-	})
-	if err != nil && !errors.Is(err, store.ErrRunFinished) {
-		r.log.Warn("canceling a run failed", "run", w.number, "err", err)
-		return
+// cancelRun ends a run as canceled and stops its agent; when the worker
+// exits, the run is cleaned up (see cleanupCanceled). why is the sentence
+// the run's change is closed with.
+func (r *Runner) cancelRun(ctx context.Context, w *worker, reason, why string) {
+	run, err := markCanceled(context.WithoutCancel(ctx), r.st, w.id, reason, why)
+	if err != nil {
+		if !errors.Is(err, store.ErrRunFinished) {
+			r.log.Warn("canceling a run failed", "run", w.number, "err", err)
+			return
+		}
+	} else {
+		r.log.Info("run canceled", "run", run.Number, "issue", run.IssueKey, "reason", reason)
 	}
-	r.log.Info("run canceled", "run", run.Number, "issue", run.IssueKey, "reason", reason)
-	r.event(ctx, w.id, "run.canceled", map[string]string{"reason": reason})
 	w.stop(errCanceled)
 }
 

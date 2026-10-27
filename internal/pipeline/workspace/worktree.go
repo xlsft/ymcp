@@ -196,6 +196,23 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 	return wt, nil
 }
 
+// CheckedOut returns the path of the worktree of the repository at repoDir
+// that has branch checked out, or "" when none has. Create reuses such a
+// worktree wherever it is, so a new run must not pick the branch of a
+// worktree that belongs to someone else.
+func CheckedOut(ctx context.Context, h Host, repoDir, branch string) (string, error) {
+	list, err := listWorktrees(ctx, h, repoDir)
+	if err != nil {
+		return "", fmt.Errorf("listing worktrees: %w", err)
+	}
+	for _, w := range list {
+		if w.branch == branch && !w.prunable {
+			return w.path, nil
+		}
+	}
+	return "", nil
+}
+
 // Exists reports whether the worktree is still usable: its directory is
 // there and git sees a working tree in it. A worktree deleted by hand is
 // not; Create makes it again. Only a ctx error is returned.

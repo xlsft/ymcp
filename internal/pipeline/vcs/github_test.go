@@ -355,6 +355,48 @@ func TestGitHubChangeStates(t *testing.T) {
 	}
 }
 
+func TestGitHubClose(t *testing.T) {
+	f := newFakeAPI(t)
+	prs := map[string]map[string]any{
+		"1": {"number": 1, "state": "open", "merged": false, "body": "x\n\nCloses #7"},
+		"2": {"number": 2, "state": "closed", "merged": false},
+		"3": {"number": 3, "state": "closed", "merged_at": "2026-10-27T12:00:00Z", "body": "Closes #8"},
+	}
+	f.handle("GET /repos/o/r/pulls/{n}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, prs[r.PathValue("n")], false)
+	})
+	f.handle("PATCH /repos/o/r/pulls/{n}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{}, false)
+	})
+	f.handle("GET /repos/o/r/issues/{n}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{"number": 7, "state": "open"}, false)
+	})
+	f.handle("PATCH /repos/o/r/issues/{n}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{}, false)
+	})
+	g := newGitHub(t, f, KindGitHubIssuePR)
+	ctx := ctxT(t)
+	for _, n := range []int{1, 2, 3} {
+		if err := g.Close(ctx, n); err != nil {
+			t.Fatalf("Close(%d): %v", n, err)
+		}
+	}
+	closes := f.find("PATCH", "/repos/o/r/pulls/1")
+	if len(closes) != 1 || closes[0].Body["state"] != "closed" {
+		t.Errorf("PR closes = %+v", closes)
+	}
+	if n := len(f.find("PATCH", "/repos/o/r/pulls/2")) + len(f.find("PATCH", "/repos/o/r/pulls/3")); n != 0 {
+		t.Errorf("%d writes to closed or merged PRs", n)
+	}
+	issue := f.find("PATCH", "/repos/o/r/issues/7")
+	if len(issue) != 1 || issue[0].Body["state"] != "closed" || issue[0].Body["state_reason"] != "not_planned" {
+		t.Errorf("issue closes = %+v", issue)
+	}
+	if n := len(f.find("PATCH", "/repos/o/r/issues/8")); n != 0 {
+		t.Error("the issue of a merged PR was closed as not planned")
+	}
+}
+
 func TestGitHubReplyEdit(t *testing.T) {
 	f := newFakeAPI(t)
 	var mu sync.Mutex
@@ -520,6 +562,9 @@ func TestBranch(t *testing.T) {
 	}
 	if _, err := s.Post(ctx, 1, "x"); !errors.Is(err, ErrNoChange) {
 		t.Errorf("Post = %v", err)
+	}
+	if err := s.Close(ctx, 1); !errors.Is(err, ErrNoChange) {
+		t.Errorf("Close = %v", err)
 	}
 	if s.Kind() != KindBranch {
 		t.Error("kind")

@@ -126,6 +126,10 @@ type Strategy interface {
 	Edit(ctx context.Context, c Comment, body string) (Comment, error)
 	// Post writes a new top-level comment on the change.
 	Post(ctx context.Context, number int, body string) (Comment, error)
+	// Close closes the change without merging it, and the mirror issue of
+	// github-issue-pr as not planned. The branch stays. A change that is
+	// closed or merged already is left as it is.
+	Close(ctx context.Context, number int) error
 }
 
 // Auth is how a strategy signs in to the host.
@@ -193,6 +197,7 @@ func (branch) Reply(context.Context, int, Comment, string) (Comment, error) {
 }
 func (branch) Edit(context.Context, Comment, string) (Comment, error) { return Comment{}, ErrNoChange }
 func (branch) Post(context.Context, int, string) (Comment, error)     { return Comment{}, ErrNoChange }
+func (branch) Close(context.Context, int) error                       { return ErrNoChange }
 
 // refIntro starts the block a fallback reply puts under the agent header to
 // say what it answers. Edit keeps the block when the new body lacks it.

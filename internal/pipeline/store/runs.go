@@ -156,6 +156,20 @@ func (s *Store) RunByNumber(ctx context.Context, pipeline string, number int) (R
 	return r, nil
 }
 
+// BranchUsed reports whether a run other than except, of any pipeline and
+// in any status, has the branch.
+func (s *Store) BranchUsed(ctx context.Context, branch string, except int64) (bool, error) {
+	var one int
+	err := s.q.QueryRowContext(ctx, `SELECT 1 FROM runs WHERE branch = ? AND id != ? LIMIT 1`, branch, except).Scan(&one)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("looking up branch %s: %w", branch, err)
+	}
+	return true, nil
+}
+
 // Runs lists the runs of a pipeline by number, all of them or only those
 // that are not final. An empty pipeline lists every pipeline's runs.
 func (s *Store) Runs(ctx context.Context, pipeline string, active bool) ([]Run, error) {
