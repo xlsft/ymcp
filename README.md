@@ -239,7 +239,8 @@ Two more tools reach the runner: `request_input` asks you a question, `report` p
 What the agent may do is up to the agent's own settings: its mode (`agent.mode`, e.g. Claude's `acceptEdits`) and
 its arguments (`agent.args`, e.g. `--allowedTools`). When it asks for a tool it may not use, the pipeline's
 `permissions` decides: `ask` (default) puts the run in needs input, `allow` approves every request, `deny` refuses
-every one and the agent goes on without the tool.
+every one and the agent goes on without the tool. New Claude pipelines start with `--dangerously-skip-permissions` in
+`agent.args`, so Claude runs every tool without asking; replace it with a mode or `--allowedTools` to restrict it.
 
 ### Strategies
 

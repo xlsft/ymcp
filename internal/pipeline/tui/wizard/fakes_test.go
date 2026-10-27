@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -197,7 +198,10 @@ func (f *fakeAgents) Check(_ context.Context, a spec.Agent) (agent.Info, error) 
 	switch a.Provider {
 	case "claude":
 		info := agent.Info{Path: "/usr/local/bin/claude", Version: "2.1.0 (Claude Code)"}
-		if a.Mode == "" {
+		switch {
+		case slices.Contains(a.Args, "--dangerously-skip-permissions"):
+			info.Warnings = []string{"claude runs every tool without asking (bypassPermissions)"}
+		case a.Mode == "":
 			info.Warnings = []string{"claude has no --permission-mode or --allowedTools: every tool call will need your approval"}
 		}
 		return info, nil

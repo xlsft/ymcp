@@ -74,12 +74,12 @@ const (
 	defaultNeedsInputMatch = "tag: needs-input"
 )
 
-// defaultClaudeMode and defaultClaudeArgs let a new claude pipeline edit
-// files and commit (the presets tell the agent to commit) without asking
-// about every git command.
+// defaultClaudeMode and defaultClaudeArgs let a new claude pipeline work
+// unattended: Claude runs every tool without asking. What the agent may do
+// is the user's call; change agent.mode and agent.args to restrict it.
 var (
-	defaultClaudeMode = "acceptEdits"
-	defaultClaudeArgs = []string{"--allowedTools", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git log:*)"}
+	defaultClaudeMode = ""
+	defaultClaudeArgs = []string{"--dangerously-skip-permissions"}
 )
 
 // pipelineForeground reports whether `ymcp pipeline args…` runs a pipeline

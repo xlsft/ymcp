@@ -123,7 +123,7 @@ func TestNewPipeline(t *testing.T) {
 	d.keys("ctrl+n")
 
 	// Agent: every provider is checked; switching keeps each draft.
-	d.must("2.1.0 (Claude Code)", "kimi: executable file not found", "0.15.3", "set Command to start it", "--allowedTools")
+	d.must("2.1.0 (Claude Code)", "kimi: executable file not found", "0.15.3", "set Command to start it", "--dangerously-skip-permissions")
 	d.dump("5-agent")
 	d.keys("down")
 	if d.m.sh.p.Agent.Provider != "kimi" {
@@ -131,11 +131,11 @@ func TestNewPipeline(t *testing.T) {
 	}
 	d.keys("up", "tab", "tab")
 	d.send(ctrlU())
-	d.must("claude has no --permission-mode")
+	d.must("runs every tool without asking")
 	d.typ("acc")
 	d.must("acceptEdits")
 	d.keys("tab")
-	if a := d.m.sh.p.Agent; a.Provider != "claude" || a.Mode != "acceptEdits" || len(a.Args) != 6 {
+	if a := d.m.sh.p.Agent; a.Provider != "claude" || a.Mode != "acceptEdits" || len(a.Args) != 1 {
 		t.Fatalf("agent = %+v", a)
 	}
 	d.keys("tab", "tab", "tab", "right")

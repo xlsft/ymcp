@@ -191,8 +191,8 @@ func TestPipelineNewClaudeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"--allowedTools", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git log:*)"}
-	if p.Agent.Provider != "claude" || p.Agent.Mode != "acceptEdits" || !slices.Equal(p.Agent.Args, wantArgs) {
+	wantArgs := []string{"--dangerously-skip-permissions"}
+	if p.Agent.Provider != "claude" || p.Agent.Mode != "" || !slices.Equal(p.Agent.Args, wantArgs) {
 		t.Errorf("agent = %+v", p.Agent)
 	}
 }

@@ -200,13 +200,12 @@ func newPipeline() spec.Pipeline {
 	return p
 }
 
-// claudeDefaults let a new claude agent edit files and commit without
-// asking about every git command, like `ymcp pipeline new`.
+// claudeDefaults let a new claude agent work unattended, running every tool
+// without asking, like `ymcp pipeline new`.
 func claudeDefaults() spec.Agent {
 	return spec.Agent{
 		Provider: "claude",
-		Mode:     "acceptEdits",
-		Args:     []string{"--allowedTools", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git log:*)"},
+		Args:     []string{"--dangerously-skip-permissions"},
 	}
 }
 
