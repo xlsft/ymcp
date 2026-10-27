@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/huh/spinner v0.0.0-20260223110133-9dc45e34a40b
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
