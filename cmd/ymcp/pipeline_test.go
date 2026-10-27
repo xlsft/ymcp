@@ -109,7 +109,7 @@ func TestPipelineBadArguments(t *testing.T) {
 		{[]string{"backend", "runs", "17"}, "unexpected argument"},
 		{[]string{"backend", "rename"}, "usage"},
 		{[]string{"backend", "copy", "a", "b"}, "usage"},
-		{[]string{"backend", "logs"}, "usage"},
+		{[]string{"backend", "logs", "1", "2"}, "usage"},
 		{[]string{"backend", "logs", "x"}, "not a run number"},
 		{[]string{"backend", "logs", "0"}, "not a run number"},
 		{[]string{"backend", "logs", "1"}, "no run #1"},

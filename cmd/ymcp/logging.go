@@ -19,12 +19,25 @@ import (
 // maxLogSize is when the log file is rotated to <file>.1 on startup.
 const maxLogSize = 5 << 20
 
+// logFileOverride, when set, is the log file of this process in place of
+// the shared one; a pipeline runner keeps a log of its own.
+var logFileOverride string
+
 // logFilePath is where serve and call append their log; YMCP_LOG_FILE
 // overrides it and "off" disables the file.
 func logFilePath() (string, error) {
-	if p := os.Getenv("YMCP_LOG_FILE"); p != "" {
-		return p, nil
+	env := os.Getenv("YMCP_LOG_FILE")
+	switch {
+	case logFileOverride != "" && env != "off":
+		return logFileOverride, nil
+	case env != "":
+		return env, nil
 	}
+	return defaultLogPath()
+}
+
+// defaultLogPath is the shared log file when YMCP_LOG_FILE is not set.
+func defaultLogPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -257,9 +270,16 @@ func logs(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	return tailLog(ctx, path, lines, follow, "no log yet at "+path+"; it appears once an MCP client starts ymcp")
+}
+
+// tailLog prints the last lines of the log file at path and, with follow,
+// keeps printing what is appended until ctx ends. missing is the error when
+// the file does not exist.
+func tailLog(ctx context.Context, path string, lines int, follow bool, missing string) error {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("no log yet at %s; it appears once an MCP client starts ymcp", path)
+		return errors.New(missing)
 	}
 	if err != nil {
 		return err

@@ -33,11 +33,13 @@ Usage:
                                             Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
                                             --command CMD (acp), --preset NAME, --host SSH_ALIAS
   ymcp pipeline presets                     List the built-in prompt presets
-  ymcp pipeline NAME run                    Run the pipeline in the foreground; ctrl+c stops it
+  ymcp pipeline NAME run [-d]               Run the pipeline in the foreground (ctrl+c stops it), or with -d
+                                            in the background
+  ymcp pipeline NAME stop [--force]         Stop the background runner; --force kills it
   ymcp pipeline NAME check                  Check the profile, query, stages, git and agent
   ymcp pipeline NAME status                 Runner and active runs
   ymcp pipeline NAME runs [--all]           Runs; --all includes finished ones
-  ymcp pipeline NAME logs RUN [-f] [-n N]   The event feed of a run
+  ymcp pipeline NAME logs [RUN] [-f] [-n N] The event feed of a run, or the log of the runner without RUN
   ymcp pipeline NAME answer RUN TEXT        Answer a run that waits for input, or give it feedback
   ymcp pipeline NAME cancel RUN             Cancel a run
   ymcp pipeline NAME show                   Print the pipeline JSON
@@ -74,7 +76,7 @@ var (
 // pipelineForeground reports whether `ymcp pipeline args…` runs a pipeline
 // in the foreground, which logs like serve does.
 func pipelineForeground(args []string) bool {
-	return len(args) >= 2 && args[1] == "run"
+	return len(args) >= 2 && args[1] == "run" && !detachRequested(args[2:])
 }
 
 func pipelineCmd(ctx context.Context, args []string, logger *slog.Logger) error {
@@ -105,7 +107,9 @@ func pipelineCmd(ctx context.Context, args []string, logger *slog.Logger) error 
 	verb, rest := args[1], args[2:]
 	switch verb {
 	case "run":
-		return pipelineRun(ctx, name, rest, logger)
+		return pipelineRunCmd(ctx, name, rest, logger)
+	case "stop":
+		return pipelineStop(ctx, name, rest)
 	case "check":
 		return pipelineCheck(ctx, name, rest)
 	case "status":
@@ -791,7 +795,7 @@ func findRun(ctx context.Context, st *store.Store, name, arg string) (store.Run,
 }
 
 func pipelineLogs(ctx context.Context, name string, args []string) error {
-	const usage = "ymcp pipeline NAME logs RUN [-f] [-n N]"
+	const usage = "ymcp pipeline NAME logs [RUN] [-f] [-n N]"
 	fs := pipelineFlags("pipeline logs")
 	follow := fs.Bool("f", false, "follow new events")
 	fs.BoolVar(follow, "follow", false, "follow new events")
@@ -800,11 +804,14 @@ func pipelineLogs(ctx context.Context, name string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(pos) != 1 {
+	if len(pos) > 1 {
 		return fmt.Errorf("usage: %s", usage)
 	}
 	if *lines < 0 {
 		return fmt.Errorf("-n must not be negative; usage: %s", usage)
+	}
+	if len(pos) == 0 {
+		return pipelineRunnerLog(ctx, name, *lines, *follow)
 	}
 	st, err := openStore()
 	if err != nil {

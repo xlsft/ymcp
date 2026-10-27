@@ -98,7 +98,7 @@ func run(args []string) error {
 	if !serving && !*verbose {
 		level = slog.LevelWarn
 	}
-	logger, logPath, closeLog := newLogger(level, serving)
+	logger, logPath, closeLog := newLogger(level, serving && prepareRunnerLog(cmd, rest))
 	defer closeLog()
 	// Late replies to the terminal queries made at startup would otherwise
 	// end up in a form, in the MCP stream or at the shell prompt.
