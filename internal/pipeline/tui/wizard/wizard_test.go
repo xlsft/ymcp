@@ -207,8 +207,8 @@ func TestNewPipeline(t *testing.T) {
 	d.must("claude ✓", "kimi ✗", "opencode ✓", "acp ✗", "2.1.0 (Claude Code)", "runs every tool without asking")
 	d.dump("4-agent")
 	d.keys("right")
-	if d.m.sh.p.Agent.Provider != "kimi" {
-		t.Fatalf("provider = %q", d.m.sh.p.Agent.Provider)
+	if a := d.m.sh.p.Agent; a.Provider != "kimi" || a.Mode != "yolo" {
+		t.Fatalf("agent = %+v, want kimi in its yolo mode", a)
 	}
 	d.must("kimi: executable file not found")
 	d.keys("right", "right")

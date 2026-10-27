@@ -172,8 +172,8 @@ func TestPipelineNewShow(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("stages = %+v, want %+v", got, want)
 	}
-	if p.Agent.Mode != "" || len(p.Agent.Args) != 0 {
-		t.Errorf("kimi got claude's defaults: %+v", p.Agent)
+	if p.Agent.Mode != "yolo" || len(p.Agent.Args) != 0 {
+		t.Errorf("kimi got %+v, want its yolo mode and no claude arguments", p.Agent)
 	}
 
 	var shown spec.Pipeline

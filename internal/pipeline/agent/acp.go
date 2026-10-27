@@ -40,8 +40,11 @@ func (a *acpAgent) Check(ctx context.Context) (Info, error) {
 	}
 	switch a.provider {
 	case "kimi":
-		if a.mode == "auto" || a.mode == "yolo" {
-			info.Warnings = append(info.Warnings, fmt.Sprintf("kimi in mode %q never asks for permission, not even for writes outside the worktree", a.mode))
+		switch a.mode {
+		case "yolo":
+			info.Warnings = append(info.Warnings, `kimi in mode "yolo" never asks for permission, not even for writes outside the worktree`)
+		case "auto":
+			info.Warnings = append(info.Warnings, `kimi in mode "auto" approves what it deems safe on its own and asks about the rest`)
 		}
 	case "opencode":
 		if a.model == "" {

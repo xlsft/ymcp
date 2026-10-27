@@ -75,11 +75,13 @@ const (
 )
 
 // defaultClaudeMode and defaultClaudeArgs let a new claude pipeline work
-// unattended: Claude runs every tool without asking. What the agent may do
-// is the user's call; change agent.mode and agent.args to restrict it.
+// unattended: Claude runs every tool without asking; so does kimi in
+// defaultKimiMode. What the agent may do is the user's call; change
+// agent.mode and agent.args to restrict it.
 var (
 	defaultClaudeMode = ""
 	defaultClaudeArgs = []string{"--dangerously-skip-permissions"}
+	defaultKimiMode   = "yolo"
 )
 
 // pipelineForeground reports whether `ymcp pipeline args…` runs a pipeline
@@ -401,9 +403,12 @@ func pipelineNew(args []string) error {
 		// its own copy. Built-in ones are resolved at run time.
 		p.Prompts.Start, p.Prompts.Feedback, p.Prompts.Answer = pr.Start, pr.Feedback, pr.Answer
 	}
-	if p.Agent.Provider == "claude" {
+	switch p.Agent.Provider {
+	case "claude":
 		p.Agent.Mode = defaultClaudeMode
 		p.Agent.Args = slices.Clone(defaultClaudeArgs)
+	case "kimi":
+		p.Agent.Mode = defaultKimiMode
 	}
 	if err := p.Validate(); err != nil {
 		return err

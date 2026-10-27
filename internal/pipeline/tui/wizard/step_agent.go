@@ -27,6 +27,7 @@ var providerAbout = map[string]string{
 // modeHints are the known modes per provider; others take free text.
 var modeHints = map[string][]string{
 	"claude": {"acceptEdits", "default", "plan", "dontAsk", "bypassPermissions"},
+	"kimi":   {"yolo", "auto", "default", "plan"},
 }
 
 var permissionModes = []option{
@@ -117,6 +118,9 @@ func newAgentStep(sh *shared) *agentStep {
 	}
 	if sh.p.Agent.Provider != "claude" {
 		s.drafts["claude"] = claudeDefaults()
+	}
+	if sh.p.Agent.Provider != "kimi" {
+		s.drafts["kimi"] = kimiDefaults()
 	}
 	s.drafts[sh.p.Agent.Provider] = sh.p.Agent
 	s.command = newAssist(sh, "", nil)

@@ -261,6 +261,12 @@ func claudeDefaults() spec.Agent {
 	}
 }
 
+// kimiDefaults let a new kimi agent work unattended: its yolo mode
+// approves every tool, like `ymcp pipeline new`.
+func kimiDefaults() spec.Agent {
+	return spec.Agent{Provider: "kimi", Mode: "yolo"}
+}
+
 func clonePipeline(p spec.Pipeline) spec.Pipeline {
 	// A JSON round trip copies every slice, map and pointer.
 	data, err := json.Marshal(p)
