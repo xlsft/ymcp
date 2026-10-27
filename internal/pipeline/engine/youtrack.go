@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
@@ -35,6 +36,7 @@ const (
 // comment is a comment as the engine reads it for prompts.
 type comment struct {
 	ID, Author, Text string
+	Created          time.Time
 }
 
 // mark returns a fresh mark of the run's next message.
@@ -64,6 +66,16 @@ func (r *Runner) editComment(ctx context.Context, issueID, commentID string, num
 	return nil
 }
 
+// hideComment marks a comment deleted, as the UI does: it disappears from
+// the issue and stays in its history, where it can be restored.
+func (r *Runner) hideComment(ctx context.Context, issueID, commentID string) error {
+	path := "issues/" + url.PathEscape(issueID) + "/comments/" + url.PathEscape(commentID)
+	if err := r.yt.Post(ctx, path, youtrack.Fields("id"), map[string]bool{"deleted": true}, nil); err != nil {
+		return fmt.Errorf("hiding comment %s on %s: %w", commentID, issueID, err)
+	}
+	return nil
+}
+
 // isNotFound reports whether err is a YouTrack 404.
 func isNotFound(err error) bool {
 	var ye *youtrack.Error
@@ -87,7 +99,7 @@ func (r *Runner) warnUnlessGone(msg string, run store.Run, err error) {
 // returns it.
 func (r *Runner) publish(ctx context.Context, run store.Run, m *store.Message, kind, state, body string) (store.Message, error) {
 	ctx = context.WithoutCancel(ctx)
-	if m != nil && m.ExternalID != "" {
+	if m != nil && m.ExternalID != "" && m.State != stateHidden {
 		err := r.editComment(ctx, run.IssueID, m.ExternalID, run.Number, body)
 		if err == nil {
 			m.State = state
@@ -125,11 +137,12 @@ func (r *Runner) comments(ctx context.Context, issueID string) ([]comment, error
 		ID      string `json:"id"`
 		Text    string `json:"text"`
 		Deleted bool   `json:"deleted"`
+		Created int64  `json:"created"`
 		Author  *struct {
 			Login string `json:"login"`
 		} `json:"author"`
 	}
-	q := youtrack.Fields("id,text,deleted,author(login)")
+	q := youtrack.Fields("id,text,deleted,created,author(login)")
 	q.Set("$top", "500")
 	if err := r.yt.Get(ctx, "issues/"+url.PathEscape(issueID)+"/comments", q, &raw); err != nil {
 		return nil, fmt.Errorf("reading the comments of %s: %w", issueID, err)
@@ -139,7 +152,7 @@ func (r *Runner) comments(ctx context.Context, issueID string) ([]comment, error
 		if c.Deleted {
 			continue
 		}
-		cm := comment{ID: c.ID, Text: c.Text}
+		cm := comment{ID: c.ID, Text: c.Text, Created: time.UnixMilli(c.Created)}
 		if c.Author != nil {
 			cm.Author = c.Author.Login
 		}

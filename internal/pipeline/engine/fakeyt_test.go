@@ -182,6 +182,20 @@ func (f *fakeYT) agentComments(key string) []string {
 	return out
 }
 
+// hiddenComments returns the texts of the issue's comments marked deleted.
+func (f *fakeYT) hiddenComments(key string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	is := f.issue(key)
+	var out []string
+	for _, c := range f.comments {
+		if is != nil && c.IssueID == is.ID && c.Deleted {
+			out = append(out, c.Text)
+		}
+	}
+	return out
+}
+
 func (f *fakeYT) deleteComment(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -340,7 +354,12 @@ func (f *fakeYT) postComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeYT) editComment(w http.ResponseWriter, r *http.Request) {
-	body := readText(r)
+	var in struct {
+		Text    *string `json:"text"`
+		Deleted *bool   `json:"deleted"`
+	}
+	raw, _ := io.ReadAll(r.Body)
+	json.Unmarshal(raw, &in)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	is := f.issue(r.PathValue("id"))
@@ -349,8 +368,13 @@ func (f *fakeYT) editComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, c := range f.comments {
-		if c.ID == r.PathValue("cid") && c.IssueID == is.ID && !c.Deleted {
-			c.Text, c.Updated = body, nowMS()
+		if c.ID == r.PathValue("cid") && c.IssueID == is.ID && in.Deleted != nil {
+			c.Deleted = *in.Deleted // as YouTrack: marked, kept, restorable
+			reply(w, 200, map[string]string{"id": c.ID})
+			return
+		}
+		if c.ID == r.PathValue("cid") && c.IssueID == is.ID && !c.Deleted && in.Text != nil {
+			c.Text, c.Updated = *in.Text, nowMS()
 			f.activities = append(f.activities, fakeActivity{seq: len(f.activities) + 1, at: c.Updated, category: "CommentTextCategory", commentID: c.ID})
 			reply(w, 200, map[string]string{"id": c.ID})
 			return

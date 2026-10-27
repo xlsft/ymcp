@@ -31,6 +31,10 @@ type Pipeline struct {
 	Prompts     Prompts           `json:"prompts"`
 	Messages    map[string]string `json:"messages,omitempty"` // overrides of ymcp's own texts
 	Service     *bool             `json:"service,omitempty"`  // service instruction on (nil = true)
+	// AutoCompact compacts a run's comments when it ends as done or
+	// closed, as a /compact reply does: they are hidden and a short
+	// summary is left.
+	AutoCompact bool `json:"autoCompact,omitempty"`
 	// Notifications narrows the machine's notification settings for this
 	// pipeline; nil keeps them as they are.
 	Notifications *Notifications `json:"notifications,omitempty"`

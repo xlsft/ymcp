@@ -188,7 +188,7 @@ func (r *Runner) decorateVCS(number int, body string) string {
 func (r *Runner) publishVCS(ctx context.Context, run store.Run, m *store.Message, to *vcs.Comment, kind, state, body string) (store.Message, vcs.Comment, error) {
 	ctx = context.WithoutCancel(ctx)
 	full := r.decorateVCS(run.Number, body)
-	if m != nil && m.ExternalID != "" {
+	if m != nil && m.ExternalID != "" && m.State != stateHidden {
 		c, err := r.vcs.Edit(ctx, vcs.Comment{ID: m.ExternalID, ThreadID: m.ThreadID}, full)
 		if err == nil {
 			m.State = state

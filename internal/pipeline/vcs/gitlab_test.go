@@ -318,3 +318,31 @@ func TestParseNoteID(t *testing.T) {
 		}
 	}
 }
+
+// TestGitLabHide: a note is hidden by resolving its thread; a note outside
+// a resolvable thread can't be hidden.
+func TestGitLabHide(t *testing.T) {
+	f := newFakeAPI(t)
+	f.handle("PUT "+glProject+"/merge_requests/{iid}/discussions/{d}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("d") == "flat" {
+			writeJSON(w, r, 400, map[string]any{"message": "Discussion is not resolvable"}, false)
+			return
+		}
+		writeJSON(w, r, 200, map[string]any{"id": r.PathValue("d")}, false)
+	})
+	l := newGitLab(t, f)
+	ctx := ctxT(t)
+	if err := l.Hide(ctx, Comment{ID: "!3#note_9", ThreadID: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	puts := f.find("PUT", "/api/v4/projects/team/sub/proj/merge_requests/3/discussions/abc")
+	if len(puts) != 1 || puts[0].Body["resolved"] != true {
+		t.Errorf("resolves = %+v", puts)
+	}
+	if err := l.Hide(ctx, Comment{ID: "!3#note_10", ThreadID: "flat"}); !errors.Is(err, ErrCantHide) {
+		t.Errorf("unresolvable: %v", err)
+	}
+	if err := l.Hide(ctx, Comment{ID: "!3#note_11"}); !errors.Is(err, ErrCantHide) {
+		t.Errorf("no thread: %v", err)
+	}
+}

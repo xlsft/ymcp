@@ -12,6 +12,10 @@ import (
 // animated ymcp loader alone. The answer later replaces it in place.
 const Working = "![](https://raw.githubusercontent.com/xlsft/ymcp/main/docs/working.gif)"
 
+// IsWorking reports whether a comment, with or without its header, is the
+// placeholder alone.
+func IsWorking(body string) bool { return strings.TrimSpace(StripHeader(body)) == Working }
+
 // Mark identifies a message written by an agent run.
 type Mark struct {
 	Pipeline string

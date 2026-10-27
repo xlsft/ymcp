@@ -35,6 +35,7 @@ func (r *Runner) tick(ctx context.Context) {
 	}
 	r.pollComments(ctx)
 	r.pollVCS(ctx)
+	r.controls(ctx)
 	r.schedule(ctx)
 }
 
@@ -293,6 +294,13 @@ func (r *Runner) finishRun(ctx context.Context, w *worker, status store.RunStatu
 		url = run.PRURL
 	}
 	r.notify(ctx, NotifyRunDone, run, what, "The run ended: "+what+".", url)
+	if r.p.AutoCompact {
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			r.compactRun(ctx, run, "auto-compact")
+		}()
+	}
 	return run, true
 }
 

@@ -569,6 +569,60 @@ func (g *github) Edit(ctx context.Context, c Comment, body string) (Comment, err
 	return Comment{}, fmt.Errorf("vcs: %q is not a GitHub comment ID", c.ID)
 }
 
+// Hide minimizes a conversation or line comment as outdated, through the
+// GraphQL API: REST has no way to.
+func (g *github) Hide(ctx context.Context, c Comment) error {
+	var path string
+	if id, ok := strings.CutPrefix(c.ID, ghIssueComment); ok && isNumber(id) {
+		path = g.path("/issues/comments/" + id)
+	} else if id, ok := strings.CutPrefix(c.ID, ghReviewComment); ok && isNumber(id) {
+		path = g.path("/pulls/comments/" + id)
+	} else if strings.HasPrefix(c.ID, ghReview) {
+		return ErrCantHide
+	} else {
+		return fmt.Errorf("vcs: %q is not a GitHub comment ID", c.ID)
+	}
+	var node struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := g.get(ctx, path, nil, &node); err != nil {
+		return gone(err)
+	}
+	if node.NodeID == "" {
+		return fmt.Errorf("vcs: GitHub gave comment %s no node id", c.ID)
+	}
+	const mutation = `mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) { minimizedComment { isMinimized } } }`
+	var out struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	in := map[string]any{"query": mutation, "variables": map[string]string{"id": node.NodeID}}
+	resp, err := g.c.send(ctx, http.MethodPost, g.graphQL(), in, "")
+	if err != nil {
+		return err
+	}
+	if err := decode(resp, &out); err != nil {
+		return err
+	}
+	if len(out.Errors) > 0 {
+		return fmt.Errorf("vcs: hiding %s: %s", c.ID, out.Errors[0].Message)
+	}
+	return nil
+}
+
+// graphQL is the GraphQL endpoint next to the REST root: api.github.com
+// has it at /graphql, GitHub Enterprise at /api/graphql for /api/v3.
+func (g *github) graphQL() string {
+	u := *g.c.base
+	if p, ok := strings.CutSuffix(strings.TrimSuffix(u.Path, "/"), "/v3"); ok {
+		u.Path = p + "/graphql"
+	} else {
+		u.Path = strings.TrimSuffix(u.Path, "/") + "/graphql"
+	}
+	return u.String()
+}
+
 func isNumber(s string) bool {
 	_, err := strconv.ParseInt(s, 10, 64)
 	return err == nil

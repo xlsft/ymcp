@@ -570,3 +570,61 @@ func TestBranch(t *testing.T) {
 		t.Error("kind")
 	}
 }
+
+// TestGitHubHide: a conversation or line comment is minimized as outdated
+// through GraphQL by its node id; a review summary can't be.
+func TestGitHubHide(t *testing.T) {
+	f := newFakeAPI(t)
+	f.handle("GET /repos/o/r/issues/comments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") == "404" {
+			writeJSON(w, r, 404, map[string]any{"message": "Not Found"}, false)
+			return
+		}
+		writeJSON(w, r, 200, map[string]any{"id": 11, "node_id": "IC_11"}, false)
+	})
+	f.handle("GET /repos/o/r/pulls/comments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{"id": 12, "node_id": "PRRC_12"}, false)
+	})
+	f.handle("POST /graphql", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, r, 200, map[string]any{"data": map[string]any{"minimizeComment": map[string]any{"minimizedComment": map[string]any{"isMinimized": true}}}}, false)
+	})
+	g := newGitHub(t, f, KindGitHubPR)
+	ctx := ctxT(t)
+	for _, id := range []string{"issuecomment-11", "discussion_r12"} {
+		if err := g.Hide(ctx, Comment{ID: id}); err != nil {
+			t.Fatalf("Hide(%s): %v", id, err)
+		}
+	}
+	calls := f.find("POST", "/graphql")
+	if len(calls) != 2 {
+		t.Fatalf("graphql calls = %+v", calls)
+	}
+	for i, node := range []string{"IC_11", "PRRC_12"} {
+		vars, _ := calls[i].Body["variables"].(map[string]any)
+		if q, _ := calls[i].Body["query"].(string); !strings.Contains(q, "minimizeComment") || !strings.Contains(q, "OUTDATED") || vars["id"] != node {
+			t.Errorf("call %d = %+v", i, calls[i].Body)
+		}
+	}
+	if err := g.Hide(ctx, Comment{ID: "pullrequestreview-5"}); !errors.Is(err, ErrCantHide) {
+		t.Errorf("review summary: %v", err)
+	}
+	if err := g.Hide(ctx, Comment{ID: "issuecomment-404"}); !errors.Is(err, ErrGone) {
+		t.Errorf("deleted comment: %v", err)
+	}
+}
+
+func TestGitHubGraphQLURL(t *testing.T) {
+	for _, c := range []struct{ api, want string }{
+		{"https://api.github.com", "https://api.github.com/graphql"},
+		{"https://ghe.example.com/api/v3", "https://ghe.example.com/api/graphql"},
+		{"https://ghe.example.com/api/v3/", "https://ghe.example.com/api/graphql"},
+	} {
+		s, err := New(KindGitHubPR, Repo{Host: "x", Owner: "o", Name: "r", Path: "o/r", Kind: KindGitHubPR, API: c.api}, Auth{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.(*github).graphQL(); got != c.want {
+			t.Errorf("graphQL(%s) = %s, want %s", c.api, got, c.want)
+		}
+	}
+}

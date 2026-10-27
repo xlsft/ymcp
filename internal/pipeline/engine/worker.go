@@ -191,6 +191,8 @@ func (w *worker) step() {
 		kind = kindStart
 	case store.StatusReview, store.StatusNeedsInput:
 		pending, err := r.st.PendingInbox(ctx, w.id)
+		// /clear, /compact and /cancel are the runner's (see controls).
+		pending = withoutControls(pending)
 		if err != nil || len(pending) == 0 {
 			return
 		}

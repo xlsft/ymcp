@@ -327,6 +327,25 @@ func (l *gitlab) Post(ctx context.Context, number int, body string) (Comment, er
 	return l.fromNote(number, d.ID, CommentConversation, d.Notes[0]), nil
 }
 
+// Hide resolves the note's thread, which folds it away on the merge
+// request; GitLab has no other way to hide a note.
+func (l *gitlab) Hide(ctx context.Context, c Comment) error {
+	iid, _, ok := parseNoteID(c.ID)
+	if !ok {
+		return fmt.Errorf("vcs: %q is not a GitLab note ID", c.ID)
+	}
+	if c.ThreadID == "" {
+		return ErrCantHide
+	}
+	path := l.mrPath(iid, "/discussions/"+url.PathEscape(c.ThreadID))
+	err := l.write(ctx, http.MethodPut, path, map[string]bool{"resolved": true}, nil)
+	var he *HTTPError
+	if errors.As(err, &he) && (he.Status == http.StatusBadRequest || he.Status == http.StatusForbidden) {
+		return ErrCantHide // not a resolvable thread
+	}
+	return gone(err)
+}
+
 func (l *gitlab) Edit(ctx context.Context, c Comment, body string) (Comment, error) {
 	iid, id, ok := parseNoteID(c.ID)
 	if !ok {

@@ -36,6 +36,7 @@ type fakeVCS struct {
 	edits    map[string]int      // comment id -> number of edits
 	bodies   map[string][]string // comment id -> every body it had
 	closes   []int               // the changes Close was called for
+	hidden   []string            // the comments Hide was called for
 }
 
 type fakeVCSComment struct {
@@ -167,6 +168,23 @@ func (f *fakeVCS) Close(_ context.Context, number int) error {
 		f.change.State = vcs.StateClosed
 	}
 	return nil
+}
+
+func (f *fakeVCS) Hide(_ context.Context, c vcs.Comment) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gone[c.ID] {
+		return fmt.Errorf("%w: 404", vcs.ErrGone)
+	}
+	f.hidden = append(f.hidden, c.ID)
+	return nil
+}
+
+// hiddenIDs lists the comments Hide was called for.
+func (f *fakeVCS) hiddenIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.hidden)
 }
 
 func (f *fakeVCS) Post(_ context.Context, number int, body string) (vcs.Comment, error) {

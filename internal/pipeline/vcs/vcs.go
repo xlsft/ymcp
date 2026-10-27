@@ -130,6 +130,12 @@ type Strategy interface {
 	// github-issue-pr as not planned. The branch stays. A change that is
 	// closed or merged already is left as it is.
 	Close(ctx context.Context, number int) error
+	// Hide folds a comment away on the page while it stays in the
+	// history: GitHub minimizes it as outdated, GitLab resolves its
+	// thread. A comment the host can't hide (a GitHub review summary, a
+	// GitLab note outside a resolvable thread) gives ErrCantHide; one that
+	// is gone gives ErrGone.
+	Hide(ctx context.Context, c Comment) error
 }
 
 // Auth is how a strategy signs in to the host.
@@ -146,6 +152,8 @@ var (
 	ErrNoChange = errors.New("vcs: the branch strategy has no pull or merge request")
 	// ErrNoToken means TokenFor found no credentials for the host.
 	ErrNoToken = errors.New("vcs: no token")
+	// ErrCantHide means the host has no way to hide the comment.
+	ErrCantHide = errors.New("vcs: the comment can't be hidden")
 )
 
 // New returns the strategy kind for repo. An empty repo.API is derived from
@@ -198,6 +206,7 @@ func (branch) Reply(context.Context, int, Comment, string) (Comment, error) {
 func (branch) Edit(context.Context, Comment, string) (Comment, error) { return Comment{}, ErrNoChange }
 func (branch) Post(context.Context, int, string) (Comment, error)     { return Comment{}, ErrNoChange }
 func (branch) Close(context.Context, int) error                       { return ErrNoChange }
+func (branch) Hide(context.Context, Comment) error                    { return ErrNoChange }
 
 // refIntro starts the block a fallback reply puts under the agent header to
 // say what it answers. Edit keeps the block when the new body lacks it.
