@@ -70,5 +70,9 @@ func (e logEntry) line(w int) string {
 	if e.n > 1 {
 		text = theme.Dim.Render(fmt.Sprintf("×%d ", e.n)) + text
 	}
-	return cut(theme.Dim.Render(stamp)+" "+kind.style(pad(kind.label, lw))+" "+text, w)
+	gap := " "
+	if w >= 36 {
+		gap = "  "
+	}
+	return cut(theme.Dim.Render(stamp)+gap+kind.style(pad(kind.label, lw))+" "+text, w)
 }

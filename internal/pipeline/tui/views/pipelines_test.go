@@ -89,15 +89,23 @@ func TestPipelines(t *testing.T) {
 	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
 	d.fits(100, 30)
 	d.has("ymcp pipelines", "youtrack-xlsft", "⚑ 2 need input",
-		// backend's card
-		"backend", "● running", "✗ 1 failed", "⚑ 1 needs input",
-		"agent   claude", "publish push the branch", "source  project: BE #Unresolved", "repo    /home/dev/code/backend",
-		"working 2 · input 1 · review 2 · done 1",
+		// backend's card: name and runner, the agent, the counts with the
+		// failed and needs-input flags inside, the source query
+		"backend", "● running", "Claude", "working 2 · review 2 · done 1", "✗ 1  ⚑ 1", "project: BE #Unresolved",
 		// frontend's card and the + card
-		"frontend", "○ stopped", "working 0 · input 1 · review 0 · done 0",
+		"frontend", "○ stopped", "working 0 · review 0 · done 0",
 		"+", "New pipeline",
 		"←→↑↓ move", "enter actions", "o board", "n new", "r run", "s stop", "e edit", "? more")
-	d.hasNot("NAME", "RUNNER") // no table any more
+	d.hasNot("NAME", "RUNNER", // no table any more
+		"publish", "push the branch", "/home/dev/code/backend") // in the menu only
+	// The flags sit inside the cards, not on their frames.
+	for _, l := range strings.Split(d.view(), "\n") {
+		if strings.Contains(l, "╭") || strings.Contains(l, "┏") {
+			if strings.Contains(l, "⚑") || strings.Contains(l, "✗") {
+				t.Errorf("a flag on a card's frame: %q", l)
+			}
+		}
+	}
 	if got := d.selectedCard(); got != "backend" {
 		t.Errorf("selected %q, want backend", got)
 	}
@@ -180,9 +188,10 @@ func TestPipelinesEmpty(t *testing.T) {
 }
 
 // TestPipelinesGrid lays the cards out at several sizes: as many columns
-// as fit, one on narrow terminals, always within the screen.
+// as fit, one on narrow terminals, always within the screen, with a
+// margin around the grid and every card as tall as the others.
 func TestPipelinesGrid(t *testing.T) {
-	for _, c := range []struct{ w, h, cols int }{{200, 50, 5}, {120, 30, 3}, {100, 30, 2}, {80, 24, 2}, {50, 20, 1}} {
+	for _, c := range []struct{ w, h, cols int }{{200, 50, 4}, {120, 30, 2}, {100, 30, 2}, {80, 24, 1}, {50, 20, 1}} {
 		t.Run(fmt.Sprintf("%dx%d", c.w, c.h), func(t *testing.T) {
 			f := newFixture(t)
 			withCatalog(f, 10)
@@ -192,6 +201,9 @@ func TestPipelinesGrid(t *testing.T) {
 			if got := strings.Count(top, "╭") + strings.Count(top, "┏"); got != c.cols {
 				t.Errorf("%d cards in the first row, want %d:\n%s", got, c.cols, d.view())
 			}
+			if margin := len(top) - len(strings.TrimLeft(top, " ")); margin < 1 {
+				t.Errorf("no margin left of the grid: %q", top)
+			}
 			d.has("backend", "● running")
 			d.keys("enter")
 			d.fits(c.w, c.h)
@@ -199,6 +211,20 @@ func TestPipelinesGrid(t *testing.T) {
 			d.keys("esc", "G")
 			d.fits(c.w, c.h)
 			d.has("New pipeline")
+			// The + card is as tall as the cards beside or above it.
+			lines := strings.Split(d.view(), "\n")
+			plusTop, plusBottom := -1, -1
+			for i, l := range lines {
+				if strings.Contains(l, "┏╍") && plusTop < 0 {
+					plusTop = i
+				}
+				if strings.Contains(l, "┗╍") {
+					plusBottom = i
+				}
+			}
+			if plusTop < 0 || plusBottom-plusTop != cardLines+1 {
+				t.Errorf("+ card from line %d to %d, want %d lines inside:\n%s", plusTop, plusBottom, cardLines, d.view())
+			}
 		})
 	}
 }
@@ -227,20 +253,20 @@ func TestPipelinesMove(t *testing.T) {
 		t.Errorf("selected %q, want svc-02", got)
 	}
 
-	// Five columns: 0-4 / 5-9 / 10 11 12(+). Down from 8 lands on the
+	// Four columns: 0-3 / 4-7 / 8-11 / 12(+). Down from 10 lands on the
 	// last card of the shorter row.
 	d.send(tea.WindowSizeMsg{Width: 200, Height: 50})
 	d.keys("g", "down", "down")
-	if got := d.pipelines().sel; got != 10 {
-		t.Errorf("down down from 0: %d, want 10", got)
+	if got := d.pipelines().sel; got != 8 {
+		t.Errorf("down down from 0: %d, want 8", got)
 	}
-	d.keys("down")
-	if got := d.pipelines().sel; got != 10 {
-		t.Errorf("down on the last row: %d, want 10", got)
-	}
-	d.keys("g", "right", "right", "right", "down", "down")
+	d.keys("down", "down")
 	if got := d.pipelines().sel; got != 12 {
-		t.Errorf("down from 8: %d, want 12 (+)", got)
+		t.Errorf("down on the last row: %d, want 12", got)
+	}
+	d.keys("g", "right", "right", "down", "down", "down")
+	if got := d.pipelines().sel; got != 12 {
+		t.Errorf("down from 10: %d, want 12 (+)", got)
 	}
 	if got := d.selectedCard(); got != "+" {
 		t.Errorf("selected %q, want +", got)
@@ -255,8 +281,8 @@ func TestPipelinesMove(t *testing.T) {
 func TestPipelinesScroll(t *testing.T) {
 	f := newFixture(t)
 	withCatalog(f, 10)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 80, 24) // two rows of two
-	d.fits(80, 24)
+	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 24) // two rows of two
+	d.fits(100, 24)
 	d.has("backend", "frontend", "svc-01", "svc-02", "↓ 9 more")
 	d.hasNot("svc-03", "more  ↓")
 	d.keys("down", "down")
@@ -267,13 +293,19 @@ func TestPipelinesScroll(t *testing.T) {
 	d.hasNot("more  ↓", "svc-08")
 	d.keys("g")
 	d.has("backend", "↓ 9 more")
-	d.fits(80, 24)
+	d.fits(100, 24)
 
-	// A short terminal shows smaller cards.
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 12})
-	d.fits(80, 12)
-	d.has("backend", "work 2", "frontend", "↓ 11 more")
-	d.hasNot("publish")
+	// A short terminal shows one row.
+	d.send(tea.WindowSizeMsg{Width: 100, Height: 12})
+	d.fits(100, 12)
+	d.has("backend", "working 2", "frontend", "↓ 11 more")
+	d.hasNot("svc-01")
+
+	// Shorter still: smaller cards, the counts kept.
+	d.send(tea.WindowSizeMsg{Width: 100, Height: 9})
+	d.fits(100, 9)
+	d.has("backend", "working 2", "frontend")
+	d.hasNot("project: BE")
 }
 
 func TestPipelinesMenu(t *testing.T) {
@@ -283,7 +315,9 @@ func TestPipelinesMenu(t *testing.T) {
 	d.keys("enter")
 	d.fits(120, 30)
 	d.has("─ backend ─", "› Open board", "Stop runner", "Edit", "Logs", "Copy…", "Rename…", "Delete…",
-		"↑↓ choose", "enter run", "esc close")
+		"↑↓ choose", "enter run", "esc close",
+		// what the card leaves out
+		"agent    Claude", "publish  push the branch", "repo     /home/dev/code/backend", "source   project: BE #Unresolved")
 	d.hasNot("Run in background", "o board")
 	// Each item shows its key on the right edge of the box.
 	for _, item := range [][2]string{{"Open board", "o"}, {"Stop runner", "s"}, {"Edit", "e"}, {"Logs", "L"},
@@ -303,9 +337,9 @@ func TestPipelinesMenu(t *testing.T) {
 	d.has("› Logs", "✗ The runner log can't be read here; run `ymcp pipeline backend logs`.")
 	// Rename and delete wait for the runner to stop.
 	d.keys("down", "down")
-	d.has("› Rename…", "Stop the runner before", "renaming (s).")
+	d.has("› Rename…", "Stop the runner before", "renaming")
 	d.keys("down")
-	d.has("› Delete…", "Stop the runner before", "deleting (s).")
+	d.has("› Delete…", "Stop the runner before", "deleting")
 	d.keys("enter")
 	if len(f.deleted) != 0 {
 		t.Fatal("deleted a running pipeline")
@@ -403,7 +437,7 @@ func TestPipelinesCopyRename(t *testing.T) {
 	d.has("✗ frontend has 1 active run(s)")
 
 	// svc-01 has no runs: rename it.
-	d.keys("right")
+	d.keys("down", "left")
 	if got := d.selectedCard(); got != "svc-01" {
 		t.Fatalf("selected %q, want svc-01", got)
 	}
@@ -430,20 +464,38 @@ func TestPipelinesCopyRename(t *testing.T) {
 }
 
 func TestCountsLine(t *testing.T) {
-	c := counts{working: 2, input: 1, review: 3, done: 15}
+	c := counts{working: 2, input: 1, review: 3, done: 15, failed: 1}
 	for _, tc := range []struct {
 		w    int
 		want string
 	}{
-		{60, "working 2 · input 1 · review 3 · done 15"},
-		{37, "working 2  input 1  review 3  done 15"},
-		{35, "work 2  input 1  review 3  done 15"},
-		{31, "work 2 input 1 review 3 done 15"},
-		{20, "work 2 input 1 revi…"},
+		{60, "working 2 · review 3 · done 15"},
+		{28, "working 2  review 3  done 15"},
+		{27, "work 2 · review 3 · done 15"},
+		{25, "work 2  review 3  done 15"},
+		{23, "work 2 review 3 done 15"},
+		{12, "work 2 revi…"},
 	} {
 		if got := stripped(countsLine(c, tc.w)); got != tc.want {
-			t.Errorf("width %d: %q, want %q", tc.w, got, tc.want)
+			t.Errorf("counts at width %d: %q, want %q", tc.w, got, tc.want)
 		}
+	}
+	// The flags go right; they shorten before the counts do.
+	for _, tc := range []struct {
+		w    int
+		want string
+	}{
+		{60, "working 2 · review 3 · done 15  ✗ 1 failed  ⚑ 1 needs input"},
+		{44, "working 2 · review 3 · done 15     ✗ 1  ⚑ 1"},
+		{36, "work 2  review 3  done 15  ✗ 1  ⚑ 1"},
+		{20, "work 2 r…  ✗ 1  ⚑ 1"},
+	} {
+		if got := stripped(statsLine(c, tc.w)); got != tc.want {
+			t.Errorf("stats at width %d: %q, want %q", tc.w, got, tc.want)
+		}
+	}
+	if got := stripped(statsLine(counts{done: 3}, 40)); got != "working 0 · review 0 · done 3" {
+		t.Errorf("without flags: %q", got)
 	}
 }
 

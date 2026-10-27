@@ -17,7 +17,10 @@ import (
 var (
 	modalBorder = lipgloss.NewStyle().Foreground(theme.Brand)
 	chipStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("237")).Padding(0, 1)
-	tabActive   = lipgloss.NewStyle().Bold(true).Underline(true)
+	tabActive   = lipgloss.NewStyle().Bold(true).Underline(true).Foreground(theme.Brand)
+	// underStyle is the screen under a modal: faint and grey, its own
+	// colours and bold stripped, so it recedes behind the box.
+	underStyle = lipgloss.NewStyle().Faint(true).Foreground(lipgloss.AdaptiveColor{Light: "250", Dark: "240"})
 )
 
 // modalRect is where a modal sits on a w×h screen: a margin around it
@@ -31,8 +34,10 @@ func modalRect(w, h int) (x, y, bw, bh int) {
 	return mx, my, w - 2*mx, h - 2*my
 }
 
-// overlay draws box (lines of equal width) at x, y over under, which is
-// dimmed; the result is exactly w×h.
+// modalOver draws box (lines of equal width) at x, y over under, which is
+// dimmed whole: its escape sequences (colours, bold, links) are stripped
+// and every line redrawn faint and grey; the box keeps its own. The
+// result is exactly w×h.
 func modalOver(under string, box []string, x, y, w, h int) string {
 	bg := strings.Split(under, "\n")
 	bw := 0
@@ -58,11 +63,13 @@ func modalOver(under string, box []string, x, y, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
+// dimLine draws plain text (no escape sequences) as the screen under a
+// modal.
 func dimLine(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return s
 	}
-	return theme.Dim.Render(s)
+	return underStyle.Render(s)
 }
 
 // frameBox draws a rounded border around inner lines (cut or padded to
@@ -70,6 +77,13 @@ func dimLine(s string) string {
 func frameBox(inner []string, iw int, left, right string) []string {
 	b := lipgloss.RoundedBorder()
 	edge := func(s string) string { return modalBorder.Render(s) }
+	if left == "" && right == "" {
+		out := []string{edge(b.TopLeft + strings.Repeat(b.Top, max(iw, 0)) + b.TopRight)}
+		for _, l := range inner {
+			out = append(out, edge(b.Left)+pad(l, iw)+edge(b.Right))
+		}
+		return append(out, edge(b.BottomLeft+strings.Repeat(b.Bottom, max(iw, 0))+b.BottomRight))
+	}
 	top := b.TopLeft + b.Top + " " + left + " "
 	rest := iw + 2 - ansi.StringWidth(top) - ansi.StringWidth(right) - 4
 	var head string
@@ -106,8 +120,12 @@ func scrollWindow(lines []string, rows int, scroll *int) []string {
 	return append(out, theme.Dim.Render(fmt.Sprintf("↓ %d more · G to follow", *scroll)))
 }
 
-// replyBox is the comment box of the run card: enter sends, alt+enter
-// starts a new line, esc leaves it with the draft kept.
+// replyPlaceholder is what the empty comment box says.
+const replyPlaceholder = "Write a comment… (/approve, /reject)"
+
+// replyBox is the comment box of the run card, drawn like the input of a
+// chat: enter sends, alt+enter starts a new line, esc leaves it with the
+// draft kept.
 type replyBox struct {
 	ta      textarea.Model
 	focused bool
@@ -115,11 +133,11 @@ type replyBox struct {
 
 func newReplyBox() replyBox {
 	ta := textarea.New()
-	ta.Placeholder = "Comment on the issue — /approve or /reject answers a permission request"
+	ta.Placeholder = replyPlaceholder
 	ta.ShowLineNumbers = false
-	ta.Prompt = theme.Accent.Render("┃") + " "
+	ta.Prompt = ""
 	ta.CharLimit = 16000
-	ta.SetHeight(3)
+	ta.SetHeight(2)
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter", "ctrl+j"))
 	ta.FocusedStyle.CursorLine = ta.FocusedStyle.CursorLine.UnsetBackground()
 	return replyBox{ta: ta}
@@ -131,7 +149,8 @@ func (r *replyBox) focus(width int) tea.Cmd {
 	return r.ta.Focus()
 }
 
-func (r *replyBox) resize(width int) { r.ta.SetWidth(max(width, 10)) }
+// resize fits the text to a box w cells wide, its frame included.
+func (r *replyBox) resize(w int) { r.ta.SetWidth(max(w-4, 6)) }
 
 func (r *replyBox) blur() {
 	r.focused = false
@@ -170,23 +189,24 @@ func (r *replyBox) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// lines is the box: the text area while focused, else one line with the
-// draft or a hint.
-func (r *replyBox) lines(w int, hint string) []string {
+// lines is the box, w cells wide with its frame: the text area, height
+// lines tall, while focused; else one line with the draft or hint and the
+// key that opens it.
+func (r *replyBox) lines(w, height int, hint string) []string {
+	iw := max(w-4, 1)
 	if r.focused {
-		out := strings.Split(r.ta.View(), "\n")
-		for i, l := range out {
-			out[i] = cut(l, w)
-		}
-		return out
+		r.ta.SetWidth(iw)
+		r.ta.SetHeight(max(height, 1))
+		body := strings.Split(r.ta.View(), "\n")
+		return box(body, w, solidEdges, theme.Accent, "", "")
 	}
-	bar := theme.Dim.Render("┃ ")
+	line := theme.Dim.Render(hint)
 	if d := r.draft(); d != "" {
 		first, _, more := strings.Cut(d, "\n")
 		if more {
 			first += " …"
 		}
-		return []string{cut(bar+first+theme.Dim.Render("  (draft)"), w)}
+		line = first + theme.Dim.Render("  (draft)")
 	}
-	return []string{cut(bar+theme.Dim.Render(hint), w)}
+	return box([]string{spread(line, theme.Dim.Render("r"), iw)}, w, solidEdges, theme.Dim, "", "")
 }

@@ -24,15 +24,19 @@ const daemonTimeout = 90 * time.Second
 const (
 	// cardMinWidth is the narrowest a card gets while another column
 	// still fits; cards stretch to fill the width.
-	cardMinWidth = 36
-	// cardGap is the space between two cards of a row.
-	cardGap = 1
+	cardMinWidth = 40
+	// cardGap is the space between two cards of a row, rowGap the blank
+	// lines between two rows.
+	cardGap = 2
+	rowGap  = 1
+	// gridMargin is the space left and right of the grid.
+	gridMargin = 2
 	// cardLines is what a card shows inside its frame when the terminal
-	// is tall enough: name and runner, agent, publish, source, repo and
-	// run counts.
-	cardLines = 6
-	// labelWidth is the width of a card's field labels.
-	labelWidth = 8
+	// is tall enough: name and runner, a blank line, the agent, the run
+	// counts and the source query.
+	cardLines = 5
+	// detailsMax is the widest the details of a pipeline's menu get.
+	detailsMax = 48
 )
 
 // Pipelines shows the pipelines of one profile as a grid of cards, with
@@ -137,16 +141,24 @@ func (m *Pipelines) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// gridLayout is how many cards fit side by side and how wide each is.
-func gridLayout(w int) (cols, cw int) {
+// gridLayout is how many cards fit side by side, how wide each is and the
+// margin left of the grid.
+func gridLayout(w int) (cols, cw, mx int) {
 	w = max(w, 1)
-	cols = max((w+cardGap)/(cardMinWidth+cardGap), 1)
-	return cols, (w - cardGap*(cols-1)) / cols
+	switch {
+	case w >= 60:
+		mx = gridMargin
+	case w >= 30:
+		mx = 1
+	}
+	inner := max(w-2*mx, 1)
+	cols = max((inner+cardGap)/(cardMinWidth+cardGap), 1)
+	return cols, max((inner-cardGap*(cols-1))/cols, 1), mx
 }
 
 // move moves the cursor across the grid of n cards in cols columns.
 func (m *Pipelines) move(k string) {
-	cols, _ := gridLayout(m.width)
+	cols, _, _ := gridLayout(m.width)
 	n := len(m.rows) + 1
 	switch k {
 	case "left", "h":
@@ -443,7 +455,12 @@ func (m *Pipelines) View() string {
 	}
 	var pop []string
 	if r, ok := m.selected(); ok && m.menu.open {
-		pop = m.menu.view(r.p.Name, m.menuItems(r), w)
+		items := m.menuItems(r)
+		var details []string
+		if room >= len(items)+9 { // room for the details too
+			details = m.details(r)
+		}
+		pop = m.menu.view(r.p.Name, details, items, w)
 	}
 	if m.prompt.open {
 		pop = m.prompt.view(w)
@@ -458,31 +475,21 @@ func (m *Pipelines) View() string {
 // grid renders the cards that fit in rows lines, scrolled to the
 // selected one, and where the selected card is (x, y, width).
 func (m *Pipelines) grid(w, rows int) (lines []string, ax, ay, aw int) {
-	cols, cw := gridLayout(w)
+	cols, cw, mx := gridLayout(w)
 	n := len(m.rows) + 1
 	gridRows := (n + cols - 1) / cols
-	// The tallest cards that fit, with a line for the scroll hint when
-	// not every row does.
-	content := 1
-	for _, c := range []int{cardLines, 2} {
-		need := c + 2
-		if gridRows*need > rows {
-			need++
-		}
-		if rows >= need {
-			content = c
-			break
-		}
-	}
+	content, fit := cardShape(gridRows, rows)
 	height := content + 2
-	fit := max(rows/height, 1)
-	if gridRows > fit {
-		fit = max((rows-1)/height, 1)
-	}
 	m.sel = clamp(m.sel, n)
 	m.top = scrollTo(m.top, m.sel/cols, fit)
 	m.top = min(max(m.top, 0), max(gridRows-fit, 0))
+	margin := strings.Repeat(" ", mx)
 	for row := m.top; row < min(m.top+fit, gridRows); row++ {
+		if row > m.top {
+			for range rowGap {
+				lines = append(lines, "")
+			}
+		}
 		cards := make([][]string, 0, cols)
 		for c := range cols {
 			i := row*cols + c
@@ -490,7 +497,7 @@ func (m *Pipelines) grid(w, rows int) (lines []string, ax, ay, aw int) {
 				break
 			}
 			if i == m.sel {
-				ax, ay, aw = c*(cw+cardGap), len(lines), cw
+				ax, ay, aw = mx+c*(cw+cardGap), len(lines), cw
 			}
 			if i == len(m.rows) {
 				cards = append(cards, plusCard(cw, content, i == m.sel))
@@ -503,7 +510,7 @@ func (m *Pipelines) grid(w, rows int) (lines []string, ax, ay, aw int) {
 			for j, card := range cards {
 				parts[j] = card[l]
 			}
-			lines = append(lines, strings.Join(parts, strings.Repeat(" ", cardGap)))
+			lines = append(lines, margin+strings.Join(parts, strings.Repeat(" ", cardGap)))
 		}
 	}
 	if gridRows > fit {
@@ -514,71 +521,149 @@ func (m *Pipelines) grid(w, rows int) (lines []string, ax, ay, aw int) {
 		if below := n - min((m.top+fit)*cols, n); below > 0 {
 			hint = append(hint, fmt.Sprintf("↓ %d more", below))
 		}
-		lines = append(lines, spread("", theme.Dim.Render(strings.Join(hint, "  ")), w))
+		lines = append(lines, spread("", theme.Dim.Render(strings.Join(hint, "  "))+margin, w))
 	}
 	return lines, ax, ay, aw
 }
 
-// card is one pipeline's card, cw cells wide with content lines inside.
+// cardShape picks how many lines the cards show inside their frames and
+// how many rows of them fit in rows lines: every row of full cards when
+// they fit, else at least two rows of smaller cards (with a line for the
+// scroll hint), else one row of the tallest that fit.
+func cardShape(gridRows, rows int) (content, fit int) {
+	span := func(n, h int) int { return n*h + max(n-1, 0)*rowGap }
+	fits := func(h int) int { return max((rows-1+rowGap)/(h+rowGap), 1) }
+	for _, c := range []int{cardLines, 4, 3, 2, 1} {
+		if span(gridRows, c+2) <= rows {
+			return c, gridRows
+		}
+	}
+	if gridRows >= 2 {
+		for _, c := range []int{cardLines, 4, 3, 2} {
+			if span(2, c+2)+1 <= rows {
+				return c, fits(c + 2)
+			}
+		}
+	}
+	for _, c := range []int{cardLines, 4, 3, 2} {
+		if c+2+1 <= rows {
+			return c, 1
+		}
+	}
+	return 1, 1
+}
+
+// card is one pipeline's card, cw cells wide with content lines inside:
+// the name and the runner, then a blank line, the agent, the run counts
+// with the failed and needs-input flags, and the source query, the last
+// ones left out first when the card is short. How the work is published
+// and the repository show in the card's menu (details).
 func (m *Pipelines) card(r pipelineRow, cw, content int, selected bool) []string {
-	iw := max(cw-4, 1)
+	px := cardPad(cw)
+	iw := max(cw-2-2*px, 1)
 	edges, edge, name := solidEdges, theme.Dim, theme.Bold.Render(r.p.Name)
 	if selected {
 		edges, edge, name = heavyEdges, theme.Accent, theme.Accent.Render(r.p.Name)
 	}
 	head := spread(name, cardRunner(r.runner), iw)
+	agent := cut(cardAgent(r.p.Agent), iw)
+	stats := statsLine(r.c, iw)
+	source := theme.Dim.Render(cut(oneLine(r.p.Source.Query), iw))
 	var lines []string
 	switch content {
 	case 1:
 		lines = []string{head}
 	case 2:
-		lines = []string{head, countsLine(r.c, iw)}
+		lines = []string{head, stats}
+	case 3:
+		lines = []string{head, agent, stats}
+	case 4:
+		lines = []string{head, "", agent, stats}
 	default:
-		p := r.p
-		where := homeShort(p.Workspace.Dir, m.home)
-		if p.Workspace.Host != "" {
-			where = p.Workspace.Host + ":" + where
-		}
-		lines = []string{
-			head,
-			cardField("agent", agentLabel(p.Agent), iw, cut),
-			cardField("publish", strategyLabel(p.Strategy), iw, cut),
-			cardField("source", oneLine(p.Source.Query), iw, cut),
-			cardField("repo", where, iw, cutLeft),
-			countsLine(r.c, iw),
-		}
+		lines = []string{head, "", agent, stats, source}
 	}
-	return box(lines, cw, edges, edge, "", cardBadges(r.c, cw-6))
+	return paddedBox(lines, cw, px, edges, edge, "", "")
+}
+
+// cardPad is the space inside a card's frame on each side: two cells on
+// roomy cards, one on narrow ones.
+func cardPad(cw int) int {
+	if cw >= 44 {
+		return 2
+	}
+	return 1
+}
+
+// details are the lines of a pipeline's menu above its actions: what the
+// card leaves out.
+func (m *Pipelines) details(r pipelineRow) []string {
+	p := r.p
+	where := homeShort(p.Workspace.Dir, m.home)
+	if p.Workspace.Host != "" {
+		where = p.Workspace.Host + ":" + where
+	}
+	field := func(label, value string, fit func(string, int) string) string {
+		if value == "" {
+			value = theme.Dim.Render("–")
+		}
+		return theme.Dim.Render(pad(label, 9)) + fit(value, detailsMax-9)
+	}
+	return []string{
+		field("agent", agentLabel(p.Agent), cut),
+		field("publish", strategyLabel(p.Strategy), cut),
+		field("repo", where, cutLeft),
+		field("source", oneLine(p.Source.Query), cut),
+	}
 }
 
 // cardBadges flag a card's failed runs and the runs that wait for input,
-// in short forms when the long ones do not fit w.
-func cardBadges(c counts, w int) string {
-	failed, input := "", inputBadge(c.input)
+// in short forms ("✗ 1", "⚑ 1") when short is set.
+func cardBadges(c counts, short bool) string {
+	var out []string
 	if c.failed > 0 {
-		failed = theme.Err.Render(fmt.Sprintf("✗ %d failed", c.failed))
-	}
-	join := func(a, b string) string {
-		if a == "" || b == "" {
-			return a + b
+		f := fmt.Sprintf("✗ %d failed", c.failed)
+		if short {
+			f = fmt.Sprintf("✗ %d", c.failed)
 		}
-		return a + " " + b
-	}
-	if all := join(failed, input); ansi.StringWidth(all) <= w {
-		return all
-	}
-	if c.failed > 0 {
-		failed = theme.Err.Render(fmt.Sprintf("✗ %d", c.failed))
+		out = append(out, theme.Err.Render(f))
 	}
 	if c.input > 0 {
-		input = theme.Badge.Render(fmt.Sprintf("⚑ %d", c.input))
+		b := inputBadge(c.input)
+		if short {
+			b = theme.Badge.Render(fmt.Sprintf("⚑ %d", c.input))
+		}
+		out = append(out, b)
 	}
-	return join(failed, input)
+	return strings.Join(out, " ")
 }
 
-// plusCard is the last card, which makes a new pipeline.
+// statsLine is a card's run counts with its flags on the right: the
+// longest forms that fit w, the flags shortened before the counts.
+func statsLine(c counts, w int) string {
+	badges := []string{cardBadges(c, false), cardBadges(c, true)}
+	if badges[0] == "" {
+		return countsLine(c, w)
+	}
+	forms := countsForms(c)
+	for _, f := range forms {
+		for _, b := range badges {
+			if ansi.StringWidth(f)+2+ansi.StringWidth(b) <= w {
+				return spread(f, b, w)
+			}
+		}
+	}
+	b := badges[1]
+	if ansi.StringWidth(b)+3 > w {
+		return countsLine(c, w)
+	}
+	return spread(cut(forms[len(forms)-1], w-ansi.StringWidth(b)-2), b, w)
+}
+
+// plusCard is the last card, which makes a new pipeline; as tall as the
+// others.
 func plusCard(cw, content int, selected bool) []string {
-	iw := max(cw-4, 1)
+	px := cardPad(cw)
+	iw := max(cw-2-2*px, 1)
 	edges, edge, plus, text := dashedEdges, theme.Dim, theme.Bold.Render("+"), theme.Dim.Render("New pipeline")
 	if selected {
 		edges, edge, plus, text = heavyDashedEdges, theme.Accent, theme.Accent.Render("+"), theme.Bold.Render("New pipeline")
@@ -591,10 +676,10 @@ func plusCard(cw, content int, selected bool) []string {
 		lines = []string{centered(plus, iw), centered(text, iw)}
 	default:
 		lines = make([]string, content)
-		mid := content/2 - 1
+		mid := (content - 1) / 2
 		lines[mid], lines[mid+1] = centered(plus, iw), centered(text, iw)
 	}
-	return box(lines, cw, edges, edge, "", "")
+	return paddedBox(lines, cw, px, edges, edge, "", "")
 }
 
 // cardRunner is a runner's state as a card shows it.
@@ -608,30 +693,29 @@ func cardRunner(r runnerInfo) string {
 	return theme.Dim.Render("○ stopped")
 }
 
-// agentLabel is "provider · model · mode", leaving out what is unset.
+// agentLabel is "name · model · mode", then the extra arguments, leaving
+// out what is unset.
 func agentLabel(a spec.Agent) string {
-	parts := []string{a.Provider}
-	if a.Provider == "" {
-		parts[0] = a.Name
+	parts := []string{cardAgent(a)}
+	if a.Mode != "" {
+		parts = append(parts, a.Mode)
 	}
-	for _, s := range []string{a.Model, a.Mode} {
-		if s != "" {
-			parts = append(parts, s)
-		}
+	if len(a.Args) > 0 {
+		parts = append(parts, strings.Join(a.Args, " "))
 	}
 	return strings.Join(parts, " · ")
 }
 
-// cardField is a labelled line of a card, its value fitted to the width by
-// fit; narrow cards drop the label.
-func cardField(label, value string, w int, fit func(string, int) string) string {
-	if value == "" {
-		value = theme.Dim.Render("–")
+// cardAgent is the agent as a card names it: "Claude · sonnet".
+func cardAgent(a spec.Agent) string {
+	name := a.Name
+	if name == "" {
+		name = a.Provider
 	}
-	if w < labelWidth+16 {
-		return fit(value, w)
+	if a.Model != "" {
+		return name + " · " + a.Model
 	}
-	return theme.Dim.Render(pad(label, labelWidth)) + fit(value, w-labelWidth)
+	return name
 }
 
 // cutLeft shortens s to w cells from the left, starting with "…" when
@@ -652,10 +736,10 @@ func centered(s string, w int) string {
 	return strings.Repeat(" ", max((w-ansi.StringWidth(s))/2, 0)) + s
 }
 
-// countsLine is "working 2 · input 1 · review 3 · done 5" with zeros
-// dimmed, shortened until it fits w. Failed runs are flagged on the
-// card's frame instead (cardBadges).
-func countsLine(c counts, w int) string {
+// countsForms are a card's run counts, "working 2 · review 3 · done 5"
+// with zeros dimmed, from the longest form to the shortest. The runs that
+// wait for input and the failed ones are flagged apart (cardBadges).
+func countsForms(c counts) []string {
 	type part struct {
 		long, short string
 		n           int
@@ -663,7 +747,6 @@ func countsLine(c counts, w int) string {
 	}
 	parts := []part{
 		{"working", "work", c.working, theme.Bold},
-		{"input", "input", c.input, theme.Warn},
 		{"review", "review", c.review, theme.Bold},
 		{"done", "done", c.done, theme.OK},
 	}
@@ -683,12 +766,18 @@ func countsLine(c counts, w int) string {
 		return strings.Join(out, sep)
 	}
 	dot := theme.Dim.Render(" · ")
-	for _, try := range []string{render(false, dot), render(false, "  "), render(true, dot), render(true, "  "), render(true, " ")} {
-		if ansi.StringWidth(try) <= w {
-			return try
+	return []string{render(false, dot), render(false, "  "), render(true, dot), render(true, "  "), render(true, " ")}
+}
+
+// countsLine is the longest form of the run counts that fits w.
+func countsLine(c counts, w int) string {
+	forms := countsForms(c)
+	for _, f := range forms {
+		if ansi.StringWidth(f) <= w {
+			return f
 		}
 	}
-	return cut(render(true, " "), w)
+	return cut(forms[len(forms)-1], w)
 }
 
 // strategyLabel says in words how finished work is published.

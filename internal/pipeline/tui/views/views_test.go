@@ -266,6 +266,8 @@ func keyMsg(k string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		return tea.KeyMsg{Type: tea.KeyRight}
+	case "tab":
+		return tea.KeyMsg{Type: tea.KeyTab}
 	case "alt+enter":
 		return tea.KeyMsg{Type: tea.KeyEnter, Alt: true}
 	}
@@ -418,6 +420,16 @@ func TestBoard(t *testing.T) {
 	if f.backlog.calls != 1 {
 		t.Errorf("backlog searched %d times after a tick, want 1", f.backlog.calls)
 	}
+
+	// Wide enough, the columns keep a margin from the screen's edges and
+	// a blank line under their rules.
+	d.send(tea.WindowSizeMsg{Width: 160, Height: 40})
+	d.fits(160, 40)
+	lines := strings.Split(d.view(), "\n")
+	if !strings.HasPrefix(lines[2], "  BACKLOG") || strings.TrimSpace(lines[4]) != "" {
+		t.Errorf("no margin or air around the columns:\n%s", d.view())
+	}
+	d.send(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	// The cursor starts on the working column: enter opens BE-123.
 	d.keys("enter")

@@ -31,8 +31,12 @@ const (
 var columnNames = [columns]string{"BACKLOG", "WORKING", "NEEDS INPUT", "REVIEW", "DONE"}
 
 const (
-	minColumn   = 14 // narrowest column before columns start scrolling
-	columnGap   = 2
+	minColumn = 14 // narrowest column before columns start scrolling
+	columnGap = 2
+	// With room for every column this wide, the board gets a margin and
+	// wider gaps.
+	airyColumn  = 20
+	airyGap     = 3
 	doneShown   = 30 // finished runs the done column keeps
 	minBacklog  = 30 * time.Second
 	backlogWait = 20 * time.Second // timeout of one backlog search
@@ -440,9 +444,13 @@ func (m *Board) columnsView(w, rows int) []string {
 		return nil
 	}
 	cs := m.cards()
-	visible := max(min((w+columnGap)/(minColumn+columnGap), columns), 1)
+	full, mx, gap := w, 0, columnGap
+	if inner := w - 2*gridMargin; (inner-airyGap*(columns-1))/columns >= airyColumn {
+		mx, gap, w = gridMargin, airyGap, inner
+	}
+	visible := max(min((w+gap)/(minColumn+gap), columns), 1)
 	first := min(max(m.col-visible/2, 0), columns-visible)
-	cw := (w - columnGap*(visible-1)) / visible
+	cw := (w - gap*(visible-1)) / visible
 	var cols [][]string
 	for c := first; c < first+visible; c++ {
 		cols = append(cols, m.column(c, cs[c], cw, rows))
@@ -457,7 +465,7 @@ func (m *Board) columnsView(w, rows int) []string {
 			}
 			parts[j] = pad(cell, cw)
 		}
-		lines[i] = strings.Join(parts, strings.Repeat(" ", columnGap))
+		lines[i] = strings.Repeat(" ", mx) + strings.Join(parts, strings.Repeat(" ", gap))
 	}
 	if visible < columns && rows > 0 {
 		hint := ""
@@ -468,7 +476,7 @@ func (m *Board) columnsView(w, rows int) []string {
 		if first+visible < columns {
 			hint += " ›"
 		}
-		lines[rows-1] = spread("", theme.Dim.Render(hint), w)
+		lines[rows-1] = spread("", theme.Dim.Render(hint)+strings.Repeat(" ", mx), full)
 	}
 	return lines
 }
@@ -496,6 +504,9 @@ func (m *Board) column(c int, cards []card, cw, rows int) []string {
 		head, rule = theme.Bold.Render(head), theme.Dim.Render(rule)
 	}
 	out := []string{head, rule}
+	if rows >= 12 {
+		out = append(out, "")
+	}
 	room := rows - len(out)
 	if c == colBacklog && m.backlogErr != nil {
 		for _, l := range wrap("Search failed: "+oneLine(m.backlogErr.Error()), cw) {

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/pipeline/store"
@@ -116,17 +118,40 @@ func TestRunModal(t *testing.T) {
 	q := f.runs["BE-127"]
 	d := drive(t, NewRun(&f.d, "backend", q.Number, false), 160, 45)
 	d.fits(160, 45)
-	d.has("backend #6", "⚑ NEEDS INPUT",
+	d.has("backend #6",
 		"BE-127", "CSV export of the reports",
-		"State: In Progress", "Priority: Major", "Assignee: xlsft", "stage working", "⚑ needs input", "⎇ be-127-csv-export",
+		"State: In Progress", "Priority: Major", "stage working", "⚑ needs input", "⎇ be-127-csv-export",
 		"Users want to export reports as CSV.", "Acceptance", "• a button on the report page", "[image]", "GET /reports/42.csv",
 		"Comments · 2",
 		"Anna Petrova @anna · 50m ago", "Please also cover the admin reports.",
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",
 		"Log", "captured", "question",
-		"waiting 12m", "r to comment on BE-127",
+		"waiting 12m", "Write a comment… (/approve, /reject)",
 		"r reply", "tab log", "esc close")
-	d.hasNot("Estimation", "ymcp:agent", "<!--", "**export**")
+	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**",
+		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
+	lines := strings.Split(d.view(), "\n")
+	// The top bar runs across the card: the title on the left, the chips
+	// on the right of the same line.
+	if !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "backend #6") && strings.Contains(l, "State: In Progress")
+	}) {
+		t.Errorf("no top bar with the title and the chips side by side:\n%s", d.view())
+	}
+	// The reason the run waits is the last comment, not repeated above
+	// the comment box.
+	if n := strings.Count(d.view(), "Which date format should the CSV export use"); n != 1 {
+		t.Errorf("the question shows %d times:\n%s", n, d.view())
+	}
+	// The comment box is a framed rectangle at the bottom of the pane,
+	// padded away from the frame of the card.
+	box := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "Write a comment") })
+	if box < 1 || !strings.Contains(lines[box-1], "╭─") || !strings.Contains(lines[box+1], "╰─") {
+		t.Errorf("the comment box has no frame:\n%s", d.view())
+	}
+	if !strings.Contains(lines[box], "│  │ Write a comment") {
+		t.Errorf("the comment box is not padded: %q", lines[box])
+	}
 
 	// The comment is posted through YouTrack and shown at once.
 	d.keys("r")
@@ -151,7 +176,7 @@ func TestRunModal(t *testing.T) {
 	d.keys("c")
 	d.has("Cancel run #6 (BE-127)?")
 	d.keys("y")
-	d.has("Canceled run #6.", "CANCELED", "canceled")
+	d.has("Canceled run #6.", "canceled")
 	d.keys("esc")
 	if got := d.lastNav(); got != (Back{}) {
 		t.Errorf("esc: %#v", got)
@@ -163,7 +188,7 @@ func TestRunModalWorkingPlaceholder(t *testing.T) {
 	withIssues(f)
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-123"].Number, false), 120, 40)
 	d.fits(120, 40)
-	d.has("WORKING", "State: Open", "Claude · writing · 4m12s",
+	d.has("working", "State: Open", "Claude · writing · 4m12s",
 		"@xlsft's agent #5 (backend) · 4m ago", "⠋ working…", "Go ahead.")
 	d.hasNot("Working...", "working.gif", "![](")
 	d.tick()
@@ -192,7 +217,8 @@ func TestRunModalPermission(t *testing.T) {
 	fe := f.runs["FE-9"]
 	yt.issues["2-9"] = ytwatch.Issue{ID: "2-9", Key: "FE-9", Summary: "Dark mode"}
 	d := drive(t, NewRun(&f.d, "frontend", fe.Number, false), 120, 40)
-	d.has("Permission", "a /approve", "x /reject", "a approve", "x reject")
+	d.has("a approve", "x reject", "Write a comment… (/approve, /reject)")
+	d.hasNot("Permission", "posts the comment", "/approve  allow")
 	d.keys("a")
 	d.has("Post /approve on FE-9?")
 	d.keys("n")
@@ -205,6 +231,54 @@ func TestRunModalPermission(t *testing.T) {
 		t.Errorf("posted %q", yt.added)
 	}
 	d.has("/approve", "/reject", "Comments · 2")
+
+	// "/" in the box offers the commands; tab or enter completes, a
+	// second enter sends.
+	d.keys("r")
+	d.typeText("/")
+	d.has("› /approve  allow what the agent asked for", "/reject   refuse it", "tab complete")
+	d.keys("down")
+	d.has("› /reject")
+	d.keys("tab")
+	d.hasNot("allow what the agent asked for")
+	if got := d.m.(*Run).reply.ta.Value(); got != "/reject" {
+		t.Fatalf("completed %q, want /reject", got)
+	}
+	d.keys("enter")
+	if got := yt.added[len(yt.added)-1]; got != "/reject" || len(yt.added) != 3 {
+		t.Errorf("posted %q", yt.added)
+	}
+	// Narrowed by what is typed; esc closes the popup, then the box.
+	d.keys("r")
+	d.typeText("/ap")
+	d.has("› /approve")
+	d.hasNot("refuse it")
+	d.keys("enter")
+	if got := d.m.(*Run).reply.ta.Value(); got != "/approve" {
+		t.Fatalf("completed %q, want /approve", got)
+	}
+	d.keys("esc")
+	if d.m.(*Run).reply.focused {
+		t.Error("esc kept the focus in the box")
+	}
+	d.keys("r")
+	d.send(tea.KeyMsg{Type: tea.KeyBackspace})
+	d.has("› /approve")
+	d.keys("esc")
+	d.hasNot("allow what the agent asked for")
+	if !d.m.(*Run).reply.focused {
+		t.Error("esc on the popup left the box")
+	}
+}
+
+// TestRunModalNoSuggestions: "/" offers nothing when the run does not
+// wait on a permission.
+func TestRunModalNoSuggestions(t *testing.T) {
+	f := newFixture(t)
+	withIssues(f)
+	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 120, 40)
+	d.typeText("/")
+	d.hasNot("allow what the agent asked for")
 }
 
 func TestRunModalLogPanel(t *testing.T) {
@@ -245,8 +319,8 @@ func TestRunModalNarrowTakesTurns(t *testing.T) {
 	d.has("BE-127", "tab shows the log")
 	d.hasNot("captured")
 	d.keys("tab")
-	d.has("Log · tab shows the issue", "captured")
-	d.hasNot("CSV export of the reports")
+	d.has("Log · tab shows the issue", "captured", "CSV export") // the top bar stays
+	d.hasNot("Comments ·", "Write a comment")
 }
 
 func TestRunModalPullRequestTab(t *testing.T) {
@@ -259,7 +333,7 @@ func TestRunModalPullRequestTab(t *testing.T) {
 	}}
 	f.issuesFor("2-118", "BE-118", "Cache keys")
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-118"].Number, false), 160, 45)
-	d.has("YouTrack │ Pull request #40", "PR #40", "t PR thread", "p PR")
+	d.has("YouTrack     Pull request #40", "PR #40", "t PR thread", "p PR")
 	d.keys("t")
 	d.has("Read-only", "octocat · 1h ago · review", "Looks good, one nit.",
 		"octocat · 50m ago · cache/keys.go:12", "Rename this.",
@@ -339,6 +413,50 @@ func TestModalOver(t *testing.T) {
 	}
 }
 
+// TestModalOverDims draws a box over coloured content with colours on:
+// the content around the box loses its own colours and bold and is drawn
+// faint and grey, the box keeps its own, and nothing bleeds across.
+func TestModalOverDims(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(1) // termenv.ANSI256, without importing termenv
+	lipgloss.SetHasDarkBackground(true)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	under := red.Render("RED RED RED RED") + "\n" + "\x1b]8;;https://x\x1b\\link text here\x1b]8;;\x1b\\ plain" + "\n" + red.Render("open")
+	boxLine := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render("BOX")
+	got := modalOver(under, []string{boxLine, boxLine}, 4, 1, 20, 3)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	if strings.Contains(lines[0], "[1;") || strings.Contains(lines[0], "38;5;9") || strings.Contains(lines[0], "91") {
+		t.Errorf("the content under the box kept its colours: %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "\x1b[2;38;5;240m") {
+		t.Errorf("the content under the box is not faint grey: %q", lines[0])
+	}
+	if strings.Contains(got, "]8;;") {
+		t.Errorf("a link of the content under the box survived: %q", got)
+	}
+	for _, i := range []int{1, 2} {
+		if !strings.Contains(lines[i], "\x1b[94mBOX") {
+			t.Errorf("line %d lost the box's colour: %q", i, lines[i])
+		}
+		if ansi.StringWidth(lines[i]) != 20 {
+			t.Errorf("line %d is %d wide", i, ansi.StringWidth(lines[i]))
+		}
+		// After the box the grey starts afresh.
+		after := lines[i][strings.Index(lines[i], "BOX")+3:]
+		if strings.TrimSpace(ansi.Strip(after)) != "" && !strings.Contains(after, "\x1b[2;38;5;240m") {
+			t.Errorf("line %d: the right of the box is not dimmed: %q", i, after)
+		}
+	}
+	if !strings.HasPrefix(ansi.Strip(lines[1]), "linkBOXxt here") {
+		t.Errorf("line 1 %q", ansi.Strip(lines[1]))
+	}
+}
+
 func TestMarkdownLines(t *testing.T) {
 	got := ansi.Strip(strings.Join(mdLines("# Title\n\nSome **bold** and [a link](https://x).\n\n\n\n1. one\n2. two\n> quoted\n<!-- hidden -->\n---", 40), "\n"))
 	want := "Title\n\nSome bold and a link.\n\n1. one\n2. two\n│ quoted\n────────────"
@@ -347,21 +465,33 @@ func TestMarkdownLines(t *testing.T) {
 	}
 }
 
-// TestRunModalDump writes the card at 160x45 and 100x30 to the directory in
-// YMCP_DUMP, for reviews.
-func TestRunModalDump(t *testing.T) {
+// TestDump writes the pipelines grid and the run card over the dimmed
+// board at 120x34 and 100x30 to the directory in YMCP_DUMP, ANSI stripped,
+// for reviews.
+func TestDump(t *testing.T) {
 	dir := os.Getenv("YMCP_DUMP")
 	if dir == "" {
 		t.Skip("YMCP_DUMP not set")
 	}
 	f := newFixture(t)
 	withIssues(f)
-	for _, size := range [][2]int{{160, 45}, {100, 30}} {
-		d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), size[0], size[1])
-		var m tea.Model = d.m
-		name := fmt.Sprintf("%s/run-%dx%d.txt", dir, size[0], size[1])
-		if err := os.WriteFile(name, []byte(ansi.Strip(m.View())+"\n"), 0o644); err != nil {
+	write := func(name, view string) {
+		t.Helper()
+		if err := os.WriteFile(dir+"/"+name, []byte(ansi.Strip(view)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, size := range [][2]int{{120, 34}, {100, 30}, {160, 45}} {
+		w, h := size[0], size[1]
+		grid := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), w, h)
+		write(fmt.Sprintf("grid-%dx%d.txt", w, h), grid.m.View())
+		board := drive(t, NewBoard(&f.d, "backend"), w, h)
+		run := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), w, h)
+		write(fmt.Sprintf("run-%dx%d.txt", w, h), run.m.(*Run).Overlay(board.m.View()))
+		run.keys("r")
+		write(fmt.Sprintf("run-reply-%dx%d.txt", w, h), run.m.(*Run).Overlay(board.m.View()))
+		perm := drive(t, NewRun(&f.d, "frontend", f.runs["FE-9"].Number, true), w, h)
+		perm.typeText("/")
+		write(fmt.Sprintf("run-slash-%dx%d.txt", w, h), perm.m.(*Run).Overlay(board.m.View()))
 	}
 }

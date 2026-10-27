@@ -93,6 +93,8 @@ type Run struct {
 
 	reply     replyBox
 	wantReply bool
+	acSel     int    // the suggestion under the cursor
+	acOff     string // the text the suggestions were closed for
 }
 
 // pendingComment is a comment posted from the card that YouTrack has not
@@ -326,6 +328,9 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case tea.KeyMsg:
 		if m.reply.focused {
+			if m.suggestKey(msg.String()) {
+				return m, nil
+			}
 			send, text, cmd := m.reply.key(msg)
 			if send {
 				m.reply.clear()
@@ -502,15 +507,35 @@ func (m *Run) key(k string) tea.Cmd {
 // wideFrom is the inner width from which the log sits beside the issue.
 const wideFrom = 70
 
+// gutter is what separates the issue from the log, and its width.
+const gutterWidth = 5
+
+func gutter() string { return "  " + theme.Dim.Render("│") + "  " }
+
+// modalPad is the padding inside the card's frame: two cells left and
+// right and a row above and below, less on small screens.
+func modalPad(bw, bh int) (px, py int) {
+	switch {
+	case bw >= 60:
+		px = 2
+	case bw >= 30:
+		px = 1
+	}
+	if bh >= 22 {
+		py = 1
+	}
+	return px, py
+}
+
 // inner is the content width and height of the box at the current size,
-// and whether it has a border.
+// and whether it has a frame.
 func (m *Run) inner() (cw, ch int, border bool) {
 	_, _, bw, bh := modalRect(max(m.width, 1), max(m.height, 1))
-	border = bw >= 24 && bh >= 6
-	if border {
-		return max(bw-4, 1), bh - 2, true
+	if bw < 24 || bh < 6 {
+		return bw, bh, false
 	}
-	return bw, bh, false
+	px, py := modalPad(bw, bh)
+	return max(bw-2-2*px, 1), max(bh-2-2*py, 1), true
 }
 
 // split is the width of the issue and the log side by side, or 0 for the
@@ -520,7 +545,7 @@ func split(cw int) (lw, rw int) {
 		return cw, 0
 	}
 	rw = min(max(cw*32/100, 24), 64)
-	return cw - rw - 3, rw
+	return cw - rw - gutterWidth, rw
 }
 
 func (m *Run) leftWidth() int {
@@ -533,21 +558,27 @@ func (m *Run) leftWidth() int {
 // the screen it was opened from through Overlay.
 func (m *Run) View() string { return m.Overlay("") }
 
-// Overlay draws the card over under.
+// Overlay draws the card over under, which is dimmed.
 func (m *Run) Overlay(under string) string {
 	w, h := max(m.width, 1), max(m.height, 1)
 	x, y, bw, bh := modalRect(w, h)
 	return modalOver(under, m.box(bw, bh), x, y, w, h)
 }
 
-// box is the card: bw×bh with its border.
+// box is the card: bw×bh with its frame. Inside, padded: the top bar
+// (the issue, its fields, the agent, the tabs), the issue's thread with
+// the comment box beside the run's log, and the status and help lines.
 func (m *Run) box(bw, bh int) []string {
 	cw, ih, border := m.inner()
-	// The status line shows only when it says something; on tiny screens
-	// it takes the help's place.
-	foot := m.helpLines(m.help(), cw)
-	if ih < 8 {
-		foot = foot[:1]
+	// The comment box shows its own keys while it has the focus. The
+	// status line shows only when it says something; on tiny screens it
+	// takes the help's place.
+	var foot []string
+	if !m.reply.focused {
+		foot = m.helpLines(m.help(), cw)
+		if ih < 8 {
+			foot = foot[:1]
+		}
 	}
 	if s := m.statusLine(); s != "" {
 		if ih < 8 {
@@ -555,15 +586,18 @@ func (m *Run) box(bw, bh int) []string {
 		}
 		foot = append([]string{s}, foot...)
 	}
-	rows := max(ih-len(foot), 0)
-	head := title(fmt.Sprintf("%s #%d", m.pipeline, m.number))
-	right := ""
-	if m.loaded {
-		right = statusStyle(m.run.Status)
+	gap := 0
+	if len(foot) > 0 && ih >= 16 {
+		gap = 1
 	}
+	rows := max(ih-len(foot)-gap, 0)
 	var body []string
 	if !border && rows > 0 {
-		body = append(body, spread(head, right, cw))
+		right := ""
+		if m.loaded {
+			right = statusStyle(m.run.Status)
+		}
+		body = append(body, spread(title(fmt.Sprintf("%s #%d", m.pipeline, m.number)), right, cw))
 		rows--
 	}
 	switch {
@@ -571,10 +605,15 @@ func (m *Run) box(bw, bh int) []string {
 	case !m.loaded:
 		body = append(body, theme.Dim.Render("Loading…"))
 	default:
-		body = append(body, m.panes(cw, rows)...)
+		top := m.topBar(cw, border, rows)
+		if len(top) > rows/2 { // small: the title line only
+			top = top[:min(1, len(top))]
+		}
+		body = append(body, top...)
+		body = append(body, m.panes(cw, rows-len(top))...)
 	}
 	inner := make([]string, 0, ih)
-	inner = append(inner, body[:min(len(body), max(ih-len(foot), 0))]...)
+	inner = append(inner, body[:min(len(body), max(ih-len(foot)-gap, 0))]...)
 	for len(inner) < ih-len(foot) {
 		inner = append(inner, "")
 	}
@@ -588,27 +627,163 @@ func (m *Run) box(bw, bh int) []string {
 		}
 		return inner
 	}
-	for i, l := range inner {
-		inner[i] = " " + pad(l, cw) + " "
+	px, py := modalPad(bw, bh)
+	side := strings.Repeat(" ", px)
+	padded := make([]string, 0, ih+2*py)
+	for range py {
+		padded = append(padded, "")
 	}
-	return frameBox(inner, bw-2, head, right)
+	for _, l := range inner {
+		padded = append(padded, side+pad(l, cw)+side)
+	}
+	for range py {
+		padded = append(padded, "")
+	}
+	return frameBox(padded, bw-2, "", "")
 }
 
-// panes lays out the issue and the log, side by side when wide enough,
-// else the focused one.
-func (m *Run) panes(cw, rows int) []string {
-	lw, rw := split(cw)
-	if rw == 0 {
-		if m.focus == paneLog {
-			return m.logPane(cw, rows, false)
-		}
-		return m.issuePane(cw, rows, false)
+// topBar is the head of the card across its width: the pipeline and run,
+// the issue key and summary on the left, the issue's fields and the run's
+// state as chips on the right (on a second line when they need it), then
+// the agent line and, with a pull request, the tabs of the thread.
+func (m *Run) topBar(w int, border bool, rows int) []string {
+	summary := m.issue.Summary
+	if summary == "" {
+		summary = m.info.summary
 	}
-	left := m.issuePane(lw, rows, true)
-	right := m.logPane(rw, rows, true)
-	sep := theme.Dim.Render(" │ ")
-	out := make([]string, rows)
-	for i := range rows {
+	head := theme.Accent.Render(m.run.IssueKey) + " " + theme.Bold.Render(oneLine(summary))
+	if border {
+		head = title(fmt.Sprintf("%s #%d", m.pipeline, m.number)) + "  " + head
+	}
+	chips := m.chips()
+	var out []string
+	if w >= wideFrom {
+		out = sideBySide(head, chips, w)
+	} else {
+		out = wrapLines(head, w, 2)
+		rows, _ := chipRows(chips, w, 2)
+		out = append(out, rows...)
+	}
+	out = append(out, cut(m.agentLine(), w))
+	if m.hasChange() {
+		if rows >= 20 {
+			out = append(out, "")
+		}
+		out = append(out, m.tabsLine(w))
+	}
+	if rows >= 24 { // air above the rule
+		out = append(out, "")
+	}
+	return out
+}
+
+// sideBySide lays a title out on the left and chips on the right of w
+// cells: the chips take up to two right-aligned lines, the title its
+// whole width when the chips still fit beside it, else it wraps into what
+// they leave.
+func sideBySide(head string, chips []string, w int) []string {
+	headW := ansi.StringWidth(head)
+	var rows []string
+	for _, leftW := range []int{headW, max(w*2/5, 24), max(w/4, 20)} {
+		var all bool
+		rows, all = chipRows(chips, max(w-leftW-3, 1), 2)
+		if all {
+			break
+		}
+	}
+	widest := 0
+	for _, r := range rows {
+		widest = max(widest, ansi.StringWidth(r))
+	}
+	left := wrapLines(head, max(w-widest-3, 1), 2)
+	n := max(len(left), len(rows))
+	out := make([]string, n)
+	for i := range n {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(rows) {
+			r = rows[i]
+		}
+		out[i] = spread(l, r, w)
+	}
+	return out
+}
+
+// wrapLines wraps s to w cells in at most n lines, the last ending with
+// "…" when something was left out.
+func wrapLines(s string, w, n int) []string {
+	lines := wrap(s, max(w, 1))
+	if len(lines) > n {
+		lines = append(lines[:n-1], cut(lines[n-1]+" …", w))
+	}
+	return lines
+}
+
+// chipRows fills lines of w cells with chips two spaces apart, at most n
+// lines; all reports whether every chip fit, else the last line ends with
+// "…".
+func chipRows(chips []string, w, n int) (lines []string, all bool) {
+	const sep = "  "
+	line := ""
+	for _, c := range chips {
+		next := c
+		if line != "" {
+			next = line + sep + c
+		}
+		if line != "" && ansi.StringWidth(next) > w {
+			lines = append(lines, line)
+			line = c
+			continue
+		}
+		line = next
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	all = len(lines) <= n
+	if !all {
+		lines = append(lines[:n-1], lines[n-1]+" …")
+	}
+	for i, l := range lines {
+		if ansi.StringWidth(l) > w {
+			all = false
+		}
+		lines[i] = cut(l, w)
+	}
+	return lines, all
+}
+
+// panes lays out the issue and the log under a rule that marks the
+// focused one, side by side when wide enough, else the focused one.
+func (m *Run) panes(cw, rows int) []string {
+	if rows <= 0 {
+		return nil
+	}
+	lw, rw := split(cw)
+	air := rows >= 14
+	out := make([]string, 0, rows)
+	if rw == 0 {
+		out = append(out, rule(cw, false))
+		if air {
+			out = append(out, "")
+		}
+		left := rows - len(out)
+		if m.focus == paneLog {
+			return append(out, m.logPane(cw, left, false)...)
+		}
+		return append(out, m.issuePane(cw, left, false)...)
+	}
+	thread := m.focus == paneThread && !m.reply.focused
+	out = append(out, rule(lw, thread)+theme.Dim.Render("──┬──")+rule(rw, m.focus == paneLog && !m.reply.focused))
+	if air {
+		out = append(out, pad("", lw)+gutter())
+	}
+	n := rows - len(out)
+	left := m.issuePane(lw, n, true)
+	right := m.logPane(rw, n, true)
+	for i := range n {
 		l, r := "", ""
 		if i < len(left) {
 			l = left[i]
@@ -616,7 +791,7 @@ func (m *Run) panes(cw, rows int) []string {
 		if i < len(right) {
 			r = right[i]
 		}
-		out[i] = pad(l, lw) + sep + pad(r, rw)
+		out = append(out, pad(l, lw)+gutter()+pad(r, rw))
 	}
 	return out
 }
@@ -630,27 +805,26 @@ func rule(w int, focused bool) string {
 	return theme.Dim.Render(line)
 }
 
-// issuePane is the left side: title, chips, the thread and the reply box.
+// issuePane is the left side: the thread, then the comment box at the
+// bottom like the input of a chat.
 func (m *Run) issuePane(w, rows int, wide bool) []string {
-	head := m.titleLines(w)
-	head = append(head, m.chipLines(w)...)
-	head = append(head, cut(m.agentLine(), w))
-	if m.hasChange() {
-		head = append(head, m.tabsLine(w))
+	if rows <= 0 {
+		return nil
 	}
+	var head []string
 	if !wide {
-		head = append(head, cut(theme.Dim.Render("tab shows the log"), w))
+		head = []string{cut(theme.Dim.Render("tab shows the log"), w), ""}
 	}
-	head = append(head, rule(w, wide && m.focus == paneThread && !m.reply.focused))
 	foot := m.replyArea(w, rows)
 	doc := m.docLines(w)
-	docRows := rows - len(head) - len(foot)
-	if docRows < 2 && len(head) > 2 { // small: keep the title and the rule
-		head = []string{head[0], head[len(head)-1]}
-		docRows = rows - len(head) - len(foot)
+	air := 1 // between the thread and the comment box
+	docRows := rows - len(head) - len(foot) - air
+	if docRows < 2 {
+		head, air = nil, 0
+		docRows = rows - len(foot)
 	}
 	if docRows < 0 {
-		keep := max(rows-len(head), 0)
+		keep := max(rows, 0)
 		foot = foot[max(len(foot)-keep, 0):]
 		docRows = 0
 	}
@@ -664,32 +838,30 @@ func (m *Run) issuePane(w, rows int, wide bool) []string {
 	for range docRows - len(win) {
 		out = append(out, "")
 	}
+	for range air {
+		out = append(out, "")
+	}
+	at := len(out) // the popup of suggestions ends above the chip and the box
 	out = append(out, foot...)
 	if len(out) > rows {
 		out = out[:rows]
 	}
+	if items := m.suggestions(); len(items) > 0 && at > 0 {
+		pop := m.suggestBox(items, w)
+		out = popOver(out, pop, 0, max(at-len(pop), 0))
+		if len(out) > rows {
+			out = out[:rows]
+		}
+	}
 	return out
 }
 
-// titleLines is the issue key and summary, on up to two lines.
-func (m *Run) titleLines(w int) []string {
-	summary := m.issue.Summary
-	if summary == "" {
-		summary = m.info.summary
-	}
-	lines := wrap(theme.Accent.Render(m.run.IssueKey)+" "+theme.Bold.Render(oneLine(summary)), max(w, 1))
-	if len(lines) > 2 {
-		lines = []string{lines[0], cut(lines[1]+" …", w)}
-	}
-	return lines
-}
-
 // keyFields are the YouTrack fields shown as chips, in this order.
-var keyFields = []string{"State", "Type", "Priority", "Assignee"}
+var keyFields = []string{"State", "Type", "Priority"}
 
-// chipLines are the chips of the issue's key fields and the run, on up to
-// two lines.
-func (m *Run) chipLines(w int) []string {
+// chips are the issue's key fields and the run's stage, status, branch
+// and pull request, as chips.
+func (m *Run) chips() []string {
 	r := m.run
 	var chips []string
 	for _, f := range keyFields {
@@ -707,28 +879,7 @@ func (m *Run) chipLines(w int) []string {
 	if r.PRURL != "" {
 		chips = append(chips, chipStyle.Render(fmt.Sprintf("PR #%d", r.PRNumber)))
 	}
-	var lines []string
-	line := ""
-	for _, c := range chips {
-		next := c
-		if line != "" {
-			next = line + " " + c
-		}
-		if line != "" && ansi.StringWidth(next) > w {
-			lines = append(lines, line)
-			line = c
-			continue
-		}
-		line = next
-	}
-	lines = append(lines, line)
-	if len(lines) > 2 {
-		lines = []string{lines[0], lines[1] + " …"}
-	}
-	for i, l := range lines {
-		lines[i] = cut(l, w)
-	}
-	return lines
+	return chips
 }
 
 // statusChip is the run status as a chip; needs input stands out.
@@ -755,7 +906,7 @@ func (m *Run) tabsLine(w int) string {
 			names[i] = theme.Dim.Render(n)
 		}
 	}
-	return cut(names[0]+theme.Dim.Render(" │ ")+names[1]+theme.Dim.Render("   t switches"), w)
+	return cut(names[0]+"     "+names[1]+theme.Dim.Render("     t switches"), w)
 }
 
 // agentLine says what the agent is doing.
@@ -791,43 +942,115 @@ func finishedAt(r store.Run) *time.Time {
 	return &r.UpdatedAt
 }
 
-// replyArea is what sits under the thread: what the run waits for, the
-// quick answers to a permission request and the reply box.
-func (m *Run) replyArea(w, rows int) []string {
+// replyCommand is a command the comment box completes after "/".
+type replyCommand struct{ cmd, desc string }
+
+// replyCommands answer a permission request.
+var replyCommands = []replyCommand{
+	{"/approve", "allow what the agent asked for"},
+	{"/reject", "refuse it; the agent goes on without"},
+}
+
+// suggestions are the commands that complete what is typed in the comment
+// box: shown while the run waits on a permission and the text is the
+// start of one.
+func (m *Run) suggestions() []replyCommand {
+	if !m.reply.focused || !m.waitsOnPermission() {
+		return nil
+	}
+	v := m.reply.ta.Value()
+	if v == m.acOff || !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \n") {
+		return nil
+	}
+	var out []replyCommand
+	for _, c := range replyCommands {
+		if strings.HasPrefix(c.cmd, v) && c.cmd != v {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// suggestKey handles a key while suggestions show; used reports whether
+// it took the key.
+func (m *Run) suggestKey(k string) (used bool) {
+	items := m.suggestions()
+	n := len(items)
+	if n == 0 {
+		return false
+	}
+	m.acSel = clamp(m.acSel, n)
+	switch k {
+	case "up":
+		m.acSel = (m.acSel + n - 1) % n
+	case "down":
+		m.acSel = (m.acSel + 1) % n
+	case "tab", "enter":
+		m.reply.set(items[m.acSel].cmd)
+		m.acSel = 0
+	case "esc":
+		m.acOff = m.reply.ta.Value()
+	default:
+		return false
+	}
+	return true
+}
+
+// suggestBox is the popup of suggestions over the thread.
+func (m *Run) suggestBox(items []replyCommand, w int) []string {
+	sel := clamp(m.acSel, len(items))
+	cmdW := 0
+	for _, it := range items {
+		cmdW = max(cmdW, len(it.cmd))
+	}
+	inner := 0
+	lines := make([]string, len(items))
+	for i, it := range items {
+		c := pad(it.cmd, cmdW)
+		if i == sel {
+			c = theme.Bold.Render(c)
+		}
+		lines[i] = marker(i == sel) + c + "  " + theme.Dim.Render(it.desc)
+		inner = max(inner, ansi.StringWidth(lines[i]))
+	}
+	inner = min(inner, max(w-4, 4))
+	return box(lines, inner+4, solidEdges, theme.Accent, "", "")
+}
+
+// replyArea is the bottom of the issue pane: a small chip with what the
+// run waits for, the comment box and, while it has the focus, its keys.
+func (m *Run) replyArea(w, rows int) (out []string) {
 	r := m.run
-	out := []string{rule(w, m.reply.focused)}
-	if r.Status == store.StatusNeedsInput {
-		head := theme.Badge.Render("⚑ NEEDS INPUT") + theme.Dim.Render(" · waiting "+short(m.d.Now().Sub(waitingSince(r))))
-		if m.info.pending > 0 {
-			head += theme.OK.Render("  ✓ reply queued")
-		}
-		out = append(out, cut(head, w))
-		reason := strings.TrimSpace(r.NeedsInputReason)
-		if reason == "" {
-			reason = "The agent waits for an answer."
-		}
-		limit := 1
-		if rows >= 24 {
-			limit = 2
-		}
-		lines := wrap(oneLine(reason), max(w, 1))
-		if len(lines) > limit {
-			lines = append(lines[:limit-1], cut(lines[limit-1]+" …", w))
-		}
-		out = append(out, lines...)
+	switch {
+	case r.Status == store.StatusNeedsInput && m.info.pending > 0:
+		out = append(out, cut(theme.OK.Render("✓ reply queued")+theme.Dim.Render(" · the agent gets it at the next poll"), w))
+	case r.Status == store.StatusNeedsInput:
+		out = append(out, cut(theme.Badge.Render("⚑ needs input")+theme.Dim.Render(" · waiting "+short(m.d.Now().Sub(waitingSince(r)))), w))
 	}
-	if m.waitsOnPermission() && !m.reply.focused {
-		out = append(out, cut(theme.Warn.Render("Permission")+"  "+theme.Key.Render("a")+" /approve  "+
-			theme.Key.Render("x")+" /reject  "+theme.Dim.Render("posts the comment"), w))
-	}
-	hint := "r to comment on " + r.IssueKey
+	hint := replyPlaceholder
 	if r.Status.Final() {
-		hint += " (the run has ended)"
+		hint = "The run has ended; a comment goes to " + r.IssueKey + " only"
 	}
 	if m.d.Issues == nil {
 		hint = "YouTrack is not connected here: no comments"
 	}
-	return append(out, m.reply.lines(w, hint)...)
+	height := 2
+	if rows >= 24 {
+		height = 3
+	}
+	out = append(out, m.reply.lines(w, height, hint)...)
+	if m.reply.focused {
+		keys := []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
+		if len(m.suggestions()) > 0 {
+			keys = []binding{{"↑↓", "choose"}, {"tab", "complete"}, {"esc", "close"}}
+		}
+		parts := make([]string, len(keys))
+		for i, k := range keys {
+			parts[i] = theme.Key.Render(k.key) + " " + theme.Dim.Render(k.desc)
+		}
+		out = append(out, cut(strings.Join(parts, "  "), w))
+	}
+	return out
 }
 
 // docLines is the scrolling part of the issue pane: the description and
@@ -894,7 +1117,8 @@ func (m *Run) changeLines(w int) []string {
 	return out
 }
 
-// logPane is the right side: the run's events, one line each.
+// logPane is the right side: a dim header, then the run's events, one
+// line each.
 func (m *Run) logPane(w, rows int, wide bool) []string {
 	if m.logDirty || m.logWidth != w {
 		m.logLines = m.logLines[:0]
@@ -903,12 +1127,9 @@ func (m *Run) logPane(w, rows int, wide bool) []string {
 		}
 		m.logWidth, m.logDirty = w, false
 	}
-	name := "Log"
-	focused := m.focus == paneLog && !m.reply.focused
-	if focused && wide {
-		name = theme.Accent.Render(name)
-	} else {
-		name = theme.Bold.Render(name)
+	name := theme.Header.Render("Log")
+	if m.focus == paneLog && !m.reply.focused && wide {
+		name = theme.Accent.Render("Log")
 	}
 	if !wide {
 		name += theme.Dim.Render(" · tab shows the issue")
@@ -917,7 +1138,9 @@ func (m *Run) logPane(w, rows int, wide bool) []string {
 	if m.run.Worktree != "" {
 		out = append(out, cut(theme.Dim.Render(homeShort(m.run.Worktree, m.home)), w))
 	}
-	out = append(out, rule(w, focused && wide))
+	if rows >= 8 {
+		out = append(out, "")
+	}
 	m.logRows = max(rows-len(out), 0)
 	if len(m.logLines) == 0 {
 		return append(out, theme.Dim.Render("No events yet."))

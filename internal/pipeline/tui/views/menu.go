@@ -29,8 +29,15 @@ var (
 // padding on each side. title sits in the top edge on the left, badge on
 // the right; either may be "". The frame is drawn in edge.
 func box(lines []string, w int, e boxEdges, edge lipgloss.Style, title, badge string) []string {
-	w = max(w, 4)
-	inner := w - 4
+	return paddedBox(lines, w, 1, e, edge, title, badge)
+}
+
+// paddedBox is box with px spaces of padding on each side.
+func paddedBox(lines []string, w, px int, e boxEdges, edge lipgloss.Style, title, badge string) []string {
+	px = max(px, 0)
+	w = max(w, 2+2*px+1)
+	inner := w - 2 - 2*px
+	space := strings.Repeat(" ", px)
 	top := e.h
 	room := w - 2 - 1 // the edge between the corners, after the first ─
 	if title != "" {
@@ -50,7 +57,7 @@ func box(lines []string, w int, e boxEdges, edge lipgloss.Style, title, badge st
 	out = append(out, first+edge.Render(e.tr))
 	side := edge.Render(e.v)
 	for _, l := range lines {
-		out = append(out, side+" "+pad(l, inner)+" "+side)
+		out = append(out, side+space+pad(l, inner)+space+side)
 	}
 	return append(out, edge.Render(e.bl+strings.Repeat(e.h, w-2)+e.br))
 }
@@ -86,8 +93,12 @@ func popOver(bg, pop []string, x, y int) []string {
 // near.
 func placePopup(pw, ph, ax, ay, aw, w, h int) (x, y int) {
 	switch {
+	case ax+aw+1+pw <= w: // a cell apart from the anchor
+		x = ax + aw + 1
 	case ax+aw+pw <= w:
 		x = ax + aw
+	case ax-1-pw >= 0:
+		x = ax - 1 - pw
 	case ax-pw >= 0:
 		x = ax - pw
 	case pw <= w:
@@ -158,23 +169,33 @@ func (mn *menu) key(k string, items []menuItem) (pick *menuItem, closed bool) {
 	return nil, false
 }
 
-// view renders the menu in a box titled title.
-func (mn *menu) view(title string, items []menuItem, maxW int) []string {
-	labelW, keyW := 0, 0
+// view renders the menu in a box titled title, with details (lines about
+// what the menu acts on) above the actions when given.
+func (mn *menu) view(title string, details []string, items []menuItem, maxW int) []string {
+	labelW, keyW, detailW := 0, 0, 0
 	for _, it := range items {
 		labelW = max(labelW, ansi.StringWidth(it.label))
 		keyW = max(keyW, ansi.StringWidth(it.key))
 	}
+	for _, d := range details {
+		detailW = max(detailW, ansi.StringWidth(d))
+	}
 	// The reason an item is off wraps to the items' width, so the box
 	// keeps its size while the cursor moves.
-	inner := max(2+labelW+3+keyW, ansi.StringWidth(title)+1, menuMinWidth)
+	inner := max(2+labelW+3+keyW, ansi.StringWidth(title)+1, menuMinWidth, detailW)
 	sel := clamp(mn.sel, len(items))
 	why := ""
 	if len(items) > 0 {
 		why = items[sel].why
 	}
 	inner = min(inner, max(maxW-4, 8))
-	lines := make([]string, 0, len(items)+2)
+	lines := make([]string, 0, len(details)+len(items)+4)
+	for _, d := range details {
+		lines = append(lines, cut(d, inner))
+	}
+	if len(details) > 0 {
+		lines = append(lines, "")
+	}
 	for i, it := range items {
 		label, k := it.label, theme.Dim.Render(it.key)
 		switch {
