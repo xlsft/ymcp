@@ -356,7 +356,7 @@ func TestPipelinePresets(t *testing.T) {
 			t.Errorf("presets output lacks %q:\n%s", p.Name, out)
 		}
 	}
-	if !strings.Contains(out, "fix (default)") {
+	if !strings.Contains(out, "fix (default) ") || !strings.Contains(out, "built-in") {
 		t.Errorf("default preset not marked:\n%s", out)
 	}
 	if strings.Contains(out, "\n\n") {

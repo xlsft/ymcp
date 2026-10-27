@@ -33,7 +33,14 @@ Usage:
   ymcp pipeline new NAME --profile P --dir D --query Q
                                             Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
                                             --command CMD (acp), --preset NAME, --host SSH_ALIAS
-  ymcp pipeline presets                     List the built-in prompt presets
+  ymcp pipeline presets                     List the prompt presets, built-in and your own
+  ymcp pipeline presets show NAME           Print a preset as JSON
+  ymcp pipeline presets copy FROM TO        Copy a preset, built-in or yours, to a new one of yours
+  ymcp pipeline presets edit NAME           Edit one of your presets in $VISUAL or $EDITOR
+  ymcp pipeline presets rename OLD NEW      Rename one of your presets
+  ymcp pipeline presets rm NAME [-y]        Delete one of your presets
+  ymcp pipeline presets save NAME --from PIPELINE [--rationale TEXT]
+                                            Save a pipeline's prompts as a preset of yours
   ymcp pipeline notify [test | set K=V...]  Show, test or change notifications
   ymcp pipeline NAME run [-d]               Run the pipeline in the foreground (ctrl+c stops it), or with -d
                                             in the background
@@ -321,21 +328,6 @@ func pipelineList(ctx context.Context, args []string) error {
 	return nil
 }
 
-func pipelinePresets(args []string) error {
-	if err := noArgs(args, "ymcp pipeline presets"); err != nil {
-		return err
-	}
-	for _, p := range spec.Presets() {
-		mark := ""
-		if p.Name == spec.DefaultPreset {
-			mark = styleDim.Render(" (default)")
-		}
-		fmt.Println(styleBold.Render(p.Name) + mark)
-		fmt.Println("  " + oneLine(p.Rationale, 0))
-	}
-	return nil
-}
-
 func pipelineNew(args []string) error {
 	const usage = "ymcp pipeline new NAME --profile P --dir D --query Q [--agent claude] [--command CMD] [--preset NAME] [--host SSH_ALIAS]"
 	fs := pipelineFlags("pipeline new")
@@ -344,7 +336,7 @@ func pipelineNew(args []string) error {
 	query := fs.String("query", "", "YouTrack search that finds issues for the agent")
 	agentFlag := fs.String("agent", spec.DefaultProvider, "claude, kimi, opencode or acp")
 	command := fs.String("command", "", "the command that starts the ACP server (acp)")
-	preset := fs.String("preset", spec.DefaultPreset, "built-in prompt preset")
+	preset := fs.String("preset", spec.DefaultPreset, "prompt preset, built-in or yours")
 	host := fs.String("host", "", "ssh host alias to work on; empty is this machine")
 	pos, err := parseInterspersed(fs, args, usage)
 	if err != nil {
@@ -369,8 +361,12 @@ func pipelineNew(args []string) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing %s; usage: %s", strings.Join(missing, ", "), usage)
 	}
-	if _, ok := spec.LookupPreset(*preset); !ok {
+	pr, err := spec.LoadPreset(*preset)
+	if errors.Is(err, spec.ErrPresetNotFound) {
 		return fmt.Errorf("unknown preset %q; see `ymcp pipeline presets`", *preset)
+	}
+	if err != nil {
+		return err
 	}
 	if exists, err := pipelineExists(name); err != nil {
 		return err
@@ -397,6 +393,11 @@ func pipelineNew(args []string) error {
 		Agent:     spec.Agent{Provider: *agentFlag, Command: *command},
 		Prompts:   spec.Prompts{Preset: *preset},
 	}.WithDefaults()
+	if !pr.Builtin {
+		// A user preset may be changed or deleted later; the pipeline keeps
+		// its own copy. Built-in ones are resolved at run time.
+		p.Prompts.Start, p.Prompts.Feedback, p.Prompts.Answer = pr.Start, pr.Feedback, pr.Answer
+	}
 	if p.Agent.Provider == "claude" {
 		p.Agent.Mode = defaultClaudeMode
 		p.Agent.Args = slices.Clone(defaultClaudeArgs)
@@ -489,12 +490,30 @@ func pipelineEdit(name string, args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(p, "", "  ")
+	return editJSON("pipeline", name, p, func(edited []byte) (func() error, error) {
+		np, err := decodePipeline(edited)
+		if err == nil {
+			np.Name = name // the file name is the identity
+			err = np.Validate()
+		}
+		if err != nil {
+			return nil, err
+		}
+		return func() error { return spec.Save(np) }, nil
+	})
+}
+
+// editJSON opens v as JSON in the user's editor. check reads the edited
+// document and returns the function that saves it, or an error, after which
+// the user may edit again (on a terminal) or the edit is discarded. kind and
+// name are for the messages, e.g. "pipeline" "backend".
+func editJSON(kind, name string, v any, check func(edited []byte) (save func() error, err error)) error {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	tmp, err := os.CreateTemp("", "ymcp-pipeline-"+name+"-*.json")
+	tmp, err := os.CreateTemp("", "ymcp-"+kind+"-"+name+"-*.json")
 	if err != nil {
 		return err
 	}
@@ -522,16 +541,12 @@ func pipelineEdit(name string, args []string) error {
 			fmt.Println(styleDim.Render("No changes"))
 			return nil
 		}
-		np, err := decodePipeline(edited)
+		save, err := check(edited)
 		if err == nil {
-			np.Name = name // the file name is the identity
-			err = np.Validate()
-		}
-		if err == nil {
-			if err := spec.Save(np); err != nil {
+			if err := save(); err != nil {
 				return err
 			}
-			fmt.Println(styleOK.Render("✓") + " Saved pipeline " + styleBold.Render(name))
+			fmt.Println(styleOK.Render("✓") + " Saved " + kind + " " + styleBold.Render(name))
 			return nil
 		}
 		fmt.Fprintln(os.Stderr, styleWarn.Render("✗"), err)

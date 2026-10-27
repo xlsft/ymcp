@@ -302,6 +302,11 @@ The agent's prompts come from a preset: `fix` (default), `bugfix-test-first`, `f
 `language` (`English` by default) is the language of everything the agent writes in public: comments, pull requests
 and commit messages.
 
+The built-in presets are read-only; your own live in `presets/` next to the config file.
+`ymcp pipeline presets copy fix mine` makes one to change with `presets edit mine`, and
+`presets save NAME --from PIPELINE` keeps the prompts you tuned in a pipeline. `rename` and `rm` do what they say.
+A pipeline copies a preset's texts, so changing or removing a preset never changes a pipeline.
+
 ## Configuration
 
 `ymcp setup` and `ymcp auth` store each profile's name, URL, login and proxy in `<config dir>/ymcp/config.json`,
