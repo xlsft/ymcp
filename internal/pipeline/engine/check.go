@@ -23,15 +23,16 @@ type CheckResult struct {
 
 // Check verifies a pipeline without running it: the config, the profile's
 // sign-in, the source query, every stage command (validated against an
-// issue of the source when there is one), the repository and the agent,
-// and whether the working command takes an issue out of the source. The
+// issue of the source when there is one), the repository, the code host of
+// the strategy (remote, token, account) and the agent, and whether the
+// working command takes an issue out of the source. The
 // error is set only when ctx ends.
 func Check(ctx context.Context, p spec.Pipeline) ([]CheckResult, error) {
 	return CheckWith(ctx, Options{Pipeline: p})
 }
 
-// CheckWith is Check with the seams of opts (Connect, NewAgent, Host);
-// opts.Pipeline is the pipeline checked.
+// CheckWith is Check with the seams of opts (Connect, NewAgent, Host,
+// NewStrategy); opts.Pipeline is the pipeline checked.
 func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 	opts = withDefaults(opts)
 	logger := opts.Logger
@@ -51,9 +52,6 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 		add("pipeline", false, err.Error())
 	} else {
 		add("pipeline", true, "the configuration is valid")
-	}
-	if p.Strategy.Kind != "branch" {
-		add("strategy", false, fmt.Sprintf("strategy %q is not supported yet; use \"branch\"", p.Strategy.Kind))
 	}
 
 	// YouTrack.
@@ -92,6 +90,10 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 			add("workspace: "+c.Name, c.OK, c.Detail)
 		}
 		checkWorktrees(ctx, p, host, add, warn)
+		checkStrategy(ctx, p, host, opts, add)
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
 	}
 
 	// The agent.

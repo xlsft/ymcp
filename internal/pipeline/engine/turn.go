@@ -52,6 +52,9 @@ type turn struct {
 	bg    context.Context // for bookkeeping that must outlive ctx
 
 	placeholder *store.Message
+	ytAnswer    bool        // the turn answers in YouTrack (not only on the change)
+	vcsReplies  []*vcsReply // placeholders answering the change's comments
+	opened      string      // URL of the change the turn opened
 	vars        text.Vars
 	out         tail
 	lastTool    string
@@ -101,8 +104,17 @@ func (t *turn) end(reason string) {
 // fail ends the turn with the run waiting for a human.
 func (t *turn) fail(endReason, reason string) string {
 	t.end(endReason)
-	t.r.toNeedsInput(t.bg, t.run, reason, needsInputBody(reason), t.placeholder, true)
+	t.needsInput(NotifyRunFailed, reason, needsInputBody(reason), true)
 	return ""
+}
+
+// needsInput puts the run into needs_input from the turn: body goes into
+// the turn's YouTrack placeholder (or a new comment) and into its
+// placeholders on the change; a turn without those mirrors body on the
+// change when the run's last feedback came from there.
+func (t *turn) needsInput(kind, reason, body string, applyEnter bool) {
+	t.r.needsInput(t.bg, kind, t.run, reason, body, t.placeholder, applyEnter, len(t.vcsReplies) == 0)
+	t.finishVCS(stateDone, body)
 }
 
 // gone ends a turn whose issue was deleted.
@@ -140,23 +152,40 @@ func (t *turn) run1(answer string) string {
 	t.run = saved
 	run = saved
 
-	// The placeholder, at once.
-	t.placeholder = r.finalizeThinking(t.bg, run)
-	if t.placeholder != nil {
-		t.placeholder.Kind = msgAnswer
-	}
-	m, err := r.publish(t.bg, run, t.placeholder, msgAnswer, stateThinking, text.Thinking)
-	switch {
-	case err == nil:
-		t.placeholder = &m
-	case isNotFound(err):
-		if ok, xerr := r.watch.Exists(t.bg, run.IssueID); xerr == nil && !ok {
-			return t.gone()
+	// The placeholders, at once: in YouTrack unless every item of the
+	// turn came from the change, and on the change for each of its
+	// comments.
+	fromChange := 0
+	for _, it := range t.items {
+		if isVCSSource(it.Source) {
+			fromChange++
 		}
-		r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
-	default:
-		r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
 	}
+	t.ytAnswer = !r.hasChange(run) || len(t.items) == 0 || fromChange < len(t.items)
+	leftover := r.finalizeThinking(t.bg, run)
+	if t.ytAnswer {
+		t.placeholder = leftover
+		if t.placeholder != nil {
+			t.placeholder.Kind = msgAnswer
+		}
+		m, err := r.publish(t.bg, run, t.placeholder, msgAnswer, stateThinking, text.Thinking)
+		switch {
+		case err == nil:
+			t.placeholder = &m
+		case isNotFound(err):
+			if ok, xerr := r.watch.Exists(t.bg, run.IssueID); xerr == nil && !ok {
+				return t.gone()
+			}
+			r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
+		default:
+			r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
+		}
+	} else if leftover != nil {
+		if _, err := r.publish(t.bg, run, leftover, msgAnswer, stateFailed, "This turn did not finish."); err != nil {
+			r.log.Warn("editing a placeholder failed", "run", run.Number, "err", err)
+		}
+	}
+	t.openVCSPlaceholders()
 
 	issue, err := r.watch.Issue(t.ctx, run.IssueID)
 	if err != nil {
@@ -184,6 +213,9 @@ func (t *turn) run1(answer string) string {
 	t.vars["pipeline.name"] = r.p.Name
 	t.vars["language"] = r.p.Language
 	t.vars["pr.url"] = "none"
+	if run.PRURL != "" {
+		t.vars["pr.url"] = run.PRURL
+	}
 
 	if err := t.prepareWorkspace(); err != nil {
 		if t.ctx.Err() != nil {
@@ -280,6 +312,10 @@ func (t *turn) prompts(answer string) (prompt, system string, err error) {
 		items := make([]text.FeedbackItem, len(t.items))
 		for i, it := range t.items {
 			items[i] = text.FeedbackItem{N: i + 1, Source: it.Source, Author: it.Author, URL: it.URL, Body: it.Body}
+		}
+		for _, rp := range t.vcsReplies {
+			it := &items[rp.n-1]
+			it.File, it.Line, it.Hunk, it.Outdated = rp.to.File, rp.to.Line, rp.to.Hunk, rp.to.Outdated
 		}
 		t.vars["feedback"] = text.RenderFeedback(items)
 		prompt, err = text.Render(r.prompts.Feedback, t.vars)
@@ -688,9 +724,14 @@ func (t *turn) openPermission() {
 		return
 	}
 	t.run = saved
-	if _, err := r.publish(t.bg, saved, nil, msgPermission, stateDone, body); err != nil {
+	url := r.issueURL(saved)
+	if m, err := r.publish(t.bg, saved, nil, msgPermission, stateDone, body); err != nil {
 		r.log.Warn("publishing a permission request failed", "run", t.run.Number, "err", err)
+	} else if m.ExternalID != "" {
+		url = ytwatch.CommentURL(r.yt.BaseURL(), saved.IssueKey, m.ExternalID)
 	}
+	r.mirror(t.bg, saved, msgPermission, body)
+	r.notify(t.bg, NotifyNeedsInput, saved, "needs permission", reason, url)
 }
 
 func (t *turn) stopPermTimer() {
@@ -742,6 +783,9 @@ func (t *turn) permissionAnswers(sess agent.Session) {
 		if err := r.st.ConsumeInbox(t.bg, []int64{it.ID}, t.inv.ID); err != nil {
 			r.log.Warn("consuming the inbox failed", "run", t.run.Number, "err", err)
 		}
+		if isVCSSource(it.Source) {
+			r.vcsComment(t.bg, it) // forget it
+		}
 		t.answerPermission(sess, t.perms[0], cmd == "/approve", "answered by "+it.Author)
 		t.closePermission()
 	}
@@ -773,6 +817,7 @@ func (t *turn) stopped(cause string) string {
 				t.r.log.Warn("editing the placeholder failed", "run", t.run.Number, "err", err)
 			}
 		}
+		t.finishVCS(stateFailed, body)
 	}
 	return ""
 }
@@ -787,7 +832,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		return t.stopped(cause)
 	case causePaused:
 		t.end("paused")
-		r.toNeedsInput(t.bg, t.run, t.pauseReason, needsInputBody(t.pauseReason), t.placeholder, false)
+		t.needsInput(NotifyNeedsInput, t.pauseReason, needsInputBody(t.pauseReason), false)
 		return ""
 	case causeSilence, causeTotal:
 		var reason string
@@ -800,7 +845,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 			reason = "The agent's turn ran longer than " + fmtDuration(r.p.Timeouts.Total.Duration) + " and was stopped."
 		}
 		reason = withTail(reason, &t.out)
-		if err := t.commitAndPush(answer); err != nil {
+		if _, err := t.commitAndPush(answer); err != nil {
 			reason += "\n\n" + capitalize(err.Error())
 		}
 		return t.fail("timeout: "+cause, reason)
@@ -821,7 +866,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 			msg = "stop reason " + res.StopReason
 		}
 		reason := withTail("The agent stopped with an error: "+msg, &t.out)
-		if err := t.commitAndPush(answer); err != nil {
+		if _, err := t.commitAndPush(answer); err != nil {
 			reason += "\n\n" + capitalize(err.Error())
 		}
 		return t.fail(res.StopReason, reason)
@@ -830,16 +875,20 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		return t.fail("agent error", withTail("The agent reported an error: "+res.Err, &t.out))
 	}
 
-	gitErr := t.commitAndPush(answer)
+	pushed, gitErr := t.commitAndPush(answer)
+	if gitErr == nil && pushed {
+		gitErr = t.openChange(answer)
+	}
 
 	if len(questions) > 0 {
 		q := strings.Join(questions, "\n\n")
 		reason := "The agent asked a question."
+		q += t.changeLine()
 		if gitErr != nil {
 			q += "\n\n" + capitalize(gitErr.Error())
 		}
 		t.end("question")
-		r.toNeedsInput(t.bg, t.run, reason+"\n\n"+q, q, t.placeholder, true)
+		t.needsInput(NotifyNeedsInput, reason+"\n\n"+q, q, true)
 		return ""
 	}
 
@@ -878,13 +927,13 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		reason := "The agent was not allowed to use: " + strings.Join(denied, ", ") + ". Reply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
 		body := reason
 		if answer != "" {
-			body = answer + "\n\n---\n\n**Needs input.** " + reason
+			body = answer + t.changeLine() + "\n\n---\n\n**Needs input.** " + reason
 		}
 		if gitErr != nil {
 			body += "\n\n" + capitalize(gitErr.Error())
 		}
 		t.end("denied")
-		r.toNeedsInput(t.bg, t.run, reason, body, t.placeholder, true)
+		t.needsInput(NotifyNeedsInput, reason, body, true)
 		return ""
 	}
 	if res.StopReason == agent.StopCancelled && r.p.Permissions != "deny" {
@@ -895,7 +944,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 	if gitErr != nil {
 		t.end("git failed")
 		reason := capitalize(gitErr.Error())
-		r.toNeedsInput(t.bg, t.run, reason, needsInputBody(reason), nil, true)
+		r.needsInput(t.bg, NotifyRunFailed, t.run, reason, needsInputBody(reason), nil, true, true)
 		return ""
 	}
 	t.end(agent.StopEndTurn)
@@ -921,33 +970,48 @@ func (t *turn) allApproved(tools []string) bool {
 	return true
 }
 
-// publishAnswer edits the placeholder into the answer. Feedback answers
-// are split: each YouTrack item gets its part as a separate reply. A batch
-// with a single YouTrack item gets no separate reply: the placeholder
-// becomes the reply to it.
+// publishAnswer edits the placeholders into the answer. Feedback answers
+// are split: each YouTrack item gets its part as a separate reply, each
+// comment of the change its part in its placeholder there. A batch with a
+// single YouTrack item gets no separate reply: the placeholder becomes the
+// reply to it. When every item came from the change, the first comment's
+// reply also carries the rest of the answer.
 func (t *turn) publishAnswer(answer string, extra error) {
 	r := t.r
 	if answer == "" {
 		answer = "The agent finished without an answer."
 	}
-	rest := answer
-	if t.kind == kindFeedback {
-		var ns []int
-		for i, it := range t.items {
-			if it.Source == sourceYouTrack {
-				ns = append(ns, i+1)
-			}
+	var ns, all []int
+	for i, it := range t.items {
+		if it.Source == sourceYouTrack {
+			ns = append(ns, i+1)
+			all = append(all, i+1)
 		}
-		parts, other := text.SplitAnswer(answer, ns)
+	}
+	for _, rp := range t.vcsReplies {
+		all = append(all, rp.n)
+	}
+	slices.Sort(all)
+	parts, other := map[int]string{}, answer
+	if t.kind == kindFeedback {
+		parts, other = text.SplitAnswer(answer, all)
+	}
+	tail := ""
+	if extra != nil {
+		tail = "\n\n" + capitalize(extra.Error())
+	}
+
+	ytURL := ""
+	if t.ytAnswer {
+		rest := other
 		switch {
 		case len(ns) == 1:
-			body := answer
+			body := other
 			if part, ok := parts[ns[0]]; ok {
 				body = strings.TrimSpace(part + "\n\n" + other)
 			}
 			rest = "Re: " + t.items[ns[0]-1].URL + "\n\n" + body
 		case len(parts) > 0:
-			rest = other
 			for _, n := range ns {
 				part, ok := parts[n]
 				if !ok {
@@ -959,16 +1023,42 @@ func (t *turn) publishAnswer(answer string, extra error) {
 					r.log.Warn("publishing a reply failed", "run", t.run.Number, "err", err)
 				}
 			}
-			if rest == "" {
-				rest = "Answered each comment separately."
-			}
+		}
+		if strings.TrimSpace(rest) == "" {
+			rest = "Answered each comment separately."
+		}
+		m, err := r.publish(t.bg, t.run, t.placeholder, msgAnswer, stateDone, rest+t.changeLine()+tail)
+		if err != nil {
+			r.log.Warn("publishing the answer failed", "run", t.run.Number, "err", err)
+		} else if m.ExternalID != "" {
+			ytURL = ytwatch.CommentURL(r.yt.BaseURL(), t.run.IssueKey, m.ExternalID)
 		}
 	}
-	if extra != nil {
-		rest += "\n\n" + capitalize(extra.Error())
-	}
-	if _, err := r.publish(t.bg, t.run, t.placeholder, msgAnswer, stateDone, rest); err != nil {
-		r.log.Warn("publishing the answer failed", "run", t.run.Number, "err", err)
+
+	first := ""
+	for i, rp := range t.vcsReplies {
+		body, ok := parts[rp.n]
+		switch {
+		case !t.ytAnswer && i == 0:
+			body = strings.TrimSpace(body + "\n\n" + other)
+			if body == "" {
+				body = answer
+			}
+			body += tail
+		case ok:
+		case !t.ytAnswer && first != "":
+			body = "See " + first
+		case !t.ytAnswer:
+			body = answer
+		case ytURL != "":
+			body = "Answered in YouTrack: " + ytURL
+		default:
+			body = "Answered in YouTrack: " + r.issueURL(t.run)
+		}
+		t.writeVCS(rp, stateDone, body)
+		if i == 0 {
+			first = rp.url
+		}
 	}
 }
 
@@ -986,6 +1076,11 @@ func (t *turn) toReview() {
 	t.run = saved
 	r.log.Info("run in review", "run", saved.Number, "issue", saved.IssueKey, "branch", saved.Branch)
 	r.event(t.bg, saved.ID, "run.review", map[string]string{"branch": saved.Branch})
+	url, what := r.issueURL(saved), "on branch "+saved.Branch
+	if saved.PRURL != "" {
+		url, what = saved.PRURL, "in "+saved.PRURL
+	}
+	r.notify(t.bg, NotifyReviewReady, saved, "ready for review", "The agent's work is ready for review "+what+".", url)
 	if st := r.p.Stages.Review; st.On() && st.Enter != "" {
 		if err := r.watch.Apply(t.bg, st.Enter, saved.IssueKey); err != nil {
 			reason := "The review command `" + st.Enter + "` failed: " + describeErr(err)
@@ -997,11 +1092,12 @@ func (t *turn) toReview() {
 }
 
 // commitAndPush commits what the agent left uncommitted and pushes the
-// branch; the error says which step failed and how.
-func (t *turn) commitAndPush(answer string) error {
+// branch; pushed says whether the branch is on origin now, the error which
+// step failed and how.
+func (t *turn) commitAndPush(answer string) (pushed bool, err error) {
 	r, w := t.r, t.w
 	if w.wt.Path == "" {
-		return nil
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(t.bg, gitTimeout)
 	defer cancel()
@@ -1009,7 +1105,7 @@ func (t *turn) commitAndPush(answer string) error {
 	committed, err := workspace.CommitLeftovers(ctx, r.host, w.wt, msg)
 	if err != nil {
 		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "commit", "error": err.Error()})
-		return fmt.Errorf("committing the agent's leftovers failed:\n%s", codeBlock(err.Error()))
+		return false, fmt.Errorf("committing the agent's leftovers failed:\n%s", codeBlock(err.Error()))
 	}
 	if committed {
 		r.event(t.bg, t.run.ID, "git.commit", map[string]string{"message": msg})
@@ -1019,18 +1115,18 @@ func (t *turn) commitAndPush(answer string) error {
 	ahead, err := workspace.Ahead(ctx, r.host, w.wt)
 	if err == nil && ahead == 0 {
 		r.event(t.bg, t.run.ID, "git.push_skipped", map[string]string{"branch": w.wt.Branch, "reason": "no commits beyond origin/" + w.wt.Base})
-		return nil
+		return false, nil
 	}
 	if err != nil {
 		r.log.Warn("counting the branch's commits failed", "run", t.run.Number, "err", err)
 	}
 	if err := workspace.Push(ctx, r.host, w.wt); err != nil {
 		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "push", "error": err.Error()})
-		return fmt.Errorf("pushing the branch failed:\n%s", codeBlock(err.Error()))
+		return false, fmt.Errorf("pushing the branch failed:\n%s", codeBlock(err.Error()))
 	}
 	head, _ := workspace.Head(ctx, r.host, w.wt)
 	r.event(t.bg, t.run.ID, "git.push", map[string]string{"branch": w.wt.Branch, "head": head})
-	return nil
+	return true, nil
 }
 
 // subjectLimit bounds the subject of a leftover commit, prefix included.

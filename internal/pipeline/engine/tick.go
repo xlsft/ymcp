@@ -34,6 +34,7 @@ func (r *Runner) tick(ctx context.Context) {
 		r.checkMembership(ctx, source, captured)
 	}
 	r.pollComments(ctx)
+	r.pollVCS(ctx)
 	r.schedule(ctx)
 }
 
@@ -257,9 +258,11 @@ func (r *Runner) cancelRun(ctx context.Context, w *worker, reason string) {
 	w.stop(errCanceled)
 }
 
-// finishRun ends a run whose issue a human moved to the done or closed
-// stage; the worktree is removed unless the pipeline keeps it.
-func (r *Runner) finishRun(ctx context.Context, w *worker, status store.RunStatus, stage string) {
+// finishRun ends a run as done or closed: its issue was moved to the done
+// or closed stage, or its change was merged or closed. The worktree is
+// removed unless the pipeline keeps it. It returns the run as saved and
+// whether this call ended it.
+func (r *Runner) finishRun(ctx context.Context, w *worker, status store.RunStatus, stage string) (store.Run, bool) {
 	run, err := r.st.ModifyRun(context.WithoutCancel(ctx), w.id, func(run *store.Run) error {
 		run.Status, run.Stage, run.NeedsInputReason = status, stage, ""
 		return nil
@@ -268,11 +271,17 @@ func (r *Runner) finishRun(ctx context.Context, w *worker, status store.RunStatu
 		if !errors.Is(err, store.ErrRunFinished) {
 			r.log.Warn("finishing a run failed", "run", w.number, "err", err)
 		}
-		return
+		return run, false
 	}
 	r.log.Info("run finished", "run", run.Number, "issue", run.IssueKey, "status", status)
 	r.event(ctx, w.id, "run.finished", map[string]string{"status": string(status)})
 	w.stop(errFinished)
+	what, url := string(status), r.issueURL(run)
+	if run.PRURL != "" {
+		url = run.PRURL
+	}
+	r.notify(ctx, NotifyRunDone, run, what, "The run ended: "+what+".", url)
+	return run, true
 }
 
 // pauseRun puts a run whose issue left the pipeline's stages into

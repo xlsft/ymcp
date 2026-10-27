@@ -97,6 +97,10 @@ type harness struct {
 	realAgent bool
 	// now, when set, is the engine's clock (Options.Now) and the store's.
 	now func() time.Time
+	// vcs, when set, is the strategy of the pipeline (Options.NewStrategy).
+	vcs *fakeVCS
+	// notes records Options.Notify.
+	notes *notes
 
 	cancel context.CancelFunc
 	done   chan error
@@ -127,7 +131,7 @@ func newHarness(t *testing.T, mod func(p *spec.Pipeline)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, yt: newFakeYT(t), ag: &fakeAgent{}, st: st, repo: repo, origin: origin, p: testPipeline(repo)}
+	h := &harness{t: t, yt: newFakeYT(t), ag: &fakeAgent{}, st: st, repo: repo, origin: origin, p: testPipeline(repo), notes: &notes{}}
 	if mod != nil {
 		mod(&h.p)
 	}
@@ -155,6 +159,10 @@ func (h *harness) options() Options {
 	if !h.realAgent {
 		o.NewAgent = func(spec.Agent, *slog.Logger) (agent.Agent, error) { return h.ag, nil }
 	}
+	if h.vcs != nil {
+		o.NewStrategy = h.vcs.newStrategy
+	}
+	o.Notify = h.notes.add
 	return o
 }
 
@@ -1160,11 +1168,6 @@ func TestNewRejectsBadPipeline(t *testing.T) {
 	defer st.Close()
 	if _, err := New(context.Background(), Options{Pipeline: spec.Pipeline{Name: "x"}, Store: st}); err == nil {
 		t.Error("an invalid pipeline was accepted")
-	}
-	p := testPipeline(t.TempDir())
-	p.Strategy.Kind = "github-pr"
-	if _, err := New(context.Background(), Options{Pipeline: p, Store: st}); err == nil || !strings.Contains(err.Error(), "not supported") {
-		t.Errorf("err = %v", err)
 	}
 	if _, err := New(context.Background(), Options{Pipeline: testPipeline("x")}); err == nil {
 		t.Error("no store was accepted")

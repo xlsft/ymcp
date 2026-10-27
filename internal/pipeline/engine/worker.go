@@ -13,6 +13,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/mcpserver"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
 // Stage names stored in store.Run.Stage, as in the pipeline JSON.
@@ -215,7 +216,8 @@ func (w *worker) step() {
 func (r *Runner) interrupted(ctx context.Context, run store.Run) {
 	const reason = "The runner stopped while the agent was working, so this turn did not finish."
 	m := r.finalizeThinking(ctx, run)
-	r.toNeedsInput(ctx, run, reason, needsInputBody(reason), m, true)
+	onChange := r.finalizeVCSThinking(ctx, run, needsInputBody(reason))
+	r.needsInput(ctx, NotifyNeedsInput, run, reason, needsInputBody(reason), m, true, !onChange)
 }
 
 // finalizeThinking marks placeholders left over from an unfinished turn;
@@ -266,8 +268,15 @@ func (r *Runner) setNeedsInput(ctx context.Context, runID int64, reason string, 
 }
 
 // toNeedsInput puts the run into needs_input and publishes body: into the
-// message m when given, as a new comment otherwise.
+// message m when given, as a new comment otherwise. When the run's last
+// feedback came from its change, body is posted there too.
 func (r *Runner) toNeedsInput(ctx context.Context, run store.Run, reason, body string, m *store.Message, applyEnter bool) {
+	r.needsInput(ctx, NotifyNeedsInput, run, reason, body, m, applyEnter, true)
+}
+
+// needsInput is toNeedsInput with the kind of the notification and whether
+// to mirror body on the change.
+func (r *Runner) needsInput(ctx context.Context, kind string, run store.Run, reason, body string, m *store.Message, applyEnter, mirror bool) {
 	saved, err := r.setNeedsInput(ctx, run.ID, reason, applyEnter)
 	if err != nil {
 		if !errors.Is(err, store.ErrRunFinished) {
@@ -275,13 +284,25 @@ func (r *Runner) toNeedsInput(ctx context.Context, run store.Run, reason, body s
 		}
 		return
 	}
-	kind := msgNotice
+	mk := msgNotice
 	if m != nil {
-		kind = m.Kind
+		mk = m.Kind
 	}
-	if _, err := r.publish(ctx, saved, m, kind, stateDone, body); err != nil {
+	url := r.issueURL(saved)
+	pub, err := r.publish(ctx, saved, m, mk, stateDone, body)
+	if err != nil {
 		r.log.Warn("publishing the needs-input reason failed", "run", run.Number, "err", err)
+	} else if pub.ExternalID != "" {
+		url = ytwatch.CommentURL(r.yt.BaseURL(), saved.IssueKey, pub.ExternalID)
 	}
+	if mirror {
+		r.mirror(ctx, saved, msgNotice, body)
+	}
+	what := "needs input"
+	if kind == NotifyRunFailed {
+		what = "failed"
+	}
+	r.notify(ctx, kind, saved, what, reason, url)
 }
 
 // leaveNeedsInput applies the needsInput exit command of a run that gets

@@ -2,7 +2,9 @@
 // match the pipeline's source, gives each one a run with its own git
 // worktree and agent session, publishes the agent's answers as YouTrack
 // comments, feeds human replies back to the agent and moves the issue
-// through the pipeline's stages.
+// through the pipeline's stages. With a pull or merge request strategy it
+// opens the change after the first push, reads the feedback left on it,
+// answers there and ends the run when the change is merged or closed.
 //
 // One Runner drives one pipeline. Its polling loop is sequential: it reads
 // the source, checks stage membership of active runs, reads new comments
@@ -32,6 +34,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
+	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 	"github.com/xlsft/ymcp/internal/tools"
@@ -57,6 +60,16 @@ type Options struct {
 	Host workspace.Host
 	// Now is the clock used for debouncing. Default: time.Now.
 	Now func() time.Time
+	// NewStrategy builds the strategy of a pipeline that opens pull or
+	// merge requests, for the repository at originURL (the workspace's
+	// origin remote). On failure the Remote holds what was found before
+	// it. Default: vcs.ParseRemote, vcs.TokenFor and vcs.New.
+	NewStrategy func(ctx context.Context, kind vcs.Kind, originURL string) (Remote, error)
+	// Notify, when set, is told about moments a human may want to know
+	// of: kind is one of the Notify* constants, url the page to open
+	// (the question, the pull request or the issue). It is called from
+	// the runner's goroutines and must not block for long.
+	Notify func(ctx context.Context, kind string, run store.Run, title, body, url string)
 }
 
 // Intervals of the runner lock.
@@ -84,13 +97,22 @@ type Runner struct {
 	mcp    *mcpserver.Server
 	mcpURL string // http://127.0.0.1:P/<profile>
 
+	// The code host of a strategy with pull or merge requests; vcs is nil
+	// for the branch strategy.
+	vcs       vcs.Strategy
+	vcsMe     string // login on the code host
+	vcsRepo   string // host/owner/name
+	vcsSource string // sourceGitHub or sourceGitLab
+	notifyFn  func(ctx context.Context, kind string, run store.Run, title, body, url string)
+
 	mu      sync.Mutex
 	workers map[int64]*worker
 	started bool
 	wg      sync.WaitGroup
 
 	// Touched only by the polling loop.
-	suppressed map[string]bool // issue ids not captured again while they stay in the source
+	suppressed map[string]bool     // issue ids not captured again while they stay in the source
+	vcsWait    map[int64]time.Time // runs whose change is not polled until then (rate limits)
 }
 
 // New prepares a runner: it loads the profile, signs in to YouTrack once
@@ -102,9 +124,6 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	p := opts.Pipeline.WithDefaults()
 	if err := p.Validate(); err != nil {
 		return nil, err
-	}
-	if p.Strategy.Kind != "branch" {
-		return nil, fmt.Errorf("pipeline %s: strategy %q is not supported yet; use \"branch\"", p.Name, p.Strategy.Kind)
 	}
 	logger := opts.Logger
 	if logger == nil {
@@ -137,6 +156,14 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("signing in to YouTrack (profile %s): %w", p.Profile, err)
 	}
+	var rem Remote
+	var vcsMe string
+	if needsChange(p.Strategy.Kind) {
+		if rem, vcsMe, err = connectVCS(ctx, p, host, opts); err != nil {
+			return nil, err
+		}
+		logger.Info("code host", "repo", repoName(rem.Repo), "strategy", p.Strategy.Kind, "as", vcsMe, "token", rem.TokenSource)
+	}
 	ag, err := opts.NewAgent(p.Agent, logger)
 	if err != nil {
 		return nil, err
@@ -146,6 +173,12 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		profile = p.Profile
 	}
 	return &Runner{
+		vcs:        rem.Strategy,
+		vcsMe:      vcsMe,
+		vcsRepo:    repoName(rem.Repo),
+		vcsSource:  sourceOf(p.Strategy.Kind),
+		notifyFn:   opts.Notify,
+		vcsWait:    map[int64]time.Time{},
 		p:          p,
 		prompts:    p.ResolvedPrompts(),
 		st:         opts.Store,
@@ -173,6 +206,9 @@ func withDefaults(o Options) Options {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.NewStrategy == nil {
+		o.NewStrategy = newStrategy
 	}
 	return o
 }
