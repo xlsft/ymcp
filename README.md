@@ -280,6 +280,9 @@ A run waits in needs input when the agent asks a question, wants a permission, s
 (10m), runs longer than `timeouts.total` (2h) or fails. The first reply from an allowed author continues it: a
 comment in YouTrack or on the pull request, the TUI's inbox, or `ymcp pipeline backend answer 17 "…"`. A permission
 request takes `/approve` or `/reject`; without a reply within `timeouts.permission` (30m) it is refused.
+For Claude, `/approve` allows exactly the calls that were denied for the rest of the run (`Bash(<command>)`,
+`Edit(//<path>)`, …), never the whole tool; a call that can't be spelled as such a rule (a wildcard, a subshell) stays
+denied.
 
 ### Notifications
 

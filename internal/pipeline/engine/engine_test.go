@@ -606,11 +606,83 @@ func TestClaudeDeniedThenApprove(t *testing.T) {
 	h.waitInvocations(run.ID, 2)
 	h.waitReview(1, is.Key)
 	starts := h.ag.startLog()
-	if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash", "Write"}) || !slices.Equal(starts[0].AllowedTools, []string{"mcp__ymcp"}) {
+	// Exactly the denied calls are allowed, never the whole tool.
+	if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash(make build)", "Edit(//tmp/out.txt)"}) || !slices.Equal(starts[0].AllowedTools, []string{"mcp__ymcp"}) {
 		t.Errorf("allowed tools: %q / %q", starts[0].AllowedTools, starts[len(starts)-1].AllowedTools)
 	}
-	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash, Write") {
+	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash(make build), Edit(//tmp/out.txt)") {
 		t.Errorf("prompt = %q", h.ag.promptLog()[1])
+	}
+}
+
+// TestClaudeApproveNeverGrantsTheWholeTool: a denied call that no rule
+// allows exactly (a wildcard, a subshell, no command) is not approved by
+// the bare tool name, also not with permissions: allow.
+func TestClaudeApproveNeverGrantsTheWholeTool(t *testing.T) {
+	for _, mode := range []string{"ask", "allow"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t, func(p *spec.Pipeline) {
+				p.Agent = spec.Agent{Provider: "claude", Name: "Claude"}
+				p.Permissions = mode
+			})
+			h.yt.addIssue("Clean up", "Open")
+			denied := []agent.ToolCall{
+				{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"rm -rf build/*"}`)},
+				{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"git commit -m \"$(cat msg)\""}`)},
+				{Title: "Bash", Status: "denied"},
+				{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make clean"}`)},
+			}
+			h.ag.script(
+				func(t *fakeTurn) agent.Result {
+					t.Say("Could not clean.")
+					return agent.Result{Denied: denied}
+				},
+				func(t *fakeTurn) agent.Result {
+					t.Say("Still could not.")
+					return agent.Result{Denied: denied}
+				},
+			)
+			h.start()
+			run := h.waitStatus(1, store.StatusNeedsInput)
+			if !strings.Contains(run.NeedsInputReason, "`/approve` allows exactly `Bash(make clean)`") || !strings.Contains(run.NeedsInputReason, "stay denied") {
+				t.Errorf("reason = %q", run.NeedsInputReason)
+			}
+			if mode == "ask" {
+				if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+					t.Fatal(err)
+				}
+				h.waitInvocations(run.ID, 2)
+				h.waitStatus(1, store.StatusNeedsInput)
+			}
+			starts := h.ag.startLog()
+			if len(starts) != 2 || !slices.Equal(starts[1].AllowedTools, []string{"mcp__ymcp", "Bash(make clean)"}) {
+				t.Errorf("allowed tools: %q", starts[len(starts)-1].AllowedTools)
+			}
+			for _, s := range starts {
+				if slices.Contains(s.AllowedTools, "Bash") {
+					t.Errorf("the whole of Bash was allowed: %q", s.AllowedTools)
+				}
+			}
+		})
+	}
+}
+
+// TestClaudeOnlyInexactDenials: when no denied call can be approved
+// exactly, the reply is not offered /approve and approves nothing.
+func TestClaudeOnlyInexactDenials(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Agent = spec.Agent{Provider: "claude", Name: "Claude"} })
+	h.yt.addIssue("Clean up", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.Say("Could not clean.")
+		return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"rm *"}`)}}}
+	})
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if strings.Contains(run.NeedsInputReason, "/approve") || !strings.Contains(run.NeedsInputReason, "stay denied") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	if v, _, _ := h.st.RunState(context.Background(), run.ID, statePending); v != "" {
+		t.Errorf("pending = %q", v)
 	}
 }
 
@@ -623,7 +695,7 @@ func TestApprovalSurvivesRestart(t *testing.T) {
 	h.ag.script(
 		func(t *fakeTurn) agent.Result {
 			t.Say("I could not run the build.")
-			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied"}}}
+			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make"}`)}}}
 		},
 		func(t *fakeTurn) agent.Result {
 			t.Say("Built.")
@@ -655,7 +727,7 @@ func TestApprovalSurvivesRestart(t *testing.T) {
 	if v, ok, _ := h.st.RunState(context.Background(), run.ID, stateApproved); !ok || !strings.Contains(v, "Bash") {
 		t.Errorf("approved state = %q, %v", v, ok)
 	}
-	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
+	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash(make)") {
 		t.Errorf("prompt = %q", h.ag.promptLog()[1])
 	}
 	h.stop()
@@ -666,7 +738,7 @@ func TestApprovalSurvivesRestart(t *testing.T) {
 	h.waitInvocations(run.ID, 3)
 	h.waitReview(1, is.Key)
 	starts := h.ag.startLog()
-	if len(starts) != 3 || !slices.Contains(starts[1].AllowedTools, "Bash") || !slices.Contains(starts[2].AllowedTools, "Bash") {
+	if len(starts) != 3 || !slices.Contains(starts[1].AllowedTools, "Bash(make)") || !slices.Contains(starts[2].AllowedTools, "Bash(make)") {
 		t.Errorf("allowed tools: %+v", starts)
 	}
 }

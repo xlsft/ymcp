@@ -907,38 +907,17 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 
 	// Tools the agent was not allowed to use: claude reports them after the
 	// turn, ACP requests nobody answered in time were refused by us.
-	var denied []string
-	if r.p.Agent.Provider == "claude" {
-		for _, d := range res.Denied {
-			if d.Title != "" && !slices.Contains(denied, d.Title) {
-				denied = append(denied, d.Title)
-			}
-		}
-	}
-	for _, l := range t.late {
-		if !slices.Contains(denied, l) {
-			denied = append(denied, l)
-		}
-	}
-	if res.StopReason == agent.StopCancelled && r.p.Permissions != "deny" {
-		// opencode ends a turn with cancelled when a request is refused.
-		for _, l := range t.rejected {
-			if !slices.Contains(denied, l) {
-				denied = append(denied, l)
-			}
-		}
-	}
-	if len(denied) > 0 && r.p.Permissions != "deny" {
-		if r.p.Permissions == "allow" && len(t.late) == 0 && !t.allApproved(denied) {
-			t.w.approve(denied)
-			r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": denied, "why": "permissions: allow"})
+	d := t.denials(res)
+	if len(d.tools) > 0 && r.p.Permissions != "deny" {
+		if r.p.Permissions == "allow" && len(t.late) == 0 && len(d.rules) > 0 && !t.allApproved(d.rules) {
+			t.w.approve(d.rules)
+			r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": d.rules, "why": "permissions: allow"})
 			t.publishAnswer(answer, gitErr)
 			t.end("denied, retrying")
-			return "Approved: " + strings.Join(denied, ", ") + ". Retry what was denied."
+			return "Approved: " + strings.Join(d.rules, ", ") + ". Retry what was denied."
 		}
-		t.w.setRetry(denied)
-		reason := "The agent was not allowed to use: " + strings.Join(denied, ", ") + "." + deniedCalls(res.Denied) +
-			"\n\nReply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
+		t.w.setRetry(d.rules)
+		reason := d.text()
 		body := reason
 		if answer != "" {
 			body = answer + t.changeLine() + "\n\n---\n\n**Needs input.** " + reason
@@ -1196,6 +1175,90 @@ func firstSentence(s string) string {
 		}
 	}
 	return s
+}
+
+// denials are the calls of a turn the agent was not allowed to make.
+type denials struct {
+	tools []string // the tools, for people
+	// rules is what /approve allows: for claude the rule of each call
+	// (agent.ClaudeRule), so that only that call is allowed, not the tool;
+	// for ACP agents the tool titles their permission requests carry.
+	rules   []string
+	calls   []agent.ToolCall // claude's denied calls, for deniedCalls
+	inexact []agent.ToolCall // claude's calls no rule allows exactly
+}
+
+// denials collects the calls of the turn that were denied: claude reports
+// them after the turn, ACP requests nobody answered in time were refused by
+// the runner, and opencode ends a turn as cancelled when one is refused.
+func (t *turn) denials(res agent.Result) denials {
+	var d denials
+	add := func(list *[]string, s string) {
+		if s != "" && !slices.Contains(*list, s) {
+			*list = append(*list, s)
+		}
+	}
+	if t.r.p.Agent.Provider == "claude" {
+		for _, c := range res.Denied {
+			if c.Title == "" {
+				continue
+			}
+			add(&d.tools, c.Title)
+			d.calls = append(d.calls, c)
+			if rule := agent.ClaudeRule(c); rule != "" {
+				add(&d.rules, rule)
+			} else {
+				d.inexact = append(d.inexact, c)
+			}
+		}
+	}
+	for _, l := range t.late {
+		add(&d.tools, l)
+		add(&d.rules, l)
+	}
+	if res.StopReason == agent.StopCancelled && t.r.p.Permissions != "deny" {
+		for _, l := range t.rejected {
+			add(&d.tools, l)
+			add(&d.rules, l)
+		}
+	}
+	return d
+}
+
+// text says what was denied and what /approve and /reject do about it.
+func (d denials) text() string {
+	s := "The agent was not allowed to use: " + strings.Join(d.tools, ", ") + "." + deniedCalls(d.calls)
+	if len(d.rules) == 0 {
+		return s + "\n\n" + inexactNote(d.inexact) + " Reply to continue."
+	}
+	s += "\n\nReply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
+	if !slices.Equal(d.rules, d.tools) {
+		s += " `/approve` allows exactly " + codeList(d.rules) + "."
+	}
+	if len(d.inexact) > 0 {
+		s += " " + inexactNote(d.inexact)
+	}
+	return s
+}
+
+// inexactNote says that some denied calls can't be approved one by one.
+func inexactNote(calls []agent.ToolCall) string {
+	var tools []string
+	for _, c := range calls {
+		if !slices.Contains(tools, c.Title) {
+			tools = append(tools, c.Title)
+		}
+	}
+	return "The denied " + strings.Join(tools, ", ") + " calls with wildcards, parentheses or without a command or an absolute path can't be allowed one by one, so they stay denied; allow them in the pipeline's agent settings if the agent needs them."
+}
+
+// codeList formats items as `a`, `b`.
+func codeList(items []string) string {
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = "`" + oneLineTrim(s, 200) + "`"
+	}
+	return strings.Join(out, ", ")
 }
 
 // deniedCalls lists what the agent tried to do with the tools it was
