@@ -212,8 +212,14 @@ func TestACPCancel(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("Prompt did not return after Cancel")
 			}
-			if c := calls(t, state, "session/cancel"); len(c) == 0 {
-				t.Error("no session/cancel")
+			// The fake may answer the prompt before it has logged the
+			// cancel notification, so give the log a moment.
+			deadline := time.Now().Add(5 * time.Second)
+			for len(calls(t, state, "session/cancel")) == 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("no session/cancel")
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
 			if res := s.prompt(t, "again"); res.Text != "ok" {
 				t.Errorf("after cancel: %+v", res)
