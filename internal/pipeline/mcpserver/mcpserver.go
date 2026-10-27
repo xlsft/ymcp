@@ -74,7 +74,8 @@ type grant struct {
 
 // New returns a server for the profile's YouTrack client yt, serving the
 // tools in enabled (all when nil, see tools.Select). decorate may be nil
-// to leave text unmarked.
+// to leave text unmarked. A server serves one pipeline, which logger is
+// expected to name; the server adds the run.
 func New(yt *youtrack.Client, profile string, enabled map[string]bool, decorate Decorator, cb Callbacks, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
@@ -120,7 +121,7 @@ func (s *Server) Grant(r RunInfo) string {
 	s.mu.Lock()
 	s.grants[token] = &grant{run: r, token: []byte(token)}
 	s.mu.Unlock()
-	s.logger.Debug("pipeline MCP access granted", "pipeline", r.Pipeline, "run", r.Number)
+	s.logger.Debug("pipeline MCP access granted", "run", r.Number)
 	return token
 }
 
@@ -134,7 +135,7 @@ func (s *Server) Revoke(token string) {
 		return
 	}
 	g.closeSessions()
-	s.logger.Debug("pipeline MCP access revoked", "pipeline", g.run.Pipeline, "run", g.run.Number)
+	s.logger.Debug("pipeline MCP access revoked", "run", g.run.Number)
 }
 
 // Close stops the HTTP server and drops every grant.
@@ -281,7 +282,7 @@ func textResult(text string) *mcp.CallToolResult {
 
 // logCalls logs the run's tool calls at debug level and failures as warnings.
 func (s *Server) logCalls(r RunInfo) mcp.Middleware {
-	logger := s.logger.With("pipeline", r.Pipeline, "run", r.Number)
+	logger := s.logger.With("run", r.Number)
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			start := time.Now()

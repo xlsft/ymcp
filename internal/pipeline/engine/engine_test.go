@@ -1266,6 +1266,30 @@ func TestIssueOfAnotherPipelineIsLoggedOnce(t *testing.T) {
 	}
 }
 
+// TestLogNamesThePipelineOnce: no log line carries the pipeline twice.
+func TestLogNamesThePipelineOnce(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Log it", "Open")
+	h.ag.script(func(ft *fakeTurn) agent.Result {
+		if _, err := ft.Tool("report", map[string]any{"text": "Halfway"}); err != nil {
+			ft.Say(err.Error())
+		}
+		ft.Say("Done.")
+		return agent.Result{}
+	})
+	h.start()
+	h.waitReview(1, is.Key)
+	h.stop()
+	if len(h.logs.matching("MCP access granted")) == 0 || len(h.logs.matching("MCP access revoked")) == 0 {
+		t.Fatal("no MCP log lines")
+	}
+	for _, l := range h.logs.matching("pipeline=") {
+		if strings.Count(l, "pipeline=") != 1 {
+			t.Errorf("the pipeline is named twice: %s", l)
+		}
+	}
+}
+
 // TestEveryPromptHasTheLanguageRule: feedback and answer turns repeat the
 // pipeline's language rule, not only the first prompt.
 func TestEveryPromptHasTheLanguageRule(t *testing.T) {
