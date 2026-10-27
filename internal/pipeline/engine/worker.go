@@ -439,11 +439,26 @@ func (w *worker) approvedTools() []string {
 	return list
 }
 
-// setRetry records the denied tools a later /approve or /reject is about.
+// setRetry records the denied tools a later /approve or /reject is about,
+// next to the ones recorded before that no /approve or /reject answered
+// yet.
 func (w *worker) setRetry(titles []string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if err := saveList(w.bg(), w.r.st, w.id, statePending, titles); err != nil {
+	ctx := w.bg()
+	err := w.r.st.Tx(ctx, func(tx *store.Store) error {
+		list, err := loadList(ctx, tx, w.id, statePending)
+		if err != nil {
+			return err
+		}
+		for _, t := range titles {
+			if !slices.Contains(list, t) {
+				list = append(list, t)
+			}
+		}
+		return saveList(ctx, tx, w.id, statePending, list)
+	})
+	if err != nil {
 		w.r.log.Warn("saving the pending approval failed", "run", w.number, "err", err)
 	}
 }

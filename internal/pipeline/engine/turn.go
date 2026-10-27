@@ -355,10 +355,13 @@ func (t *turn) prompts(answer string) (prompt, system string, err error) {
 // answerText turns a reply into the answer the agent gets: /approve and
 // /reject decide about tools denied earlier.
 func (t *turn) answerText(body string) string {
-	retry := t.w.takeRetry()
 	cmd, rest := command(body)
+	if cmd == "" {
+		return body // the denied calls wait for a /approve or /reject
+	}
+	retry := t.w.takeRetry()
 	switch {
-	case len(retry) == 0 || cmd == "":
+	case len(retry) == 0:
 		return body
 	case cmd == "/approve":
 		t.w.approve(retry)
@@ -893,10 +896,20 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		gitErr = t.openChange(answer)
 	}
 
+	// Tools the agent was not allowed to use: claude reports them after the
+	// turn, ACP requests nobody answered in time were refused by us.
+	d := t.denials(res)
+	denied := len(d.tools) > 0 && r.p.Permissions != "deny"
+
 	if len(questions) > 0 {
 		q := strings.Join(questions, "\n\n")
 		reason := "The agent asked a question."
 		q += t.changeLine()
+		if denied {
+			// The question goes first; the denied calls wait for a later
+			// /approve or /reject, which may come with the answer.
+			q += "\n\n---\n\n" + t.keepDenials(d)
+		}
 		if gitErr != nil {
 			q += "\n\n" + capitalize(gitErr.Error())
 		}
@@ -905,10 +918,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		return ""
 	}
 
-	// Tools the agent was not allowed to use: claude reports them after the
-	// turn, ACP requests nobody answered in time were refused by us.
-	d := t.denials(res)
-	if len(d.tools) > 0 && r.p.Permissions != "deny" {
+	if denied {
 		if r.p.Permissions == "allow" && len(t.late) == 0 && len(d.rules) > 0 && !t.allApproved(d.rules) {
 			t.w.approve(d.rules)
 			r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": d.rules, "why": "permissions: allow"})
@@ -1223,6 +1233,22 @@ func (t *turn) denials(res agent.Result) denials {
 		}
 	}
 	return d
+}
+
+// keepDenials records the denied calls of a turn that ends some other way
+// than asking about them, so that a later /approve or /reject acts on them,
+// and returns the text that tells about them. With permissions: allow they
+// are approved at once.
+func (t *turn) keepDenials(d denials) string {
+	r := t.r
+	if r.p.Permissions == "allow" && len(t.late) == 0 && len(d.rules) > 0 {
+		t.w.approve(d.rules)
+		r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": d.rules, "why": "permissions: allow"})
+		return "The agent was not allowed to use: " + strings.Join(d.tools, ", ") + "." + deniedCalls(d.calls) +
+			"\n\nWith `permissions: allow` the next turn may use " + codeList(d.rules) + "."
+	}
+	t.w.setRetry(d.rules)
+	return d.text()
 }
 
 // text says what was denied and what /approve and /reject do about it.

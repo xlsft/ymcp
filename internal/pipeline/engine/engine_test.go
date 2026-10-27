@@ -686,6 +686,75 @@ func TestClaudeOnlyInexactDenials(t *testing.T) {
 	}
 }
 
+// TestQuestionKeepsDenials: a turn that asks a question and had calls
+// denied tells about both; the denied calls wait through a plain answer
+// for a later /approve, which allows exactly them.
+func TestQuestionKeepsDenials(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Agent = spec.Agent{Provider: "claude", Name: "Claude"} })
+	is := h.yt.addIssue("Pick a database", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			if _, err := t.Tool("request_input", map[string]any{"question": "Postgres or SQLite?"}); err != nil {
+				t.Say(err.Error())
+			}
+			t.Say("Asked.")
+			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make db"}`)}}}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Using SQLite.")
+			if _, err := t.Tool("request_input", map[string]any{"question": "Which file name?"}); err != nil {
+				t.Say(err.Error())
+			}
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Done.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	for _, want := range []string{"Postgres or SQLite?", "not allowed to use: Bash", "- Bash: `make db`", "Reply `/approve`"} {
+		if !strings.Contains(run.NeedsInputReason, want) {
+			t.Errorf("reason lacks %q: %q", want, run.NeedsInputReason)
+		}
+	}
+	h.waitFor("the question", func() bool {
+		said := h.yt.agentComments(is.Key)
+		return contains(said, "Postgres or SQLite?") && contains(said, "- Bash: `make db`")
+	})
+	if v, _, _ := h.st.RunState(context.Background(), run.ID, statePending); !strings.Contains(v, "Bash(make db)") {
+		t.Fatalf("pending = %q", v)
+	}
+
+	// A plain answer keeps them waiting.
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "SQLite"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 2)
+	h.waitStatus(1, store.StatusNeedsInput)
+	if p := h.ag.promptLog()[1]; strings.Contains(p, "Approved") || !strings.Contains(p, "SQLite") {
+		t.Errorf("prompt = %q", p)
+	}
+	if v, _, _ := h.st.RunState(context.Background(), run.ID, statePending); !strings.Contains(v, "Bash(make db)") {
+		t.Fatalf("pending after a plain answer = %q", v)
+	}
+
+	// /approve with an answer allows exactly them.
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve call it app.db"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 3)
+	h.waitReview(1, is.Key)
+	p := h.ag.promptLog()[2]
+	if !strings.Contains(p, "Approved: Bash(make db). Retry what was denied.") || !strings.Contains(p, "call it app.db") {
+		t.Errorf("prompt = %q", p)
+	}
+	if starts := h.ag.startLog(); !slices.Contains(starts[2].AllowedTools, "Bash(make db)") {
+		t.Errorf("allowed tools = %q", starts[2].AllowedTools)
+	}
+}
+
 // TestApprovalSurvivesRestart: the denied tools a reply is about and the
 // approved ones are kept in the store, so a restarted runner still knows
 // what /approve means.
