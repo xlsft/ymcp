@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -68,9 +69,18 @@ func listWorktrees(ctx context.Context, h Host, dir string) ([]listedWorktree, e
 	return list, nil
 }
 
-func refExists(ctx context.Context, h Host, dir, ref string) bool {
+func refExists(ctx context.Context, h Host, dir, ref string) (bool, error) {
 	_, err := run(ctx, h, dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	// --quiet: a missing ref is exit status 1 and nothing on stderr.
+	var ce *cmdError
+	var ee *exec.ExitError
+	if errors.As(err, &ce) && ce.msg == "" && errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
 }
 
 // DefaultRoot is the directory that holds the worktrees of a pipeline when
@@ -168,12 +178,20 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 			}
 		}
 		wt.Path = joinPath(root, branch)
+		var local, remote, onBase bool
+		if local, err = refExists(ctx, h, repoDir, "refs/heads/"+branch); err == nil && !local {
+			if remote, err = refExists(ctx, h, repoDir, "refs/remotes/origin/"+branch); err == nil && !remote {
+				onBase, err = refExists(ctx, h, repoDir, "refs/remotes/origin/"+base)
+			}
+		}
 		switch {
-		case refExists(ctx, h, repoDir, "refs/heads/"+branch):
+		case err != nil:
+			return Worktree{}, fmt.Errorf("looking up branch %s: %w", branch, err)
+		case local:
 			_, err = run(ctx, h, repoDir, "worktree", "add", wt.Path, branch)
-		case refExists(ctx, h, repoDir, "refs/remotes/origin/"+branch):
+		case remote:
 			_, err = run(ctx, h, repoDir, "worktree", "add", "-b", branch, wt.Path, "origin/"+branch)
-		case refExists(ctx, h, repoDir, "refs/remotes/origin/"+base):
+		case onBase:
 			_, err = run(ctx, h, repoDir, "worktree", "add", "--no-track", "-b", branch, wt.Path, "origin/"+base)
 		default:
 			return Worktree{}, fmt.Errorf("base branch origin/%s does not exist", base)
