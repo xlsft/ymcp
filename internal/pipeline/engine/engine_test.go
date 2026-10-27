@@ -18,6 +18,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
@@ -1088,6 +1089,10 @@ func TestCheck(t *testing.T) {
 	h := newHarness(t, nil)
 	h.yt.addIssue("Sample", "Open")
 	h.yt.fail("State Closed", "State expected: Closed")
+	// A tag that doesn't exist yet: tag creates it, untag works after that.
+	h.p.Stages.NeedsInput = spec.Stage{Enter: "tag needs-input", Exit: "untag needs-input", Match: "tag: needs-input"}
+	h.yt.fail("tag needs-input", "tag expected: needs-input")
+	h.yt.fail("untag needs-input", "tag expected: needs-input")
 	o := h.options()
 	o.Pipeline = h.p
 	res, err := CheckWith(context.Background(), o)
@@ -1117,6 +1122,12 @@ func TestCheck(t *testing.T) {
 	}
 	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Warning && r.Detail == "fake warning" }) {
 		t.Errorf("agent warning missing: %+v", res)
+	}
+	if r := byName["stages.needsInput.enter command"]; !r.OK || !r.Warning || r.Detail != "tag needs-input doesn't exist yet; YouTrack creates it on first use" {
+		t.Errorf("tag: %+v", r)
+	}
+	if r := byName["stages.needsInput.exit command"]; !r.OK || !r.Warning || !strings.Contains(r.Detail, "tag needs-input doesn't exist yet") {
+		t.Errorf("untag: %+v", r)
 	}
 
 	if r := byName["workspace: worktrees"]; !strings.HasSuffix(filepath.ToSlash(r.Detail), "/ymcp/worktrees/backend") {
@@ -1212,6 +1223,17 @@ func TestHelpers(t *testing.T) {
 	} {
 		if c, r := command(in); c != want[0] || r != want[1] {
 			t.Errorf("command(%q) = %q, %q", in, c, r)
+		}
+	}
+	for _, tc := range []struct{ cmd, text, want string }{
+		{"tag needs-input", "tag expected: needs-input", "needs-input"},
+		{"Untag {needs input}", "Tag expected: needs input", "needs input"},
+		{"tag x", "tag expected: x; State expected: Bogus", ""},
+		{"State Bogus", "tag expected: x", ""},
+		{"tag", "tag expected", ""},
+	} {
+		if got := newTag(tc.cmd, ytwatch.CommandCheck{State: ytwatch.Invalid, Text: tc.text}); got != tc.want {
+			t.Errorf("newTag(%q, %q) = %q, want %q", tc.cmd, tc.text, got, tc.want)
 		}
 	}
 	for in, want := range map[string]string{"YPC-12": "YPC", "A-B-3": "A-B", "nokey": "", "X-y": ""} {

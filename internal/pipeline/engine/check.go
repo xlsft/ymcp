@@ -185,11 +185,18 @@ func checkYouTrack(ctx context.Context, p spec.Pipeline, watch *ytwatch.Watcher,
 			continue
 		}
 		check, err := watch.Validate(ctx, c.cmd, sample)
+		tag := newTag(c.cmd, check)
 		switch {
 		case err != nil:
 			add(name, false, err.Error())
 		case check.State == ytwatch.Valid:
 			add(name, true, fmt.Sprintf("`%s` on %s: %s", c.cmd, sample, check.Text))
+		case tag != "":
+			if strings.EqualFold(strings.Fields(c.cmd)[0], "untag") {
+				warn(name, fmt.Sprintf("tag %s doesn't exist yet; `%s` works once it does (YouTrack creates it on first use of `tag %s`)", tag, c.cmd, tag))
+			} else {
+				warn(name, fmt.Sprintf("tag %s doesn't exist yet; YouTrack creates it on first use", tag))
+			}
 		default:
 			d := fmt.Sprintf("`%s` is %s on %s: %s", c.cmd, check.State, sample, check.Text)
 			if len(check.Suggestions) > 0 {
@@ -221,4 +228,21 @@ func checkYouTrack(ctx context.Context, p spec.Pipeline, watch *ytwatch.Watcher,
 			add(name, true, "no issue matches both the source query and stages.working.match")
 		}
 	}
+}
+
+// newTag returns the tag of a `tag X` or `untag X` command that YouTrack
+// refuses only because X does not exist yet ("tag expected: X"), or "".
+// The tag command creates a missing tag, so such a command is fine.
+func newTag(command string, check ytwatch.CommandCheck) string {
+	verb, tag, ok := strings.Cut(strings.TrimSpace(command), " ")
+	tag = strings.TrimSpace(tag)
+	if !ok || tag == "" || (!strings.EqualFold(verb, "tag") && !strings.EqualFold(verb, "untag")) {
+		return ""
+	}
+	for _, part := range strings.Split(check.Text, "; ") {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(part)), "tag expected") {
+			return ""
+		}
+	}
+	return strings.Trim(tag, "{}")
 }
