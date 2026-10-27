@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -63,12 +62,15 @@ func newRepoStep(sh *shared) *repoStep {
 	w := sh.p.Workspace
 	s.host = newAssist(sh, "this machine", sshSuggest)
 	s.host.set(w.Host)
-	s.dir = newAssist(sh, "e.g. ~/code/backend", func(t string, c int) func(context.Context) ([]Suggestion, error) {
-		if sh.p.Workspace.Host != "" {
-			return nil // the path is on the host
+	s.dir = newAssist(sh, "e.g. ~/code/backend", func(t string, _ int) func(context.Context) ([]Suggestion, error) {
+		host, ins := sh.p.Workspace.Host, sh.deps.Workspace
+		list := func(ctx context.Context, dir string) ([]workspace.Dir, error) { return ins.Dirs(ctx, host, dir) }
+		if host != "" { // the path is on the host: / and its ~
+			return dirSuggest(t, "/", false, list)
 		}
-		return pathSuggest(t, c)
+		return dirSuggest(t, string(filepath.Separator), true, list)
 	})
+	s.dir.browse = true
 	s.dir.set(w.Dir)
 	s.baseBr = newAssist(sh, "the default branch of origin", nil)
 	s.baseBr.set(w.Base)
@@ -238,54 +240,70 @@ func normalizeDir(host, dir string) string {
 	return dir
 }
 
-// pathSuggest completes local directories; git repositories are marked.
-func pathSuggest(text string, _ int) func(context.Context) ([]Suggestion, error) {
-	return func(context.Context) ([]Suggestion, error) {
+// dirSuggest completes the repository path with the directories in the
+// one typed so far, sep being the path separator: of this machine when
+// local (~ is expanded here), else "/" of the host (~ is the host's).
+// Each completion ends in sep, so taking one lists what is inside it.
+// Repositories come first; in a directory, ".." goes up.
+func dirSuggest(text, sep string, local bool, list func(ctx context.Context, dir string) ([]workspace.Dir, error)) func(context.Context) ([]Suggestion, error) {
+	return func(ctx context.Context) ([]Suggestion, error) {
 		base := text
-		if base == "~" { // the home directory itself: list what is in it
-			base = "~" + string(filepath.Separator)
+		if base == "" || base == "~" { // the home directory itself
+			base = "~" + sep
 		}
-		expanded := expandHome(base)
-		if strings.HasSuffix(base, string(filepath.Separator)) && !strings.HasSuffix(expanded, string(filepath.Separator)) {
-			expanded += string(filepath.Separator) // Join drops it: keep listing inside
+		i := strings.LastIndex(base, sep)
+		parent, prefix := base[:i+1], base[i+1:]
+		dir := parent
+		if local {
+			if dir = expandHome(parent); dir == "" {
+				dir = "."
+			}
 		}
-		dir, prefix := filepath.Split(expanded)
-		if dir == "" {
-			dir = "."
-		}
-		entries, err := os.ReadDir(dir)
+		dirs, err := list(ctx, dir)
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
-		// What the user typed before the last element; prefix comes from
-		// the expanded path, so trim rather than slice by its length.
-		keep := strings.TrimSuffix(base, prefix)
-		var out []Suggestion
-		for _, e := range entries {
-			name := e.Name()
-			isDir := e.IsDir()
-			if e.Type()&os.ModeSymlink != 0 {
-				if st, err := os.Stat(filepath.Join(dir, name)); err == nil {
-					isDir = st.IsDir()
-				}
-			}
-			if !isDir || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+		end := len([]rune(text))
+		var repos, plain []Suggestion
+		for _, d := range dirs {
+			if !strings.HasPrefix(strings.ToLower(d.Name), strings.ToLower(prefix)) {
 				continue
 			}
-			if strings.HasPrefix(name, ".") && !strings.HasPrefix(prefix, ".") {
+			if strings.HasPrefix(d.Name, ".") && !strings.HasPrefix(prefix, ".") {
 				continue
 			}
-			sug := Suggestion{Option: keep + name + string(filepath.Separator), CompletionEnd: len([]rune(text))}
-			if _, err := os.Stat(filepath.Join(dir, name, ".git")); err == nil {
-				sug.Description = "git repository"
+			s := Suggestion{Option: parent + d.Name + sep, Label: d.Name + sep, CompletionEnd: end}
+			if d.Git {
+				s.Description = "git repository"
+				repos = append(repos, s)
+			} else {
+				plain = append(plain, s)
 			}
-			out = append(out, sug)
 		}
-		sort.SliceStable(out, func(i, j int) bool {
-			return (out[i].Description != "") && (out[j].Description == "")
-		})
-		return out[:min(len(out), maxSuggestions)], nil
+		out := append(repos, plain...)
+		if up, ok := parentDir(parent, sep, local); ok && prefix == "" {
+			out = append([]Suggestion{{Option: up, Label: "..", Description: "parent directory", CompletionEnd: end}}, out...)
+		}
+		return out, nil
 	}
+}
+
+// parentDir is the directory above dir (which ends in sep), if there is
+// one to show: not above the root, a drive or a relative path, nor above
+// the home directory of a host.
+func parentDir(dir, sep string, local bool) (string, bool) {
+	p := strings.TrimSuffix(dir, sep)
+	if p == "~" {
+		if !local {
+			return "", false
+		}
+		p = strings.TrimSuffix(expandHome(dir), sep)
+	}
+	i := strings.LastIndex(p, sep)
+	if p == "" || i < 0 {
+		return "", false
+	}
+	return p[:i+1], true
 }
 
 // sshSuggest completes host aliases from ~/.ssh/config.

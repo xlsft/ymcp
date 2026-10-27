@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/notify"
@@ -83,8 +84,11 @@ type YouTrack interface {
 // CompletionEnd, and the caret goes to Caret.
 type Suggestion struct {
 	Option, Prefix, Suffix, Description string
-	CompletionStart, CompletionEnd      int
-	Caret                               int
+	// Label, when set, is shown in the list instead of the text that
+	// goes in (a directory's name rather than its whole path).
+	Label                          string
+	CompletionStart, CompletionEnd int
+	Caret                          int
 }
 
 // Apply returns text with the suggestion applied and the new caret.
@@ -120,9 +124,13 @@ type AgentChecker interface {
 	Check(ctx context.Context, a spec.Agent) (agent.Info, error)
 }
 
-// WorkspaceInspector runs workspace.Inspect on a host ("" is this machine).
+// WorkspaceInspector runs workspace.Inspect on a host ("" is this machine)
+// and lists the directories there, for completing the repository path.
 type WorkspaceInspector interface {
 	Inspect(ctx context.Context, host, dir string) ([]workspace.Check, error)
+	// Dirs lists the subdirectories of dir (see workspace.Dirs). dir is
+	// on the host as typed; here, ~ is already expanded.
+	Dirs(ctx context.Context, host, dir string) ([]workspace.Dir, error)
 }
 
 // StrategyDetector looks at the origin of a repository and suggests how
@@ -173,7 +181,7 @@ func DefaultDeps() Deps {
 		Local:     localFiles{},
 		YouTrack:  profileConnector{},
 		Agents:    agentChecker{},
-		Workspace: inspector{},
+		Workspace: &inspector{},
 		Checker:   checkRunner{},
 		Editor:    envEditor{},
 		Notify:    notifySettings{},
@@ -273,16 +281,40 @@ func (agentChecker) Check(ctx context.Context, a spec.Agent) (agent.Info, error)
 	return ag.Check(ctx)
 }
 
-type inspector struct{}
+// inspector keeps the connection to the last ssh host it was asked about:
+// the directory completions ask on every pause in typing.
+type inspector struct {
+	mu   sync.Mutex
+	host *workspace.SSHHost
+}
 
-func (inspector) Inspect(ctx context.Context, host, dir string) ([]workspace.Check, error) {
-	if h := strings.TrimSpace(host); h != "" && h != "local" {
-		// The path is on the host; ~ there is not ours.
-		s := workspace.SSH(h)
-		defer s.Close()
-		return workspace.Inspect(ctx, s, dir)
+// on is the host to look at: this machine or the ssh host alias.
+func (i *inspector) on(alias string) workspace.Host {
+	alias = strings.TrimSpace(alias)
+	if alias == "" || alias == "local" {
+		return workspace.Local()
 	}
-	return workspace.Inspect(ctx, workspace.Local(), expandHome(dir))
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.host == nil || i.host.Name() != alias {
+		if i.host != nil {
+			go i.host.Close()
+		}
+		i.host = workspace.SSH(alias)
+	}
+	return i.host
+}
+
+func (i *inspector) Inspect(ctx context.Context, host, dir string) ([]workspace.Check, error) {
+	h := i.on(host)
+	if h.Name() == "local" {
+		dir = expandHome(dir) // on a host, ~ is the host's
+	}
+	return workspace.Inspect(ctx, h, dir)
+}
+
+func (i *inspector) Dirs(ctx context.Context, host, dir string) ([]workspace.Dir, error) {
+	return workspace.Dirs(ctx, i.on(host), dir)
 }
 
 type checkRunner struct{}

@@ -271,10 +271,11 @@ func newText(f *assistField, onChange func() tea.Cmd) *textCtl {
 	return &textCtl{f: f, onChange: onChange}
 }
 
-func (c *textCtl) focus()        { c.f.focus() }
-func (c *textCtl) blur()         { c.f.blur() }
-func (c *textCtl) setBad(b bool) { c.isBad = b }
-func (c *textCtl) help() string  { return c.f.help() }
+func (c *textCtl) focus()            { c.f.focus() }
+func (c *textCtl) focusCmd() tea.Cmd { return c.f.focusCmd() }
+func (c *textCtl) blur()             { c.f.blur() }
+func (c *textCtl) setBad(b bool)     { c.isBad = b }
+func (c *textCtl) help() string      { return c.f.help() }
 
 func (c *textCtl) key(msg tea.KeyMsg) (tea.Cmd, bool) {
 	cmd, consumed, changed := c.f.key(msg)

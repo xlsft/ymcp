@@ -59,7 +59,8 @@ func suggestions(in []apiSuggestion) []Suggestion {
 		if len(out) == maxSuggestions {
 			break
 		}
-		out = append(out, Suggestion(s))
+		out = append(out, Suggestion{Option: s.Option, Prefix: s.Prefix, Suffix: s.Suffix, Description: s.Description,
+			CompletionStart: s.CompletionStart, CompletionEnd: s.CompletionEnd, Caret: s.Caret})
 	}
 	return out
 }

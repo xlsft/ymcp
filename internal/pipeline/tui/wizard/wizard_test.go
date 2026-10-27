@@ -1,6 +1,7 @@
 package wizard
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,12 +14,16 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 )
 
 // TestNewPipeline walks through every step of a new pipeline with the
 // keyboard and checks the live help each one shows and the pipeline it
 // ends with.
 func TestNewPipeline(t *testing.T) {
+	// The repository field lists the home directory; keep it empty.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	f := newFakes()
 	d := start(t, f.deps, nil)
 
@@ -738,7 +743,7 @@ func TestSuggestionApply(t *testing.T) {
 	}
 }
 
-func TestPathSuggest(t *testing.T) {
+func TestDirSuggestHere(t *testing.T) {
 	root := t.TempDir()
 	for _, p := range []string{"alpha/.git", "alps", ".hidden", "beta"} {
 		if err := os.MkdirAll(filepath.Join(root, p), 0o755); err != nil {
@@ -749,7 +754,13 @@ func TestPathSuggest(t *testing.T) {
 		t.Fatal(err)
 	}
 	sep := string(filepath.Separator)
-	got, _ := pathSuggest(root+sep+"al", 0)(t.Context())
+	here := func(ctx context.Context, dir string) ([]workspace.Dir, error) {
+		return workspace.Dirs(ctx, workspace.Local(), dir)
+	}
+	pathSuggest := func(text string) func(context.Context) ([]Suggestion, error) {
+		return dirSuggest(text, sep, true, here)
+	}
+	got, _ := pathSuggest(root + sep + "al")(t.Context())
 	var opts []string
 	for _, s := range got {
 		opts = append(opts, s.Option+"|"+s.Description)
@@ -758,11 +769,11 @@ func TestPathSuggest(t *testing.T) {
 	if !slices.Equal(opts, want) {
 		t.Fatalf("got %v, want %v", opts, want)
 	}
-	got, _ = pathSuggest(root+sep, 0)(t.Context())
-	if len(got) != 3 {
+	got, _ = pathSuggest(root + sep)(t.Context())
+	if len(got) != 4 { // .., alpha, alps, beta
 		t.Fatalf("hidden directories should stay hidden: %v", got)
 	}
-	got, _ = pathSuggest(root+sep+".h", 0)(t.Context())
+	got, _ = pathSuggest(root + sep + ".h")(t.Context())
 	if len(got) != 1 {
 		t.Fatalf("a dot prefix shows hidden directories: %v", got)
 	}
@@ -782,8 +793,8 @@ func TestSSHHosts(t *testing.T) {
 	}
 }
 
-// An ssh host is stored as typed; the path is not completed or expanded
-// here, and the checks run there.
+// An ssh host is stored as typed; the path is not expanded here, and it
+// completes from the host and the checks run there.
 func TestSSHHost(t *testing.T) {
 	f := newFakes()
 	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"}}
@@ -809,6 +820,40 @@ func TestSSHHost(t *testing.T) {
 	d.send(ctrlU())
 	d.typ("bad host")
 	d.must("An ssh host alias has no spaces.")
+}
+
+// TestDirBrowse: the repository field lists the home directory as soon as
+// it has the focus, enter opens the highlighted directory and lists what
+// is inside, ".." goes back up; the checks come after the list.
+func TestDirBrowse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, p := range []string{"code/app/.git", "code/lib", "music"} {
+		if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sep := string(filepath.Separator)
+	d := start(t, newFakes().deps, nil)
+	d.goStep(2)
+	d.focus("dir")
+	d.must("code"+sep, "music"+sep, "↓ choose a directory")
+	d.keys("down", "down", "enter") // .., then code/
+	if got := d.m.sh.p.Workspace.Dir; got != filepath.Join(home, "code") {
+		t.Fatalf("dir = %q", got)
+	}
+	d.must("app"+sep, "lib"+sep, "git repository")
+	d.mustNot("music" + sep)
+	view := d.view()
+	if strings.Index(view, "lib"+sep) > strings.Index(view, "✗ git repository") {
+		t.Fatalf("the checks come before the directories:\n%s", view)
+	}
+	d.keys("down", "enter") // ..
+	if got := d.m.sh.p.Workspace.Dir; got != home {
+		t.Fatalf("dir after .. = %q", got)
+	}
+	d.must("music" + sep)
 }
 
 func TestClause(t *testing.T) {

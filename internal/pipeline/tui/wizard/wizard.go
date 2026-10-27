@@ -288,8 +288,7 @@ func (m *Model) dirty() bool { return m.snapshot() != m.initial }
 // Init starts the first step and signs in to the profile.
 func (m *Model) Init() tea.Cmd {
 	cmd := m.steps[0].enter()
-	m.syncFocus()
-	return tea.Batch(cmd, m.sh.connect(m.sh.p.Profile))
+	return tea.Batch(cmd, m.syncFocus(), m.sh.connect(m.sh.p.Profile))
 }
 
 // Update handles a message.
@@ -300,8 +299,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.broadcast(msg)
 	case tea.KeyMsg:
 		cmd := m.key(msg)
-		m.syncFocus()
-		return m, cmd
+		return m, tea.Batch(cmd, m.syncFocus())
 	case connMsg:
 		if msg.profile == m.sh.p.Profile {
 			m.sh.conn = connection{profile: msg.profile, yt: msg.yt, login: msg.login, err: msg.err}
@@ -380,8 +378,10 @@ func (m *Model) item(id string) *item {
 
 // syncFocus focuses the focused control and blurs the others. A section
 // forced open by an error stays open once the error is fixed, so the
-// field being edited doesn't vanish.
-func (m *Model) syncFocus() {
+// field being edited doesn't vanish. The command is what a control that
+// just got the focus asks for (a browsing field, its completions).
+func (m *Model) syncFocus() tea.Cmd {
+	var cmds []tea.Cmd
 	for _, it := range m.steps[m.cur].items() {
 		if d, ok := it.ctl.(*disclosureCtl); ok && d.force != nil && d.force() {
 			*d.open = true
@@ -392,12 +392,16 @@ func (m *Model) syncFocus() {
 		if it.ctl == nil {
 			continue
 		}
-		if it.id == focus && it.visible() {
-			it.ctl.focus()
-		} else {
+		switch c, ok := it.ctl.(interface{ focusCmd() tea.Cmd }); {
+		case it.id != focus || !it.visible():
 			it.ctl.blur()
+		case ok:
+			cmds = append(cmds, c.focusCmd())
+		default:
+			it.ctl.focus()
 		}
 	}
+	return tea.Batch(cmds...)
 }
 
 // move moves the focus by delta, round the form.
@@ -595,8 +599,7 @@ func (m *Model) goTo(i int) tea.Cmd {
 	m.seen[i] = true
 	m.blocked = ""
 	cmd := m.steps[i].enter()
-	m.syncFocus()
-	return cmd
+	return tea.Batch(cmd, m.syncFocus())
 }
 
 // sidebarWidth is the width of the step list.

@@ -2,6 +2,7 @@ package wizard
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -75,6 +76,9 @@ type assistField struct {
 	cur  int // highlighted completion, -1 = none
 	open bool
 	err  error
+	// browse lists the completions as soon as the field gets the focus
+	// and keeps every one, scrolling: a directory browser.
+	browse bool
 }
 
 func newAssist(sh *shared, placeholder string, src suggestFunc) *assistField {
@@ -90,6 +94,17 @@ func (f *assistField) set(v string) {
 }
 
 func (f *assistField) focus() { f.in.Focus() }
+
+// focusCmd focuses the field; a browsing one that was not focused asks
+// for its completions.
+func (f *assistField) focusCmd() tea.Cmd {
+	was := f.in.Focused()
+	f.in.Focus()
+	if was || !f.browse {
+		return nil
+	}
+	return f.refresh()
+}
 func (f *assistField) blur() {
 	f.in.Blur()
 	f.open = false
@@ -216,13 +231,23 @@ func (f *assistField) view(width int, focused, bad bool) string {
 	return out
 }
 
+// shownCompletions is how many completions show at a time; a longer list
+// scrolls with the highlight.
+const shownCompletions = 8
+
 // completions draws the completions while they show, or why there are
 // none.
 func (f *assistField) completions(width int, focused bool) string {
 	var lines []string
 	if f.showing() {
-		for i, s := range f.list {
+		first := max(f.cur-shownCompletions+1, 0)
+		last := min(first+shownCompletions, len(f.list))
+		for i := first; i < last; i++ {
+			s := f.list[i]
 			line := s.Prefix + s.Option + s.Suffix
+			if s.Label != "" {
+				line = s.Label
+			}
 			if room := width - 8 - lenRunes(s.Description); lenRunes(line) > room && room > 10 {
 				// Long completions (paths) matter at their end.
 				r := []rune(line)
@@ -238,6 +263,16 @@ func (f *assistField) completions(width int, focused bool) string {
 			}
 			lines = append(lines, "  "+line)
 		}
+		if first > 0 || last < len(f.list) {
+			var more []string
+			if first > 0 {
+				more = append(more, fmt.Sprintf("↑ %d", first))
+			}
+			if last < len(f.list) {
+				more = append(more, fmt.Sprintf("↓ %d", len(f.list)-last))
+			}
+			lines = append(lines, "  "+styleDim.Render(" "+strings.Join(more, " · ")+" more; type to narrow"))
+		}
 	} else if focused && f.err != nil {
 		lines = append(lines, "  "+styleDim.Render("no completions: "+oneLine(f.err.Error(), width-20)))
 	}
@@ -247,8 +282,12 @@ func (f *assistField) completions(width int, focused bool) string {
 // help is the key help of a focused assist field.
 func (f *assistField) help() string {
 	switch {
+	case f.showing() && f.cur >= 0 && f.browse:
+		return keyHelp("↑/↓", "choose", "enter", "open", "esc", "hide")
 	case f.showing() && f.cur >= 0:
 		return keyHelp("↑/↓", "choose", "enter", "apply completion", "esc", "hide")
+	case f.showing() && f.browse:
+		return keyHelp("↓", "choose a directory", "esc", "hide")
 	case f.showing():
 		return keyHelp("↓", "choose a completion", "esc", "hide")
 	case f.src != nil:

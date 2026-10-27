@@ -236,6 +236,11 @@ func (f *fakeInspector) Inspect(_ context.Context, host, dir string) ([]workspac
 	}, nil
 }
 
+// Dirs lists the directories here, wherever the host.
+func (f *fakeInspector) Dirs(ctx context.Context, _, dir string) ([]workspace.Dir, error) {
+	return workspace.Dirs(ctx, workspace.Local(), dir)
+}
+
 type fakeDetector struct{}
 
 func (fakeDetector) Detect(context.Context, string, string) (Detection, error) {
@@ -476,7 +481,7 @@ func (d *driver) focus(id string) {
 		d.t.Fatalf("no field %q on %s: %v", id, d.step(), d.m.focusables())
 	}
 	d.m.steps[d.m.cur].form().focus = id
-	d.m.syncFocus()
+	d.run(d.m.syncFocus(), 0)
 }
 
 // goStep shows step i (0-based) without the checks of Next.
