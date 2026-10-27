@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -110,8 +111,9 @@ type started struct {
 // s. With stdin the caller gets the agent's stdin; otherwise it reads
 // /dev/null. On a host, argv[i] for every i in files is handed over in the
 // file files[i] on the host rather than on the command line, which has to
-// fit into one argument of the ssh session.
-func (s settings) launch(ctx context.Context, dir string, env map[string]string, argv []string, files map[int]string, stdin bool, errs *tail) (*started, error) {
+// fit into one argument of the ssh session. onGroup, when set, is told the
+// agent's process group (see StartOptions.OnGroup).
+func (s settings) launch(ctx context.Context, dir string, env map[string]string, argv []string, files map[int]string, stdin bool, errs *tail, onGroup func(int)) (*started, error) {
 	if s.host == nil {
 		cmd := exec.Command(argv[0], argv[1:]...)
 		cmd.Dir = dir
@@ -129,6 +131,9 @@ func (s settings) launch(ctx context.Context, dir string, env map[string]string,
 				in.Close()
 			}
 			return nil, err
+		}
+		if onGroup != nil {
+			onGroup(cmd.Process.Pid) // it leads its own group (a job on Windows)
 		}
 		return &started{cmd: cmd, stdin: in, stdout: stdout, group: g}, nil
 	}
@@ -154,7 +159,7 @@ func (s settings) launch(ctx context.Context, dir string, env map[string]string,
 	if err != nil {
 		return nil, err
 	}
-	g := &remoteGroup{host: s.host}
+	g := &remoteGroup{host: s.host, onGroup: onGroup}
 	stdout, local, err := startPiped(cmd, &pgidWriter{next: errs, set: g.setPG})
 	if err != nil {
 		in.Close()
@@ -192,9 +197,10 @@ func (g *procGroup) exited() {}
 
 // remoteGroup is an agent on a host: the local ssh and the remote group.
 type remoteGroup struct {
-	host  Host
-	local *procGroup
-	stdin io.Closer
+	host    Host
+	local   *procGroup
+	stdin   io.Closer
+	onGroup func(int)
 
 	mu   sync.Mutex
 	pg   string
@@ -205,6 +211,9 @@ func (g *remoteGroup) setPG(pg string) {
 	g.mu.Lock()
 	g.pg = pg
 	g.mu.Unlock()
+	if n, err := strconv.Atoi(pg); err == nil && n > 1 && g.onGroup != nil {
+		g.onGroup(n)
+	}
 }
 
 // signal sends sig to the remote group; false when it could not.

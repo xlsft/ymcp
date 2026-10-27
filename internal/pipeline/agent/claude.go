@@ -188,7 +188,7 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 	argv := append([]string{s.agent.command}, args...)
 	// stdin is /dev/null: claude -p would wait for input otherwise.
 	var stderr tail
-	proc, err := s.agent.launch(ctx, s.opts.Dir, s.opts.Env, argv, s.promptFiles(argv), false, &stderr)
+	proc, err := s.agent.launch(ctx, s.opts.Dir, s.opts.Env, argv, s.promptFiles(argv), false, &stderr, s.opts.OnGroup)
 	if err != nil {
 		return failed(err.Error()), fmt.Errorf("claude: start: %w", err)
 	}

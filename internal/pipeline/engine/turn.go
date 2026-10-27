@@ -247,6 +247,7 @@ func (t *turn) run1(answer string) string {
 		SessionID:    run.AgentSession,
 		AllowedTools: append(slices.Clone(pipelineTools), t.w.approvedTools()...),
 		SystemPrompt: system,
+		OnGroup:      func(pgid int) { r.recordGroup(t.bg, run, pgid) },
 	}
 	res, cause, perr := t.session(opts, prompt, comments, issue)
 	return t.outcome(res, cause, perr)
@@ -415,8 +416,9 @@ func (t *turn) session(opts agent.StartOptions, prompt string, comments []commen
 		t.saveSession(sess.ID())
 		t.started(opts, prompt)
 		res, cause, perr := t.drive(sess, prompt)
-		sess.Close()
+		sess.Close() // this ends the agent's process group too
 		t.drain(sess)
+		r.forgetGroup(t.bg, t.run)
 		if perr != nil && errors.Is(perr, agent.ErrNoResume) && opts.SessionID != "" && attempt == 0 && cause == "" {
 			r.event(t.bg, t.run.ID, "agent.no_resume", map[string]string{"error": perr.Error()})
 			opts.SessionID = ""

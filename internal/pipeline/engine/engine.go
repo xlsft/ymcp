@@ -330,6 +330,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err := r.bootstrapCursor(runCtx); err != nil {
 		return err
 	}
+	r.reapOrphans(runCtx)
 	if err := r.resume(runCtx); err != nil {
 		return err
 	}

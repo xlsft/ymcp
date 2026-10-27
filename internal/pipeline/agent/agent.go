@@ -119,6 +119,12 @@ type StartOptions struct {
 	// --append-system-prompt on every turn, ACP agents in front of the
 	// first prompt of a new session.
 	SystemPrompt string
+	// OnGroup, when set, is told the process group of every agent process
+	// the session starts: on this machine the agent's pid, which leads its
+	// group, on a host (WithHost) the group there. A caller records it to
+	// kill the group should ymcp die without stopping the agent. It may be
+	// called from another goroutine.
+	OnGroup func(pgid int)
 }
 
 // Agent is a configured coding agent.

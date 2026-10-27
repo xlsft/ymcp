@@ -23,6 +23,7 @@ type fakeAgent struct {
 	prompts  []string
 	sessions int
 	noResume bool // Start with a SessionID fails with ErrNoResume
+	group    int  // when set, Start tells StartOptions.OnGroup this group
 }
 
 func (a *fakeAgent) Name() string { return "fake" }
@@ -45,6 +46,9 @@ func (a *fakeAgent) Start(_ context.Context, opts agent.StartOptions) (agent.Ses
 		return nil, fmt.Errorf("fake: %w", agent.ErrNoResume)
 	}
 	a.sessions++
+	if a.group != 0 && opts.OnGroup != nil {
+		opts.OnGroup(a.group)
+	}
 	id := opts.SessionID
 	if id == "" {
 		id = fmt.Sprintf("session-%d", a.sessions)

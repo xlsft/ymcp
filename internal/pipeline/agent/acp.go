@@ -60,7 +60,7 @@ func (a *acpAgent) Start(ctx context.Context, opts StartOptions) (Session, error
 		exited:   make(chan struct{}),
 		done:     make(chan struct{}),
 	}
-	p, err := a.launch(ctx, opts.Dir, opts.Env, argv, nil, true, &s.stderr)
+	p, err := a.launch(ctx, opts.Dir, opts.Env, argv, nil, true, &s.stderr, opts.OnGroup)
 	if err != nil {
 		s.events.close()
 		return nil, fmt.Errorf("%s: start: %w", a.provider, err)
