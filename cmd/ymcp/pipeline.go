@@ -28,6 +28,7 @@ import (
 const pipelineUsage = `ymcp pipeline — agents that work on YouTrack issues
 
 Usage:
+  ymcp pipeline                             Open the TUI: profiles, pipelines, boards, run cards, the inbox
   ymcp pipeline list                        List pipelines, their runner and active runs
   ymcp pipeline new NAME --profile P --dir D --query Q
                                             Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
@@ -81,6 +82,9 @@ func pipelineForeground(args []string) bool {
 }
 
 func pipelineCmd(ctx context.Context, args []string, logger *slog.Logger) error {
+	if len(args) == 0 && interactive() {
+		return pipelineTUI(ctx)
+	}
 	if len(args) == 0 || slices.Contains([]string{"help", "-h", "-help", "--help"}, args[0]) {
 		fmt.Print(pipelineUsage)
 		return nil
