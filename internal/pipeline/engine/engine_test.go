@@ -1,0 +1,971 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/agent/agenttest"
+	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/workspace"
+	"github.com/xlsft/ymcp/internal/youtrack"
+)
+
+func TestMain(m *testing.M) {
+	agenttest.Main()
+	os.Exit(m.Run())
+}
+
+// waitTimeout bounds every wait of the end-to-end tests.
+const waitTimeout = 20 * time.Second
+
+func dur(d time.Duration) spec.Duration { return spec.Duration{Duration: d} }
+
+// isolate keeps git away from the user's configuration.
+func isolate(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	home := t.TempDir()
+	empty := filepath.Join(home, "gitconfig")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	t.Setenv("GIT_CONFIG_GLOBAL", empty)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(home))
+}
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, stderr, err := workspace.Local().Run(context.Background(), dir, append([]string{"git"}, args...), nil)
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, stderr)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// newRepo builds a bare origin and a clone with one pushed commit on main.
+func newRepo(t *testing.T) (repo, origin string) {
+	t.Helper()
+	isolate(t)
+	base := t.TempDir()
+	origin, repo = filepath.Join(base, "origin.git"), filepath.Join(base, "repo")
+	git(t, base, "init", "--bare", "-b", "main", origin)
+	git(t, base, "init", "-b", "main", repo)
+	git(t, repo, "config", "user.name", "Dev")
+	git(t, repo, "config", "user.email", "dev@xlsft.ru")
+	git(t, repo, "remote", "add", "origin", origin)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-m", "init")
+	git(t, repo, "push", "-u", "origin", "main")
+	git(t, repo, "remote", "set-head", "origin", "main")
+	return repo, origin
+}
+
+// harness is one pipeline over the fake YouTrack, the fake agent, a temp
+// repository and a temp store.
+type harness struct {
+	t      *testing.T
+	yt     *fakeYT
+	ag     *fakeAgent
+	st     *store.Store
+	repo   string
+	origin string
+	p      spec.Pipeline
+	// realAgent uses agent.New instead of the fake.
+	realAgent bool
+
+	cancel context.CancelFunc
+	done   chan error
+}
+
+func testPipeline(repo string) spec.Pipeline {
+	return spec.Pipeline{
+		Name:    "backend",
+		Profile: "test",
+		Source:  spec.Source{Query: "State: Open", PollInterval: dur(25 * time.Millisecond)},
+		Stages: spec.Stages{
+			Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
+			Review:     spec.Stage{Enter: "State Review", Match: "State: Review"},
+			NeedsInput: spec.Stage{Enter: "State Blocked", Match: "State: Blocked"},
+			Closed:     spec.Stage{Enter: "State Closed", Match: "State: Closed"},
+		},
+		Workspace: spec.Workspace{Dir: repo},
+		Agent:     spec.Agent{Provider: "acp", Command: "fake-agent", Name: "Fake"},
+		Timeouts:  spec.Timeouts{Silence: dur(10 * time.Second), Total: dur(time.Minute), Permission: dur(10 * time.Second)},
+		Feedback:  spec.Feedback{Debounce: dur(time.Millisecond)},
+	}
+}
+
+func newHarness(t *testing.T, mod func(p *spec.Pipeline)) *harness {
+	t.Helper()
+	repo, origin := newRepo(t)
+	st, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &harness{t: t, yt: newFakeYT(t), ag: &fakeAgent{}, st: st, repo: repo, origin: origin, p: testPipeline(repo)}
+	if mod != nil {
+		mod(&h.p)
+	}
+	t.Cleanup(func() {
+		h.stop()
+		st.Close()
+	})
+	return h
+}
+
+func (h *harness) options() Options {
+	o := Options{
+		Pipeline: h.p,
+		Store:    h.st,
+		Logger:   slog.New(slog.NewTextHandler(testWriter{h.t}, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Version:  "test",
+		Connect: func(context.Context, string, *slog.Logger) (*youtrack.Client, config.Config, error) {
+			return h.yt.client(h.t), config.Config{Name: "test"}, nil
+		},
+	}
+	if !h.realAgent {
+		o.NewAgent = func(spec.Agent, *slog.Logger) (agent.Agent, error) { return h.ag, nil }
+	}
+	return o
+}
+
+// testWriter sends log lines to t.Log while the test runs.
+type testWriter struct{ t *testing.T }
+
+func (w testWriter) Write(p []byte) (int, error) {
+	w.t.Log(strings.TrimRight(string(p), "\n"))
+	return len(p), nil
+}
+
+// start runs a new runner in the background.
+func (h *harness) start() {
+	h.t.Helper()
+	r, err := New(context.Background(), h.options())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancel, h.done = cancel, make(chan error, 1)
+	go func() { h.done <- r.Run(ctx) }()
+}
+
+// stop stops the runner and waits for it.
+func (h *harness) stop() {
+	if h.cancel == nil {
+		return
+	}
+	h.cancel()
+	select {
+	case err := <-h.done:
+		if err != nil {
+			h.t.Errorf("Run: %v", err)
+		}
+	case <-time.After(waitTimeout):
+		h.t.Error("the runner did not stop")
+	}
+	h.cancel = nil
+}
+
+func (h *harness) waitFor(what string, cond func() bool) {
+	h.t.Helper()
+	deadline := time.Now().Add(waitTimeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			h.t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (h *harness) run(number int) store.Run {
+	h.t.Helper()
+	r, err := h.st.RunByNumber(context.Background(), h.p.Name, number)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return r
+}
+
+// waitStatus waits for run #number to reach status.
+func (h *harness) waitStatus(number int, status store.RunStatus) store.Run {
+	h.t.Helper()
+	var r store.Run
+	h.waitFor("run #"+string(rune('0'+number))+" "+string(status), func() bool {
+		var err error
+		r, err = h.st.RunByNumber(context.Background(), h.p.Name, number)
+		return err == nil && r.Status == status
+	})
+	return r
+}
+
+// waitReview waits for run #number to be in review with its review
+// command applied (the store is written first, YouTrack after).
+func (h *harness) waitReview(number int, key string) store.Run {
+	h.t.Helper()
+	r := h.waitStatus(number, store.StatusReview)
+	h.waitFor(key+" in Review", func() bool { return h.yt.state(key) == "Review" })
+	return r
+}
+
+// waitInvocations waits until the run has n finished invocations.
+func (h *harness) waitInvocations(runID int64, n int) []store.Invocation {
+	h.t.Helper()
+	var invs []store.Invocation
+	h.waitFor("invocations", func() bool {
+		all, err := h.st.Invocations(context.Background(), runID)
+		if err != nil {
+			return false
+		}
+		invs = invs[:0]
+		for _, inv := range all {
+			if inv.EndedAt != nil {
+				invs = append(invs, inv)
+			}
+		}
+		return len(invs) >= n
+	})
+	return invs
+}
+
+func (h *harness) events(runID int64, kind string) []store.Event {
+	h.t.Helper()
+	all, err := h.st.Events(context.Background(), runID, 0, 0)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	var out []store.Event
+	for _, e := range all {
+		if kind == "" || e.Kind == kind {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func contains(list []string, sub string) bool {
+	return slices.ContainsFunc(list, func(s string) bool { return strings.Contains(s, sub) })
+}
+
+// writeFile writes a file into the agent's worktree.
+func writeFile(t *fakeTurn, name, content string) {
+	os.WriteFile(filepath.Join(t.s.opts.Dir, name), []byte(content), 0o644)
+}
+
+func TestCaptureWorkPushReviewFeedback(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Feedback.YouTrack = []string{"carol"} })
+	is := h.yt.addIssue("Fix the login page", "Open")
+	h.yt.addIssue("Already in progress", "In Progress") // not in the source
+
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			if _, err := t.Tool("report", map[string]any{"text": "Halfway there"}); err != nil {
+				t.Say("report failed: " + err.Error())
+			}
+			writeFile(t, "login.go", "package login\n")
+			t.Say("Fixed the login page.\nAdded login.go.")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			writeFile(t, "login.go", "package login // renamed\n")
+			t.Say("Updated as asked.\n[1] Renamed it.\n[2] Done too.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+
+	run := h.waitReview(1, is.Key)
+	if run.IssueKey != is.Key || run.Branch == "" || run.Worktree == "" || run.AgentSession != "session-1" {
+		t.Fatalf("run = %+v", run)
+	}
+	if got := h.yt.state(is.Key); got != "Review" {
+		t.Errorf("state = %q, want Review", got)
+	}
+	if cmds := h.yt.commandLog(); !slices.Equal(cmds, []string{is.Key + ": State In Progress", is.Key + ": State Review"}) {
+		t.Errorf("commands = %q", cmds)
+	}
+	// Start turn: prompt, service instruction, MCP server.
+	starts := h.ag.startLog()
+	prompts := h.ag.promptLog()
+	if len(starts) != 1 || !strings.Contains(prompts[0], "Fix the login page") || !strings.Contains(prompts[0], is.Key) {
+		t.Fatalf("starts = %d, prompt = %q", len(starts), prompts)
+	}
+	s0 := starts[0]
+	if !strings.Contains(s0.SystemPrompt, `ymcp pipeline "backend", run #1`) || !strings.Contains(s0.SystemPrompt, run.Branch) {
+		t.Errorf("system prompt = %q", s0.SystemPrompt)
+	}
+	if len(s0.MCP) != 1 || s0.MCP[0].Name != "ymcp" || !strings.HasSuffix(s0.MCP[0].URL, "/test") || !strings.HasPrefix(s0.MCP[0].Headers["Authorization"], "Bearer ") {
+		t.Errorf("MCP = %+v", s0.MCP)
+	}
+	if !slices.Contains(s0.AllowedTools, "mcp__ymcp__request_input") || s0.Dir != run.Worktree || s0.SessionID != "" {
+		t.Errorf("start options = %+v", s0)
+	}
+	// Comments: the report and the placeholder edited into the answer.
+	agentSaid := h.yt.agentComments(is.Key)
+	if !contains(agentSaid, "Halfway there") || !contains(agentSaid, "Fixed the login page.") || contains(agentSaid, "Thinking") {
+		t.Errorf("agent comments = %q", agentSaid)
+	}
+	if all := h.yt.issueComments(is.Key); !contains(all, "@alice's agent #1 (backend)") {
+		t.Errorf("comments lack the prefix: %q", all)
+	}
+	// The branch was committed by the agent identity and pushed.
+	log := git(t, h.origin, "log", "-1", "--format=%an <%ae>|%s", run.Branch)
+	if log != "Fake · backend #1 <dev+agent_backend_1@xlsft.ru>|"+is.Key+" Fixed the login page." {
+		t.Errorf("origin log = %q", log)
+	}
+	if len(h.events(run.ID, "git.push")) != 1 || len(h.events(run.ID, "agent.text")) == 0 {
+		t.Errorf("events: %+v", h.events(run.ID, ""))
+	}
+
+	// Feedback: two allowed comments, one from a stranger.
+	c1 := h.yt.addComment(is.Key, "alice", "Please rename login.go")
+	h.yt.addComment(is.Key, "carol", "And add a test")
+	h.yt.addComment(is.Key, "mallory", "Delete everything")
+	invs := h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	if invs[1].Kind != kindFeedback || invs[1].EndReason != agent.StopEndTurn {
+		t.Errorf("invocation = %+v", invs[1])
+	}
+	prompts = h.ag.promptLog()
+	fb := prompts[1]
+	if !strings.Contains(fb, "[1] youtrack · alice · ") || !strings.Contains(fb, "#focus=Comments-"+c1) || !strings.Contains(fb, "And add a test") || strings.Contains(fb, "Delete everything") {
+		t.Errorf("feedback prompt = %q", fb)
+	}
+	if s := h.ag.startLog()[1]; s.SessionID != "session-1" {
+		t.Errorf("feedback turn did not resume the session: %+v", s)
+	}
+	agentSaid = h.yt.agentComments(is.Key)
+	if !contains(agentSaid, "#focus=Comments-"+c1+".0-0\n\nRenamed it.") || !contains(agentSaid, "Done too.") || !contains(agentSaid, "Updated as asked.") {
+		t.Errorf("agent comments = %q", agentSaid)
+	}
+	if len(h.events(run.ID, "feedback.skipped")) != 1 {
+		t.Errorf("skipped = %+v", h.events(run.ID, "feedback.skipped"))
+	}
+	if cmds := h.yt.commandLog(); len(cmds) != 4 || cmds[2] != is.Key+": State In Progress" || cmds[3] != is.Key+": State Review" {
+		t.Errorf("commands = %q", cmds)
+	}
+	if n := strings.Count(git(t, h.origin, "log", "--format=%s", run.Branch), "\n") + 1; n != 3 {
+		t.Errorf("origin has %d commits on the branch, want 3", n)
+	}
+	// Nothing else is captured: the other issue is not in the source.
+	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 1 {
+		t.Errorf("runs = %d", len(runs))
+	}
+}
+
+func TestRequestInputThenCLIAnswer(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Pick a database", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			out, err := t.Tool("request_input", map[string]any{"question": "Postgres or SQLite? I recommend SQLite."})
+			if err != nil {
+				t.Say(err.Error())
+			}
+			t.Say("Asked: " + out)
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Went with " + strings.TrimSpace(strings.SplitAfter(t.prompt, "use ")[1]))
+			return agent.Result{}
+		},
+	)
+	h.start()
+
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "Postgres or SQLite?") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	h.waitFor("State Blocked", func() bool { return h.yt.state(is.Key) == "Blocked" })
+	h.waitFor("the question", func() bool {
+		said := h.yt.agentComments(is.Key)
+		return contains(said, "Postgres or SQLite? I recommend SQLite.") && !contains(said, "Thinking")
+	})
+
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "use SQLite"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 2)
+	run = h.waitReview(1, is.Key)
+	prompts := h.ag.promptLog()
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "use SQLite") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if said := h.yt.agentComments(is.Key); !contains(said, "Went with SQLite") {
+		t.Errorf("agent comments = %q", said)
+	}
+	if h.yt.state(is.Key) != "Review" {
+		t.Errorf("state = %q", h.yt.state(is.Key))
+	}
+	invs, _ := h.st.Invocations(context.Background(), run.ID)
+	if invs[1].Kind != kindAnswer {
+		t.Errorf("kind = %q", invs[1].Kind)
+	}
+}
+
+func TestPermissionAsk(t *testing.T) {
+	for _, tc := range []struct {
+		reply, option string
+	}{
+		{"/approve", "yes"},
+		{"/reject because no", "no"},
+	} {
+		t.Run(tc.reply, func(t *testing.T) {
+			h := newHarness(t, nil)
+			is := h.yt.addIssue("Run the tests", "Open")
+			h.ag.script(func(t *fakeTurn) agent.Result {
+				t.Say("answer: " + t.Ask("make test"))
+				return agent.Result{}
+			})
+			h.start()
+			run := h.waitStatus(1, store.StatusNeedsInput)
+			if !strings.Contains(run.NeedsInputReason, "make test") {
+				t.Errorf("reason = %q", run.NeedsInputReason)
+			}
+			h.waitFor("the permission comment", func() bool { return contains(h.yt.agentComments(is.Key), "Reply `/approve`") })
+			if err := Answer(context.Background(), h.st, h.p.Name, 1, tc.reply); err != nil {
+				t.Fatal(err)
+			}
+			h.waitReview(1, is.Key)
+			if said := h.yt.agentComments(is.Key); !contains(said, "answer: "+tc.option) {
+				t.Errorf("agent comments = %q", said)
+			}
+			if n := len(h.ag.startLog()); n != 1 {
+				t.Errorf("%d sessions, want the one turn", n)
+			}
+		})
+	}
+}
+
+func TestPermissionAllowAndDeny(t *testing.T) {
+	for mode, want := range map[string]string{"allow": "yes", "deny": "no"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t, func(p *spec.Pipeline) { p.Permissions = mode })
+			is := h.yt.addIssue("Run the tests", "Open")
+			h.ag.script(func(t *fakeTurn) agent.Result {
+				t.Say("answer: " + t.Ask("make test"))
+				return agent.Result{}
+			})
+			h.start()
+			run := h.waitReview(1, is.Key)
+			if said := h.yt.agentComments(is.Key); !contains(said, "answer: "+want) {
+				t.Errorf("agent comments = %q", said)
+			}
+			if len(h.events(run.ID, "run.needs_input")) != 0 {
+				t.Error("the run waited for a human")
+			}
+		})
+	}
+}
+
+func TestPermissionTimeoutThenLateApprove(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Timeouts.Permission = dur(200 * time.Millisecond) })
+	is := h.yt.addIssue("Run the tests", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			t.Say("first: " + t.Ask("make test"))
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("second: " + t.Ask("make test"))
+			return agent.Result{}
+		},
+	)
+	h.start()
+	h.waitFor("the refusal", func() bool { return contains(h.yt.agentComments(is.Key), "first: no") })
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "not allowed to use: make test") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	prompts := h.ag.promptLog()
+	if !strings.Contains(prompts[1], "Approved: make test. Retry what was denied.") {
+		t.Errorf("prompt = %q", prompts[1])
+	}
+	if said := h.yt.agentComments(is.Key); !contains(said, "second: yes") {
+		t.Errorf("the remembered approval was not used: %q", said)
+	}
+}
+
+func TestClaudeDeniedThenApprove(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Agent = spec.Agent{Provider: "claude", Name: "Claude"} })
+	is := h.yt.addIssue("Build it", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			t.Say("I could not run the build.")
+			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied"}}}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Built.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "Bash") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	starts := h.ag.startLog()
+	if len(starts) != 2 || !slices.Contains(starts[1].AllowedTools, "Bash") || slices.Contains(starts[0].AllowedTools, "Bash") {
+		t.Errorf("allowed tools: %q / %q", starts[0].AllowedTools, starts[len(starts)-1].AllowedTools)
+	}
+	if !strings.Contains(h.ag.promptLog()[1], "Approved: Bash") {
+		t.Errorf("prompt = %q", h.ag.promptLog()[1])
+	}
+}
+
+func TestSilenceTimeout(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Timeouts.Silence = dur(300 * time.Millisecond) })
+	is := h.yt.addIssue("Hang", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		writeFile(t, "partial.txt", "half done\n")
+		t.Say("step 1\nstep 2\n")
+		t.Hang()
+		return agent.Result{}
+	})
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "no output for 300ms") || !strings.Contains(run.NeedsInputReason, "step 2") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	h.waitFor("the reason in the placeholder", func() bool { return contains(h.yt.agentComments(is.Key), "no output for 300ms") })
+	invs := h.waitInvocations(run.ID, 1)
+	if invs[0].EndReason != "timeout: silence" || !strings.Contains(invs[0].LastOutput, "step 1") {
+		t.Errorf("invocation = %+v", invs[0])
+	}
+	// The leftovers were still committed and pushed.
+	if out := git(t, h.origin, "ls-tree", "--name-only", run.Branch); !strings.Contains(out, "partial.txt") {
+		t.Errorf("origin tree = %q", out)
+	}
+}
+
+func TestMovedBackToBacklogCancels(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Do it", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.yt.setState(is.Key, "Open")
+	run = h.waitStatus(1, store.StatusCanceled)
+	if !strings.Contains(run.NeedsInputReason, "backlog") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	// It stays in the source and is not captured again, until it leaves.
+	time.Sleep(200 * time.Millisecond)
+	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 1 {
+		t.Fatalf("captured again: %d runs", len(runs))
+	}
+	if _, err := os.Stat(run.Worktree); err != nil {
+		t.Errorf("the worktree of a canceled run was removed: %v", err)
+	}
+	h.yt.setState(is.Key, "Postponed")
+	time.Sleep(100 * time.Millisecond)
+	h.yt.setState(is.Key, "Open")
+	h.waitReview(2, is.Key)
+}
+
+func TestMovedBackDuringTurnStopsAgent(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Long one", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.Say("working")
+		t.Hang()
+		return agent.Result{}
+	})
+	h.start()
+	h.waitFor("the turn", func() bool { return len(h.ag.promptLog()) == 1 })
+	h.waitFor("In Progress", func() bool { return h.yt.state(is.Key) == "In Progress" })
+	time.Sleep(100 * time.Millisecond) // the runner sees it out of the source
+	h.yt.setState(is.Key, "Open")
+	run := h.waitStatus(1, store.StatusCanceled)
+	h.waitFor("the placeholder edit", func() bool { return contains(h.yt.agentComments(is.Key), "Stopped: the run was canceled.") })
+	invs := h.waitInvocations(run.ID, 1)
+	if invs[0].EndReason != "canceled" {
+		t.Errorf("end reason = %q", invs[0].EndReason)
+	}
+}
+
+func TestDeletedIssueCancels(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Doomed", "Open")
+	h.start()
+	h.waitReview(1, is.Key)
+	h.yt.deleteIssue(is.Key)
+	run := h.waitStatus(1, store.StatusCanceled)
+	if !strings.Contains(run.NeedsInputReason, "deleted") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+}
+
+func TestMovedOutsideStagesPausesAndClosedFinishes(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Wander", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.yt.setState(is.Key, "Postponed")
+	run = h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "outside the pipeline's stages") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	if h.yt.state(is.Key) != "Postponed" {
+		t.Errorf("a pause applied a command: state %q", h.yt.state(is.Key))
+	}
+	h.yt.setState(is.Key, "Closed")
+	run = h.waitStatus(1, store.StatusClosed)
+	h.waitFor("the worktree removal", func() bool {
+		_, err := os.Stat(run.Worktree)
+		return os.IsNotExist(err)
+	})
+	if b := git(t, h.repo, "branch", "--list", run.Branch); b == "" {
+		t.Error("the branch was removed with the worktree")
+	}
+}
+
+func TestWorkingCommandFails(t *testing.T) {
+	h := newHarness(t, nil)
+	h.yt.fail("State In Progress", "State expected: In Progress")
+	h.yt.fail("State Blocked", "State expected: Blocked") // the issue stays in the source
+	is := h.yt.addIssue("No rights", "Open")
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "State expected: In Progress") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	h.waitFor("the reason comment", func() bool { return contains(h.yt.agentComments(is.Key), "State expected: In Progress") })
+	if n := len(h.ag.promptLog()); n != 0 {
+		t.Errorf("the agent ran %d turns", n)
+	}
+	// The issue stays in the source but its run is not canceled for it.
+	time.Sleep(150 * time.Millisecond)
+	if run = h.run(1); run.Status != store.StatusNeedsInput {
+		t.Errorf("status = %s", run.Status)
+	}
+	// Fixed: an answer starts the agent.
+	h.yt.mu.Lock()
+	delete(h.yt.failing, "State In Progress")
+	h.yt.mu.Unlock()
+	if h.yt.state(is.Key) != "Open" {
+		t.Fatalf("state = %q", h.yt.state(is.Key))
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "rights granted, go"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitReview(1, is.Key)
+	invs, _ := h.st.Invocations(context.Background(), run.ID)
+	if len(invs) != 1 || invs[0].Kind != kindStart {
+		t.Errorf("invocations = %+v", invs)
+	}
+}
+
+func TestCancelFromCLI(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Long one", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.Hang()
+		return agent.Result{}
+	})
+	h.start()
+	h.waitFor("the turn", func() bool { return len(h.ag.promptLog()) == 1 })
+	if err := Cancel(context.Background(), h.st, h.p.Name, 1); err != nil {
+		t.Fatal(err)
+	}
+	h.waitFor("the placeholder edit", func() bool { return contains(h.yt.agentComments(is.Key), "Stopped: the run was canceled.") })
+	run := h.run(1)
+	if run.Status != store.StatusCanceled {
+		t.Errorf("status = %s", run.Status)
+	}
+	if _, err := os.Stat(run.Worktree); err != nil {
+		t.Errorf("worktree: %v", err)
+	}
+	if err := Cancel(context.Background(), h.st, h.p.Name, 1); err == nil {
+		t.Error("canceling twice worked")
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "hello"); err == nil {
+		t.Error("answering a canceled run worked")
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 9, "hello"); err == nil {
+		t.Error("answering an unknown run worked")
+	}
+}
+
+func TestRestartResumes(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Resume me", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.stop()
+	if _, _, _, held, _ := h.st.Runner(context.Background(), h.p.Name); held {
+		t.Error("the runner lock is still held")
+	}
+
+	// Feedback arrives while no runner runs; a new runner picks it up.
+	h.yt.addComment(is.Key, "alice", "One more thing")
+	h.start()
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	starts := h.ag.startLog()
+	if len(starts) != 2 || starts[1].SessionID != "session-1" || starts[1].Dir != run.Worktree {
+		t.Errorf("starts = %+v", starts)
+	}
+	if !strings.Contains(h.ag.promptLog()[1], "One more thing") {
+		t.Errorf("prompt = %q", h.ag.promptLog()[1])
+	}
+}
+
+func TestRestartDuringTurn(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Interrupted", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.Say("working")
+		t.Hang()
+		return agent.Result{}
+	})
+	h.start()
+	h.waitFor("the turn", func() bool { return len(h.ag.promptLog()) == 1 })
+	h.stop()
+	if run := h.run(1); run.Status != store.StatusWorking {
+		t.Fatalf("status after stop = %s", run.Status)
+	}
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "runner stopped") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	h.waitFor("the placeholder edit", func() bool { return contains(h.yt.agentComments(is.Key), "runner stopped") })
+	if contains(h.yt.agentComments(is.Key), "Thinking") {
+		t.Errorf("a placeholder was left: %q", h.yt.agentComments(is.Key))
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "go on"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitReview(1, is.Key)
+}
+
+func TestNoResumeStartsNewSessionWithRecap(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Recap", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		writeFile(t, "a.txt", "a\n")
+		t.Say("First answer.")
+		return agent.Result{}
+	})
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.ag.mu.Lock()
+	h.ag.noResume = true
+	h.ag.mu.Unlock()
+	h.yt.addComment(is.Key, "alice", "Again")
+	h.waitInvocations(run.ID, 2)
+	run = h.waitReview(1, is.Key)
+	p := h.ag.promptLog()[1]
+	if !strings.Contains(p, "could not be resumed") || !strings.Contains(p, "a.txt") || !strings.Contains(p, "First answer.") || !strings.Contains(p, "Again") {
+		t.Errorf("prompt = %q", p)
+	}
+	starts := h.ag.startLog()
+	if last := starts[len(starts)-1]; last.SessionID != "" || last.SystemPrompt == "" {
+		t.Errorf("start = %+v", last)
+	}
+	if run.AgentSession != "session-2" {
+		t.Errorf("session = %q", run.AgentSession)
+	}
+}
+
+func TestDeletedPlaceholderIsPostedAgain(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Delete my placeholder", "Open")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		close(started)
+		<-release
+		t.Say("The answer.")
+		return agent.Result{}
+	})
+	h.start()
+	<-started
+	msgs, _ := h.st.Messages(context.Background(), h.run(1).ID)
+	h.yt.deleteComment(msgs[0].ExternalID)
+	close(release)
+	h.waitReview(1, is.Key)
+	if said := h.yt.agentComments(is.Key); !slices.Equal(said, []string{"The answer."}) {
+		t.Errorf("agent comments = %q", said)
+	}
+}
+
+func TestParallelLimit(t *testing.T) {
+	h := newHarness(t, nil)
+	one := h.yt.addIssue("One", "Open")
+	two := h.yt.addIssue("Two", "Open")
+	release := make(chan struct{})
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		<-release
+		return agent.Result{}
+	})
+	h.start()
+	h.waitFor("the first turn", func() bool { return len(h.ag.promptLog()) == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 1 {
+		t.Fatalf("%d runs while one is working with parallel 1", len(runs))
+	}
+	close(release)
+	h.waitReview(1, one.Key)
+	h.waitReview(2, two.Key) // a run in review does not hold the slot
+}
+
+func TestACPAgentEndToEnd(t *testing.T) {
+	h := newHarness(t, nil)
+	command, env := agenttest.Command("acp", agenttest.Script{
+		State: t.TempDir(),
+		Turns: [][]agenttest.Step{{{Text: "Looking. "}, {Permission: &agenttest.Tool{Title: "make test", Kind: "execute"}}, {Text: " Done."}}},
+	})
+	h.p.Agent = spec.Agent{Provider: "acp", Command: command, Env: env, Name: "Fake ACP"}
+	h.realAgent = true
+	is := h.yt.addIssue("Real adapter", "Open")
+	h.start()
+	h.waitStatus(1, store.StatusNeedsInput)
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitReview(1, is.Key)
+	said := h.yt.agentComments(is.Key)
+	if !contains(said, "allowed approve_once") || !contains(said, "Done.") {
+		t.Errorf("agent comments = %q", said)
+	}
+}
+
+func TestCheck(t *testing.T) {
+	h := newHarness(t, nil)
+	h.yt.addIssue("Sample", "Open")
+	h.yt.fail("State Closed", "State expected: Closed")
+	o := h.options()
+	o.Pipeline = h.p
+	res, err := CheckWith(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]CheckResult{}
+	for _, r := range res {
+		if _, dup := byName[r.Name]; !dup {
+			byName[r.Name] = r
+		}
+	}
+	want := map[string]bool{
+		"pipeline": true, "YouTrack": true, "source query": true,
+		"stages.working.enter command": true, "stages.closed.enter command": false,
+		"working leaves the source": true, "workspace: git repository": true, "agent": true,
+	}
+	for name, ok := range want {
+		r, found := byName[name]
+		if !found || r.OK != ok {
+			t.Errorf("%s: %+v (found %v), want OK=%v", name, r, found, ok)
+		}
+	}
+	if r := byName["source query"]; !strings.Contains(r.Detail, "1 issues match: YPC-1") {
+		t.Errorf("source detail = %q", r.Detail)
+	}
+	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Warning && r.Detail == "fake warning" }) {
+		t.Errorf("agent warning missing: %+v", res)
+	}
+
+	// An issue in both the source and the working stage: a warning.
+	h.p.Stages.Working.Match = "State: Open"
+	o.Pipeline = h.p
+	res, _ = CheckWith(context.Background(), o)
+	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Name == "working leaves the source" && r.Warning }) {
+		t.Errorf("no overlap warning: %+v", res)
+	}
+}
+
+func TestNewRejectsBadPipeline(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := New(context.Background(), Options{Pipeline: spec.Pipeline{Name: "x"}, Store: st}); err == nil {
+		t.Error("an invalid pipeline was accepted")
+	}
+	p := testPipeline(t.TempDir())
+	p.Strategy.Kind = "github-pr"
+	if _, err := New(context.Background(), Options{Pipeline: p, Store: st}); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := New(context.Background(), Options{Pipeline: testPipeline("x")}); err == nil {
+		t.Error("no store was accepted")
+	}
+}
+
+func TestRunnerBusy(t *testing.T) {
+	h := newHarness(t, nil)
+	if err := h.st.AcquireRunner(context.Background(), h.p.Name, 1, "elsewhere", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	r, err := New(context.Background(), h.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(context.Background()); !errors.Is(err, store.ErrRunnerBusy) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestHelpers(t *testing.T) {
+	var tl tail
+	for i := range 30 {
+		tl.add("line " + string(rune('a'+i%26)) + "\n")
+	}
+	tl.add("partial")
+	if lines := strings.Split(tl.String(), "\n"); len(lines) != tailLines || lines[len(lines)-1] != "partial" {
+		t.Errorf("tail = %q", tl.String())
+	}
+	for in, want := range map[string][2]string{
+		"/approve":          {"/approve", ""},
+		" /REJECT not now ": {"/reject", "not now"},
+		"approve":           {"", "approve"},
+		"":                  {"", ""},
+	} {
+		if c, r := command(in); c != want[0] || r != want[1] {
+			t.Errorf("command(%q) = %q, %q", in, c, r)
+		}
+	}
+	for in, want := range map[string]string{"YPC-12": "YPC", "A-B-3": "A-B", "nokey": "", "X-y": ""} {
+		if got := projectOf(in); got != want {
+			t.Errorf("projectOf(%q) = %q", in, got)
+		}
+	}
+	if got := trimText("привет", 5); got != "пр… [trimmed]" {
+		t.Errorf("trimText = %q", got)
+	}
+	if got := fmtDuration(10 * time.Minute); got != "10m" {
+		t.Errorf("fmtDuration = %q", got)
+	}
+	if got := fmtDuration(90 * time.Minute); got != "1h30m" {
+		t.Errorf("fmtDuration = %q", got)
+	}
+}

@@ -1,0 +1,983 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/text"
+	"github.com/xlsft/ymcp/internal/pipeline/workspace"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
+)
+
+// Why a turn was stopped by the runner.
+const (
+	causeSilence  = "silence"
+	causeTotal    = "total"
+	causePaused   = "paused"
+	causeCanceled = "canceled"
+	causeShutdown = "shutdown"
+)
+
+// cancelGrace is how long a cancelled turn may take to end before its
+// session is closed.
+const cancelGrace = 10 * time.Second
+
+// drainTimeout bounds waiting for the events of a closed session.
+const drainTimeout = 5 * time.Second
+
+// The pipeline tools every agent may call.
+var pipelineTools = []string{"mcp__ymcp__request_input", "mcp__ymcp__report"}
+
+// turn is one agent turn of a run.
+type turn struct {
+	r     *Runner
+	w     *worker
+	run   store.Run
+	kind  string
+	items []store.InboxItem
+	inv   store.Invocation
+	ctx   context.Context // the worker's; ends on cancel or shutdown
+	bg    context.Context // for bookkeeping that must outlive ctx
+
+	placeholder *store.Message
+	vars        text.Vars
+	out         tail
+	lastTool    string
+
+	buf     strings.Builder // coalesced text chunks not yet recorded
+	bufKind agent.Kind
+
+	perms       []agent.Permission // open permission requests, oldest first
+	permTimer   *time.Timer
+	rejected    []string // tools refused during the turn
+	late        []string // tools refused because nobody answered in time
+	pauseReason string
+}
+
+// turn runs one agent turn and publishes its outcome. It returns the
+// prompt of a follow-up turn to run at once, or "".
+func (r *Runner) turn(w *worker, run store.Run, kind string, items []store.InboxItem, answer string) (follow string) {
+	t := &turn{r: r, w: w, run: run, kind: kind, items: items, ctx: w.ctx, bg: context.WithoutCancel(w.ctx)}
+	inv, err := r.st.StartInvocation(t.bg, run.ID, kind)
+	if err != nil {
+		r.log.Warn("starting an invocation failed", "run", run.Number, "err", err)
+		return ""
+	}
+	t.inv = inv
+	ids := make([]int64, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	if err := r.st.ConsumeInbox(t.bg, ids, inv.ID); err != nil {
+		r.log.Warn("consuming the inbox failed", "run", run.Number, "err", err)
+	}
+	w.beginTurn()
+	defer w.endTurn()
+	return t.run1(answer)
+}
+
+// end records the end of the invocation.
+func (t *turn) end(reason string) {
+	t.inv.EndReason = reason
+	t.inv.LastOutput = trimText(t.out.String(), 4000)
+	if err := t.r.st.EndInvocation(t.bg, t.inv); err != nil {
+		t.r.log.Warn("ending an invocation failed", "run", t.run.Number, "err", err)
+	}
+	t.r.event(t.bg, t.run.ID, "turn.end", map[string]string{"kind": t.kind, "reason": reason})
+}
+
+// fail ends the turn with the run waiting for a human.
+func (t *turn) fail(endReason, reason string) string {
+	t.end(endReason)
+	t.r.toNeedsInput(t.bg, t.run, reason, needsInputBody(reason), t.placeholder, true)
+	return ""
+}
+
+// gone ends a turn whose issue was deleted.
+func (t *turn) gone() string {
+	t.end("issue deleted")
+	if w := t.w; w != nil {
+		t.r.cancelRun(t.bg, w, "The issue was deleted.")
+	}
+	return ""
+}
+
+func (t *turn) run1(answer string) string {
+	r, run := t.r, t.run
+
+	// Leave needs_input / review and (re)enter the working stage.
+	if run.Status == store.StatusNeedsInput {
+		r.leaveNeedsInput(t.bg, run)
+	}
+	if run.Status != store.StatusWorking {
+		if st := r.p.Stages.Working; st.On() && st.Enter != "" {
+			if err := r.watch.Apply(t.bg, st.Enter, run.IssueKey); err != nil {
+				return t.fail("working command failed", "The working command `"+st.Enter+"` failed: "+describeErr(err))
+			}
+			r.event(t.bg, run.ID, "stage.command", map[string]string{"stage": stageWorking, "command": st.Enter})
+		}
+	}
+	saved, err := r.updateRun(t.bg, run.ID, func(run *store.Run) {
+		run.Status, run.Stage, run.NeedsInputReason = store.StatusWorking, stageWorking, ""
+	})
+	if err != nil {
+		t.end("run ended")
+		return ""
+	}
+	t.run = saved
+	run = saved
+
+	// The placeholder, at once.
+	t.placeholder = r.finalizeThinking(t.bg, run)
+	if t.placeholder != nil {
+		t.placeholder.Kind = msgAnswer
+	}
+	m, err := r.publish(t.bg, run, t.placeholder, msgAnswer, stateThinking, text.Thinking)
+	switch {
+	case err == nil:
+		t.placeholder = &m
+	case isNotFound(err):
+		if ok, xerr := r.watch.Exists(t.bg, run.IssueID); xerr == nil && !ok {
+			return t.gone()
+		}
+		r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
+	default:
+		r.log.Warn("posting the placeholder failed", "run", run.Number, "err", err)
+	}
+
+	issue, err := r.watch.Issue(t.ctx, run.IssueID)
+	if err != nil {
+		if t.ctx.Err() != nil {
+			return t.stopped(causeOf(t.ctx))
+		}
+		if isNotFound(err) {
+			return t.gone()
+		}
+		return t.fail("issue unreadable", "Reading the issue failed: "+err.Error())
+	}
+	comments, err := r.comments(t.ctx, run.IssueID)
+	if err != nil {
+		r.log.Warn("reading comments failed", "run", run.Number, "err", err)
+	}
+	own := map[string]bool{}
+	if msgs, err := r.st.Messages(t.bg, run.ID); err == nil {
+		for _, m := range msgs {
+			own[m.ExternalID] = true
+		}
+	}
+	t.vars = issueVars(issue)
+	t.vars["comments"] = humanComments(comments, own)
+	t.vars["run.number"] = fmt.Sprint(run.Number)
+	t.vars["pipeline.name"] = r.p.Name
+	t.vars["language"] = r.p.Language
+	t.vars["pr.url"] = "none"
+
+	if err := t.prepareWorkspace(); err != nil {
+		if t.ctx.Err() != nil {
+			return t.stopped(causeOf(t.ctx))
+		}
+		return t.fail("workspace failed", "Preparing the git worktree failed: "+err.Error())
+	}
+
+	prompt, system, err := t.prompts(answer)
+	if err != nil {
+		return t.fail("bad template", "A prompt template of the pipeline is invalid: "+err.Error())
+	}
+	r.event(t.bg, run.ID, "turn.start", map[string]string{"kind": t.kind, "prompt": trimText(prompt, 4000)})
+
+	opts := agent.StartOptions{
+		Dir:          t.w.wt.Path,
+		Env:          r.p.Agent.Env,
+		Model:        r.p.Agent.Model,
+		Mode:         r.p.Agent.Mode,
+		MCP:          []agent.MCPServer{{Name: "ymcp", URL: r.mcpURL, Headers: map[string]string{"Authorization": "Bearer " + t.w.token}}},
+		SessionID:    run.AgentSession,
+		AllowedTools: append(slices.Clone(pipelineTools), t.w.approvedTools()...),
+		SystemPrompt: system,
+	}
+	res, cause, perr := t.session(opts, prompt, comments, issue)
+	return t.outcome(res, cause, perr)
+}
+
+// prepareWorkspace creates (or reuses) the run's worktree and fills in the
+// workspace variables.
+func (t *turn) prepareWorkspace() error {
+	r, run, w := t.r, t.run, t.w
+	branch := run.Branch
+	if branch == "" {
+		b, err := text.Render(r.p.Workspace.Branch, t.vars)
+		if err != nil {
+			return fmt.Errorf("workspace.branch: %w", err)
+		}
+		branch = b
+	}
+	prefix, err := text.Render(r.p.Workspace.CommitPrefix, t.vars)
+	if err != nil {
+		return fmt.Errorf("workspace.commitPrefix: %w", err)
+	}
+	if w.wt.Path == "" {
+		email, err := gitUserEmail(t.ctx, r.host, r.p.Workspace.Dir)
+		if err != nil {
+			return err
+		}
+		id := workspace.AgentIdentity(email, r.p.Name, run.Number, r.p.Agent.Name)
+		base := run.Base
+		if base == "" {
+			base = r.p.Workspace.Base
+		}
+		wt, err := workspace.Create(t.ctx, r.host, r.p.Workspace.Dir, r.p.Workspace.Worktrees, branch, base, id)
+		if err != nil {
+			return err
+		}
+		w.wt = wt
+		saved, err := r.updateRun(t.bg, run.ID, func(run *store.Run) {
+			run.Worktree, run.Branch, run.Base, run.Host = wt.Path, wt.Branch, wt.Base, r.host.Name()
+		})
+		if err == nil {
+			t.run = saved
+		}
+		if _, err := workspace.RunDir(t.ctx, r.host, r.p.Workspace.Dir, run.Number); err != nil {
+			r.log.Warn("creating the run directory failed", "run", run.Number, "err", err)
+		}
+		r.event(t.bg, run.ID, "worktree", map[string]string{"path": wt.Path, "branch": wt.Branch, "base": wt.Base})
+	}
+	t.vars["branch"] = w.wt.Branch
+	t.vars["base"] = w.wt.Base
+	t.vars["commit.prefix"] = prefix
+	return nil
+}
+
+// gitUserEmail reads user.email of the repository, the base of the agent's
+// commit address.
+func gitUserEmail(ctx context.Context, h workspace.Host, dir string) (string, error) {
+	out, _, err := h.Run(ctx, dir, []string{"git", "config", "user.email"}, nil)
+	email := strings.TrimSpace(string(out))
+	if err != nil || email == "" {
+		return "", fmt.Errorf("git user.email is not set in %s: the agent's commit address is derived from it", dir)
+	}
+	return email, nil
+}
+
+// prompts renders the turn's prompt and the system prompt.
+func (t *turn) prompts(answer string) (prompt, system string, err error) {
+	r := t.r
+	switch t.kind {
+	case kindFeedback:
+		items := make([]text.FeedbackItem, len(t.items))
+		for i, it := range t.items {
+			items[i] = text.FeedbackItem{N: i + 1, Source: it.Source, Author: it.Author, URL: it.URL, Body: it.Body}
+		}
+		t.vars["feedback"] = text.RenderFeedback(items)
+		prompt, err = text.Render(r.prompts.Feedback, t.vars)
+	case kindAnswer:
+		if answer == "" && len(t.items) > 0 {
+			answer = t.answerText(t.items[0].Body)
+		}
+		t.vars["answer"] = answer
+		prompt, err = text.Render(r.prompts.Answer, t.vars)
+	default:
+		prompt, err = text.Render(r.prompts.Start, t.vars)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	tmpl := spec.LanguageRule
+	if r.p.ServiceEnabled() {
+		tmpl = spec.ServiceInstruction
+	}
+	system, err = text.Render(tmpl, t.vars)
+	return prompt, system, err
+}
+
+// answerText turns a reply into the answer the agent gets: /approve and
+// /reject decide about tools denied earlier.
+func (t *turn) answerText(body string) string {
+	retry := t.w.takeRetry()
+	cmd, rest := command(body)
+	switch {
+	case len(retry) == 0 || cmd == "":
+		return body
+	case cmd == "/approve":
+		t.w.approve(retry)
+		t.r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": retry})
+		s := "Approved: " + strings.Join(retry, ", ") + ". Retry what was denied."
+		if rest != "" {
+			s += "\n\n" + rest
+		}
+		return s
+	default:
+		t.r.event(t.bg, t.run.ID, "permission.rejected", map[string]any{"tools": retry})
+		s := "Rejected: " + strings.Join(retry, ", ") + ". Continue without them."
+		if rest != "" {
+			s += "\n\n" + rest
+		}
+		return s
+	}
+}
+
+// command splits a leading /approve or /reject off a reply.
+func command(body string) (cmd, rest string) {
+	f := strings.Fields(body)
+	if len(f) == 0 {
+		return "", body
+	}
+	c := strings.ToLower(f[0])
+	if c != "/approve" && c != "/reject" {
+		return "", body
+	}
+	return c, strings.TrimSpace(strings.TrimSpace(body)[len(f[0]):])
+}
+
+// session starts (or resumes) the agent session and runs the prompt. A
+// session that can't be resumed is replaced by a new one that gets a recap.
+func (t *turn) session(opts agent.StartOptions, prompt string, comments []comment, issue ytwatch.Issue) (agent.Result, string, error) {
+	r := t.r
+	for attempt := 0; ; attempt++ {
+		sess, err := r.agent.Start(t.ctx, opts)
+		if err != nil {
+			if errors.Is(err, agent.ErrNoResume) && opts.SessionID != "" && attempt == 0 {
+				r.event(t.bg, t.run.ID, "agent.no_resume", map[string]string{"error": err.Error()})
+				opts.SessionID = ""
+				prompt = t.recap(comments, issue) + prompt
+				continue
+			}
+			if t.ctx.Err() != nil {
+				return agent.Result{}, causeOf(t.ctx), nil
+			}
+			return agent.Result{}, "", fmt.Errorf("starting the agent: %w", err)
+		}
+		t.saveSession(sess.ID())
+		res, cause, perr := t.drive(sess, prompt)
+		sess.Close()
+		t.drain(sess)
+		if perr != nil && errors.Is(perr, agent.ErrNoResume) && opts.SessionID != "" && attempt == 0 && cause == "" {
+			r.event(t.bg, t.run.ID, "agent.no_resume", map[string]string{"error": perr.Error()})
+			opts.SessionID = ""
+			prompt = t.recap(comments, issue) + prompt
+			continue
+		}
+		return res, cause, perr
+	}
+}
+
+// saveSession stores the agent's session id for later turns.
+func (t *turn) saveSession(id string) {
+	if id == "" || id == t.run.AgentSession {
+		return
+	}
+	saved, err := t.r.updateRun(t.bg, t.run.ID, func(run *store.Run) { run.AgentSession = id })
+	if err == nil {
+		t.run = saved
+	}
+}
+
+// recap tells a new session what an earlier one did.
+func (t *turn) recap(comments []comment, issue ytwatch.Issue) string {
+	r, w := t.r, t.w
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are continuing earlier work on issue %s (%s) in a new session: the previous session could not be resumed.\n", issue.Key, issue.Summary)
+	fmt.Fprintf(&b, "Your branch is %s, created from %s.\n", w.wt.Branch, w.wt.Base)
+	out, _, err := r.host.Run(t.ctx, w.wt.Path, []string{"git", "diff", "--stat", "origin/" + w.wt.Base + "...HEAD"}, nil)
+	if stat := strings.TrimSpace(string(out)); err == nil && stat != "" {
+		b.WriteString("\nChanges on the branch so far:\n" + stat + "\n")
+	}
+	if prev := r.previousAnswers(comments, t.run.Number); len(prev) > 0 {
+		b.WriteString("\nYour previous answers on the issue:\n")
+		for _, p := range prev {
+			b.WriteString("---\n" + trimText(p, 3000) + "\n")
+		}
+	}
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
+
+type promptResult struct {
+	res agent.Result
+	err error
+}
+
+// drive runs the prompt and handles the session's events until it ends:
+// it records events, enforces the timeouts, answers permission requests
+// and stops the turn when the run is canceled, paused or the runner stops.
+func (t *turn) drive(sess agent.Session, prompt string) (res agent.Result, cause string, err error) {
+	r, w := t.r, t.w
+	done := make(chan promptResult, 1)
+	go func() {
+		res, err := sess.Prompt(context.Background(), prompt)
+		done <- promptResult{res, err}
+	}()
+	silenceAfter := r.p.Timeouts.Silence.Duration
+	silence := time.NewTimer(silenceAfter)
+	defer silence.Stop()
+	total := time.NewTimer(r.p.Timeouts.Total.Duration)
+	defer total.Stop()
+	defer t.stopPermTimer()
+	var grace <-chan time.Time
+	stopTurn := func(c string) {
+		if cause == "" {
+			cause = c
+		}
+		_ = sess.Cancel()
+		if grace == nil {
+			grace = time.After(cancelGrace)
+		}
+	}
+	events := sess.Events()
+	ctxDone := t.ctx.Done()
+	for {
+		var permC <-chan time.Time
+		if t.permTimer != nil {
+			permC = t.permTimer.C
+		}
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			t.onEvent(sess, ev)
+			if len(t.perms) == 0 {
+				resetTimer(silence, silenceAfter)
+			}
+		case pr := <-done:
+			return pr.res, cause, pr.err
+		case <-silence.C:
+			if len(t.perms) > 0 {
+				silence.Reset(silenceAfter) // waiting for a human, not stuck
+				continue
+			}
+			stopTurn(causeSilence)
+		case <-total.C:
+			stopTurn(causeTotal)
+		case <-permC:
+			t.permTimer = nil
+			t.permissionTimeout(sess)
+			if len(t.perms) == 0 {
+				resetTimer(silence, silenceAfter)
+			}
+		case <-w.wake:
+			if len(t.perms) > 0 {
+				t.permissionAnswers(sess)
+				if len(t.perms) == 0 {
+					resetTimer(silence, silenceAfter)
+				}
+			}
+		case reason := <-w.intr:
+			t.pauseReason = reason
+			stopTurn(causePaused)
+		case <-ctxDone:
+			ctxDone = nil
+			stopTurn(causeOf(t.ctx))
+		case <-grace:
+			grace = make(chan time.Time) // once
+			_ = sess.Close()             // Prompt must return now
+		}
+	}
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	t.Stop()
+	select {
+	case <-t.C:
+	default:
+	}
+	t.Reset(d)
+}
+
+// causeOf maps the worker's stop cause to a turn stop cause.
+func causeOf(ctx context.Context) string {
+	if errors.Is(context.Cause(ctx), errShutdown) {
+		return causeShutdown
+	}
+	return causeCanceled
+}
+
+// drain records the events left after the session closed.
+func (t *turn) drain(sess agent.Session) {
+	timeout := time.After(drainTimeout)
+	for {
+		select {
+		case ev, ok := <-sess.Events():
+			if !ok {
+				t.flush()
+				return
+			}
+			if ev.Kind != agent.EventPermission {
+				t.record(ev)
+			}
+		case <-timeout:
+			t.flush()
+			return
+		}
+	}
+}
+
+// onEvent records an event and reacts to it.
+func (t *turn) onEvent(sess agent.Session, ev agent.Event) {
+	t.record(ev)
+	switch ev.Kind {
+	case agent.EventSession:
+		t.saveSession(ev.SessionID)
+	case agent.EventPermission:
+		if ev.Permission != nil {
+			t.permission(sess, *ev.Permission)
+		}
+	}
+}
+
+// record stores an event in the run's timeline; text chunks are
+// coalesced.
+func (t *turn) record(ev agent.Event) {
+	switch ev.Kind {
+	case agent.EventText, agent.EventThought:
+		if ev.Kind == agent.EventText {
+			t.out.add(ev.Text)
+		}
+		if t.buf.Len() > 0 && t.bufKind != ev.Kind {
+			t.flush()
+		}
+		t.bufKind = ev.Kind
+		t.buf.WriteString(ev.Text)
+		if t.buf.Len() >= 4000 {
+			t.flush()
+		}
+		return
+	}
+	t.flush()
+	data := map[string]any{}
+	if ev.Text != "" {
+		data["text"] = trimText(ev.Text, 2000)
+	}
+	if tc := ev.Tool; tc != nil {
+		data["tool"] = map[string]string{"id": tc.ID, "title": tc.Title, "kind": tc.Kind, "status": tc.Status}
+		if ev.Kind == agent.EventToolCall && tc.Title != "" {
+			t.lastTool = tc.Title
+		}
+	}
+	if ev.SessionID != "" {
+		data["session"] = ev.SessionID
+	}
+	t.r.event(t.bg, t.run.ID, "agent."+ev.Kind.String(), data)
+}
+
+func (t *turn) flush() {
+	if t.buf.Len() == 0 {
+		return
+	}
+	t.r.event(t.bg, t.run.ID, "agent."+t.bufKind.String(), map[string]string{"text": trimText(t.buf.String(), 4000)})
+	t.buf.Reset()
+}
+
+// option picks the option of a permission request of the given kind
+// family ("allow" or "reject"), preferring the one-time variant.
+func option(p agent.Permission, family string) string {
+	for _, k := range []string{family + "_once", family + "_always"} {
+		for _, o := range p.Options {
+			if o.Kind == k {
+				return o.ID
+			}
+		}
+	}
+	for _, o := range p.Options {
+		if strings.HasPrefix(o.Kind, family) {
+			return o.ID
+		}
+	}
+	return ""
+}
+
+// answerPermission replies to a request; a missing reject option cancels
+// the turn's request instead.
+func (t *turn) answerPermission(sess agent.Session, p agent.Permission, allow bool, why string) {
+	family := "reject"
+	if allow {
+		family = "allow"
+	}
+	id := option(p, family)
+	var err error
+	if id == "" {
+		err = fmt.Errorf("the request has no %s option", family)
+	} else {
+		err = sess.Answer(p.RequestID, id)
+	}
+	if err != nil {
+		t.r.log.Warn("answering a permission request failed", "run", t.run.Number, "err", err)
+	}
+	if !allow {
+		t.rejected = append(t.rejected, p.Tool.Title)
+	}
+	t.r.event(t.bg, t.run.ID, "permission.answer", map[string]any{"tool": p.Tool.Title, "allow": allow, "why": why})
+}
+
+// permission handles a permission request of the agent according to the
+// pipeline's permissions setting.
+func (t *turn) permission(sess agent.Session, p agent.Permission) {
+	switch {
+	case t.w.isApproved(p.Tool.Title):
+		t.answerPermission(sess, p, true, "approved earlier")
+	case t.r.p.Permissions == "allow":
+		t.answerPermission(sess, p, true, "permissions: allow")
+	case t.r.p.Permissions == "deny":
+		t.answerPermission(sess, p, false, "permissions: deny")
+	default:
+		t.perms = append(t.perms, p)
+		if len(t.perms) == 1 {
+			t.openPermission()
+		}
+	}
+}
+
+// openPermission asks a human about the oldest open request: the run
+// waits in needs_input until /approve, /reject or Timeouts.Permission.
+func (t *turn) openPermission() {
+	r := t.r
+	p := t.perms[0]
+	wait := r.p.Timeouts.Permission.Duration
+	t.permTimer = time.NewTimer(wait)
+	what := p.Tool.Title
+	if what == "" {
+		what = "a tool"
+	}
+	body := "The agent asks for permission to run **" + what + "**."
+	if in := strings.TrimSpace(string(p.Tool.Input)); in != "" {
+		body += "\n\n" + codeBlock(trimText(in, 3000))
+	}
+	body += "\n\nReply `/approve` to allow it or `/reject` to refuse. Without a reply within " + fmtDuration(wait) + " it is refused."
+	reason := "The agent asks for permission to run " + what + "."
+	saved, err := r.setNeedsInput(t.bg, t.run.ID, reason, true)
+	if err != nil {
+		return
+	}
+	t.run = saved
+	if _, err := r.publish(t.bg, saved, nil, msgPermission, stateDone, body); err != nil {
+		r.log.Warn("publishing a permission request failed", "run", t.run.Number, "err", err)
+	}
+}
+
+func (t *turn) stopPermTimer() {
+	if t.permTimer != nil {
+		t.permTimer.Stop()
+		t.permTimer = nil
+	}
+}
+
+// closePermission drops the oldest request and asks about the next one, or
+// returns the run to working when none is left.
+func (t *turn) closePermission() {
+	t.stopPermTimer()
+	t.perms = t.perms[1:]
+	if len(t.perms) > 0 {
+		t.openPermission()
+		return
+	}
+	r := t.r
+	r.leaveNeedsInput(t.bg, t.run)
+	if st := r.p.Stages.Working; st.On() && st.Enter != "" {
+		r.applyStage(t.bg, t.run, stageWorking, st.Enter)
+	}
+	saved, err := r.updateRun(t.bg, t.run.ID, func(run *store.Run) {
+		run.Status, run.NeedsInputReason = store.StatusWorking, ""
+	})
+	if err == nil {
+		t.run = saved
+	}
+}
+
+// permissionAnswers answers open requests from /approve and /reject
+// replies in the inbox; other replies wait for the end of the turn.
+func (t *turn) permissionAnswers(sess agent.Session) {
+	r := t.r
+	items, err := r.st.PendingInbox(t.bg, t.run.ID)
+	if err != nil {
+		return
+	}
+	for _, it := range items {
+		if len(t.perms) == 0 {
+			return
+		}
+		cmd, _ := command(it.Body)
+		if cmd == "" {
+			continue
+		}
+		if err := r.st.ConsumeInbox(t.bg, []int64{it.ID}, t.inv.ID); err != nil {
+			r.log.Warn("consuming the inbox failed", "run", t.run.Number, "err", err)
+		}
+		t.answerPermission(sess, t.perms[0], cmd == "/approve", "answered by "+it.Author)
+		t.closePermission()
+	}
+}
+
+// permissionTimeout refuses a request nobody answered; a later /approve
+// remembers the tool for the run and retries.
+func (t *turn) permissionTimeout(sess agent.Session) {
+	p := t.perms[0]
+	t.answerPermission(sess, p, false, "no answer within "+fmtDuration(t.r.p.Timeouts.Permission.Duration))
+	t.late = append(t.late, p.Tool.Title)
+	t.closePermission()
+}
+
+// stopped ends a turn the runner stopped for cancel or shutdown.
+func (t *turn) stopped(cause string) string {
+	switch cause {
+	case causeShutdown:
+		// The placeholder stays: the next runner says the turn did not finish.
+		t.end("runner stopped")
+	default:
+		t.end("canceled")
+		body := "Stopped: the run was canceled."
+		if errors.Is(context.Cause(t.ctx), errFinished) {
+			body = "Stopped: the run finished."
+		}
+		if t.placeholder != nil {
+			if _, err := t.r.publish(t.bg, t.run, t.placeholder, msgAnswer, stateFailed, body); err != nil {
+				t.r.log.Warn("editing the placeholder failed", "run", t.run.Number, "err", err)
+			}
+		}
+	}
+	return ""
+}
+
+// outcome publishes what the turn did and moves the run on.
+func (t *turn) outcome(res agent.Result, cause string, perr error) string {
+	r := t.r
+	questions := t.w.endTurn()
+	answer := strings.TrimSpace(res.Text)
+	switch cause {
+	case causeShutdown, causeCanceled:
+		return t.stopped(cause)
+	case causePaused:
+		t.end("paused")
+		r.toNeedsInput(t.bg, t.run, t.pauseReason, needsInputBody(t.pauseReason), t.placeholder, false)
+		return ""
+	case causeSilence, causeTotal:
+		var reason string
+		if cause == causeSilence {
+			reason = "The agent produced no output for " + fmtDuration(r.p.Timeouts.Silence.Duration) + " and was stopped."
+			if t.lastTool != "" {
+				reason += " Its last tool call: " + t.lastTool + "."
+			}
+		} else {
+			reason = "The agent's turn ran longer than " + fmtDuration(r.p.Timeouts.Total.Duration) + " and was stopped."
+		}
+		reason = withTail(reason, &t.out)
+		if err := t.commitAndPush(answer); err != nil {
+			reason += "\n\n" + capitalize(err.Error())
+		}
+		return t.fail("timeout: "+cause, reason)
+	}
+	if perr != nil {
+		return t.fail("agent failed", withTail("The agent failed: "+perr.Error(), &t.out))
+	}
+	switch res.StopReason {
+	case agent.StopError, agent.StopRefusal, agent.StopMaxTokens:
+		msg := res.Err
+		if msg == "" {
+			msg = "stop reason " + res.StopReason
+		}
+		reason := withTail("The agent stopped with an error: "+msg, &t.out)
+		if err := t.commitAndPush(answer); err != nil {
+			reason += "\n\n" + capitalize(err.Error())
+		}
+		return t.fail(res.StopReason, reason)
+	}
+	if res.IsError {
+		return t.fail("agent error", withTail("The agent reported an error: "+res.Err, &t.out))
+	}
+
+	gitErr := t.commitAndPush(answer)
+
+	if len(questions) > 0 {
+		q := strings.Join(questions, "\n\n")
+		reason := "The agent asked a question."
+		if gitErr != nil {
+			q += "\n\n" + capitalize(gitErr.Error())
+		}
+		t.end("question")
+		r.toNeedsInput(t.bg, t.run, reason+"\n\n"+q, q, t.placeholder, true)
+		return ""
+	}
+
+	// Tools the agent was not allowed to use: claude reports them after the
+	// turn, ACP requests nobody answered in time were refused by us.
+	var denied []string
+	if r.p.Agent.Provider == "claude" {
+		for _, d := range res.Denied {
+			if d.Title != "" && !slices.Contains(denied, d.Title) {
+				denied = append(denied, d.Title)
+			}
+		}
+	}
+	for _, l := range t.late {
+		if !slices.Contains(denied, l) {
+			denied = append(denied, l)
+		}
+	}
+	if res.StopReason == agent.StopCancelled && r.p.Permissions != "deny" {
+		// opencode ends a turn with cancelled when a request is refused.
+		for _, l := range t.rejected {
+			if !slices.Contains(denied, l) {
+				denied = append(denied, l)
+			}
+		}
+	}
+	if len(denied) > 0 && r.p.Permissions != "deny" {
+		if r.p.Permissions == "allow" && len(t.late) == 0 && !t.allApproved(denied) {
+			t.w.approve(denied)
+			r.event(t.bg, t.run.ID, "permission.approved", map[string]any{"tools": denied, "why": "permissions: allow"})
+			t.publishAnswer(answer, gitErr)
+			t.end("denied, retrying")
+			return "Approved: " + strings.Join(denied, ", ") + ". Retry what was denied."
+		}
+		t.w.setRetry(denied)
+		reason := "The agent was not allowed to use: " + strings.Join(denied, ", ") + ". Reply `/approve` to allow them for this run and retry, or `/reject` to continue without them."
+		body := reason
+		if answer != "" {
+			body = answer + "\n\n---\n\n**Needs input.** " + reason
+		}
+		if gitErr != nil {
+			body += "\n\n" + capitalize(gitErr.Error())
+		}
+		t.end("denied")
+		r.toNeedsInput(t.bg, t.run, reason, body, t.placeholder, true)
+		return ""
+	}
+	if res.StopReason == agent.StopCancelled && r.p.Permissions != "deny" {
+		return t.fail(agent.StopCancelled, withTail("The agent cancelled its turn.", &t.out))
+	}
+
+	t.publishAnswer(answer, nil)
+	if gitErr != nil {
+		t.end("git failed")
+		reason := capitalize(gitErr.Error())
+		r.toNeedsInput(t.bg, t.run, reason, needsInputBody(reason), nil, true)
+		return ""
+	}
+	t.end(agent.StopEndTurn)
+	t.toReview()
+	return ""
+}
+
+// capitalize starts s with a capital letter, for an error shown as a
+// sentence.
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func (t *turn) allApproved(tools []string) bool {
+	for _, tl := range tools {
+		if !t.w.isApproved(tl) {
+			return false
+		}
+	}
+	return true
+}
+
+// publishAnswer edits the placeholder into the answer. Feedback answers
+// are split: each YouTrack item gets its part as a separate reply.
+func (t *turn) publishAnswer(answer string, extra error) {
+	r := t.r
+	if answer == "" {
+		answer = "The agent finished without an answer."
+	}
+	rest := answer
+	if t.kind == kindFeedback {
+		var ns []int
+		for i, it := range t.items {
+			if it.Source == sourceYouTrack {
+				ns = append(ns, i+1)
+			}
+		}
+		parts, other := text.SplitAnswer(answer, ns)
+		if len(parts) > 0 {
+			rest = other
+			for _, n := range ns {
+				part, ok := parts[n]
+				if !ok {
+					continue
+				}
+				it := t.items[n-1]
+				body := "Re: " + it.URL + "\n\n" + part
+				if _, err := r.publish(t.bg, t.run, nil, msgReply, stateDone, body); err != nil {
+					r.log.Warn("publishing a reply failed", "run", t.run.Number, "err", err)
+				}
+			}
+			if rest == "" {
+				rest = "Answered each comment separately."
+			}
+		}
+	}
+	if extra != nil {
+		rest += "\n\n" + capitalize(extra.Error())
+	}
+	if _, err := r.publish(t.bg, t.run, t.placeholder, msgAnswer, stateDone, rest); err != nil {
+		r.log.Warn("publishing the answer failed", "run", t.run.Number, "err", err)
+	}
+}
+
+// toReview moves the run into review and applies the review command; a
+// refused command puts it into needs_input.
+func (t *turn) toReview() {
+	r := t.r
+	saved, err := r.updateRun(t.bg, t.run.ID, func(run *store.Run) {
+		run.Status, run.Stage, run.NeedsInputReason = store.StatusReview, stageReview, ""
+	})
+	if err != nil {
+		return
+	}
+	t.run = saved
+	r.log.Info("run in review", "run", saved.Number, "issue", saved.IssueKey, "branch", saved.Branch)
+	r.event(t.bg, saved.ID, "run.review", map[string]string{"branch": saved.Branch})
+	if st := r.p.Stages.Review; st.On() && st.Enter != "" {
+		if err := r.watch.Apply(t.bg, st.Enter, saved.IssueKey); err != nil {
+			reason := "The review command `" + st.Enter + "` failed: " + describeErr(err)
+			r.toNeedsInput(t.bg, saved, reason, needsInputBody(reason), nil, true)
+			return
+		}
+		r.event(t.bg, saved.ID, "stage.command", map[string]string{"stage": stageReview, "command": st.Enter})
+	}
+}
+
+// commitAndPush commits what the agent left uncommitted and pushes the
+// branch; the error says which step failed and how.
+func (t *turn) commitAndPush(answer string) error {
+	r, w := t.r, t.w
+	if w.wt.Path == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(t.bg, gitTimeout)
+	defer cancel()
+	subject := firstLine(answer)
+	subject = strings.TrimLeft(subject, "#*-> ")
+	if subject == "" {
+		subject = "agent changes"
+	}
+	if len([]rune(subject)) > 72 {
+		subject = string([]rune(subject)[:72])
+	}
+	msg := strings.TrimSpace(t.vars["commit.prefix"] + " " + subject)
+	committed, err := workspace.CommitLeftovers(ctx, r.host, w.wt, msg)
+	if err != nil {
+		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "commit", "error": err.Error()})
+		return fmt.Errorf("committing the agent's leftovers failed:\n%s", codeBlock(err.Error()))
+	}
+	if committed {
+		r.event(t.bg, t.run.ID, "git.commit", map[string]string{"message": msg})
+	}
+	if err := workspace.Push(ctx, r.host, w.wt); err != nil {
+		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "push", "error": err.Error()})
+		return fmt.Errorf("pushing the branch failed:\n%s", codeBlock(err.Error()))
+	}
+	head, _ := workspace.Head(ctx, r.host, w.wt)
+	r.event(t.bg, t.run.ID, "git.push", map[string]string{"branch": w.wt.Branch, "head": head})
+	return nil
+}
