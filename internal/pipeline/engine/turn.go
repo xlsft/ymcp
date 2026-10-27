@@ -1120,6 +1120,42 @@ func (t *turn) publishAnswer(answer string, extra error) {
 			first = rp.url
 		}
 	}
+	switch {
+	case ytURL != "":
+		t.settleStaleVCS("Answered in YouTrack: " + ytURL)
+	case !t.ytAnswer && first != "":
+		t.settleStaleVCS("See " + first)
+	}
+}
+
+// settleStaleVCS edits the run's replies on the change that an earlier
+// turn left failed (the turn did not finish, or recovery turned them into
+// a needs-input notice) into body, which points to this turn's answer, so
+// their threads don't keep asking for a reply that came elsewhere.
+func (t *turn) settleStaleVCS(body string) {
+	r := t.r
+	if !r.hasChange(t.run) {
+		return
+	}
+	msgs, err := r.st.Messages(t.bg, t.run.ID)
+	if err != nil {
+		return
+	}
+	own := map[int64]bool{}
+	for _, rp := range t.vcsReplies {
+		if rp.msg != nil {
+			own[rp.msg.ID] = true
+		}
+	}
+	for i := range msgs {
+		m := msgs[i]
+		if m.State != stateFailed || m.Kind != msgReply || !isVCSSource(m.Source) || own[m.ID] || m.ExternalID == "" {
+			continue
+		}
+		if _, _, err := r.publishVCS(t.bg, t.run, &m, nil, m.Kind, stateDone, body); err != nil {
+			r.log.Warn("updating a stale reply on the change failed", "run", t.run.Number, "err", err)
+		}
+	}
 }
 
 // toReview moves the run into review and applies the review command; a

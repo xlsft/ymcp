@@ -515,6 +515,47 @@ func TestChangeRateLimitBackoff(t *testing.T) {
 // TestRestartWithOpenChange: a new runner follows the change of a run in
 // review from the saved cursor, without opening it again or reading old
 // comments again.
+// TestStaleNeedsInputOnChangeIsSettled: a reply on the change that the
+// recovery of an interrupted turn turned into a needs-input notice points
+// to the answer once the run is answered elsewhere.
+func TestStaleNeedsInputOnChangeIsSettled(t *testing.T) {
+	h := vcsHarness(t, vcs.KindGitHubPR, nil)
+	is := h.yt.addIssue("Interrupt me", "Open")
+	h.ag.script(
+		fixTurn("Fixed."),
+		func(ft *fakeTurn) agent.Result {
+			ft.Say("working on it")
+			ft.Hang()
+			return agent.Result{}
+		},
+		func(ft *fakeTurn) agent.Result {
+			ft.Say("Handled the line comment.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitReview(1, is.Key)
+	c := h.vcs.comment(vcs.Comment{Author: "octo", Body: "Rename this", Kind: vcs.CommentReviewComment, File: "fix.go", Line: 1, ThreadID: "t1"})
+	h.waitFor("the second turn", func() bool { return len(h.ag.promptLog()) == 2 })
+	h.stop() // the turn is interrupted
+
+	h.start()
+	run = h.waitStatus(1, store.StatusNeedsInput)
+	h.waitFor("the notice on the change", func() bool {
+		r, ok := replyTo(h.vcs.agentReplies(), c.ID)
+		return ok && strings.Contains(r.Body, "Needs input.")
+	})
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "go on"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitInvocations(run.ID, 3)
+	h.waitReview(1, is.Key)
+	h.waitFor("the settled notice", func() bool {
+		r, ok := replyTo(h.vcs.agentReplies(), c.ID)
+		return ok && strings.HasPrefix(r.Body, "Answered in YouTrack: ") && strings.Contains(r.Body, is.Key)
+	})
+}
+
 func TestRestartWithOpenChange(t *testing.T) {
 	h := vcsHarness(t, vcs.KindGitHubPR, nil)
 	is := h.yt.addIssue("Restart me", "Open")
