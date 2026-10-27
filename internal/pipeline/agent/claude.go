@@ -224,6 +224,7 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 		<-exited
 	}
 	g.release()
+	stderr.wait(killGrace) // its last lines, read after the exit
 
 	s.mu.Lock()
 	s.group = nil

@@ -15,8 +15,9 @@ var killGrace = 3 * time.Second
 
 // tail keeps the last bytes written to it, for the agent's stderr.
 type tail struct {
-	mu  sync.Mutex
-	buf []byte
+	mu    sync.Mutex
+	buf   []byte
+	ended chan struct{} // closed when the stream has ended
 }
 
 const tailSize = 8 << 10
@@ -30,6 +31,34 @@ func (t *tail) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// end says the stream written to t has ended.
+func (t *tail) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ended == nil {
+		t.ended = make(chan struct{})
+	}
+	close(t.ended)
+}
+
+// wait waits up to d for the stream to end, so that the last lines the
+// agent wrote before it exited are in t.
+func (t *tail) wait(d time.Duration) {
+	t.mu.Lock()
+	if t.ended == nil {
+		t.ended = make(chan struct{})
+	}
+	ended := t.ended
+	t.mu.Unlock()
+	select {
+	case <-ended:
+	case <-time.After(d):
+	}
+}
+
+// ender is a stderr writer told when the stream has ended.
+type ender interface{ end() }
 
 func (t *tail) String() string {
 	t.mu.Lock()
@@ -48,7 +77,8 @@ func withStderr(msg string, t *tail) string {
 // startPiped starts cmd in its own process group with stdout and stderr on
 // pipes of our own, which Wait neither waits for nor closes: children of
 // the agent may hold them open, and the agent's last output must not be
-// cut off. stderr is copied into errs; the caller reads and closes stdout.
+// cut off. stderr is copied into errs, which is then told the stream
+// ended if it is an ender; the caller reads and closes stdout.
 func startPiped(cmd *exec.Cmd, errs io.Writer) (stdout *os.File, g *procGroup, err error) {
 	or, ow, err := os.Pipe()
 	if err != nil {
@@ -74,6 +104,9 @@ func startPiped(cmd *exec.Cmd, errs io.Writer) (stdout *os.File, g *procGroup, e
 	go func() {
 		io.Copy(errs, er)
 		er.Close()
+		if e, ok := errs.(ender); ok {
+			e.end()
+		}
 	}()
 	return or, attach(cmd), nil
 }

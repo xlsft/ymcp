@@ -302,6 +302,17 @@ func (w *pgidWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// end passes on what is left of a stream that ended before the marker.
+func (w *pgidWriter) end() {
+	if len(w.buf) > 0 {
+		_, _ = w.next.Write(w.buf)
+		w.buf = nil
+	}
+	if e, ok := w.next.(ender); ok {
+		e.end()
+	}
+}
+
 // checkRemoteBinary finds command on the host and reads its version.
 func checkRemoteBinary(ctx context.Context, h Host, command string) (Info, error) {
 	out, stderr, err := h.Run(ctx, "", []string{"sh", "-c", `command -v "$1"`, "sh", command}, nil)
