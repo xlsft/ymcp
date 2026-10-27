@@ -363,6 +363,9 @@ func TestCanceledRunClosesItsChange(t *testing.T) {
 			why := "Canceled from the CLI by "
 			switch how {
 			case "backlog":
+				// The needs-input command lands after the status; moved
+				// back before it, the issue would leave the backlog again.
+				h.waitFor(is.Key+" blocked", func() bool { return h.yt.state(is.Key) == "Blocked" })
 				h.yt.setState(is.Key, "Open")
 				why = "Canceled: the issue was moved back to the backlog."
 			case "cli":
