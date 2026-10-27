@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
@@ -994,15 +996,7 @@ func (t *turn) commitAndPush(answer string) error {
 	}
 	ctx, cancel := context.WithTimeout(t.bg, gitTimeout)
 	defer cancel()
-	subject := firstLine(answer)
-	subject = strings.TrimLeft(subject, "#*-> ")
-	if subject == "" {
-		subject = "agent changes"
-	}
-	if len([]rune(subject)) > 72 {
-		subject = string([]rune(subject)[:72])
-	}
-	msg := strings.TrimSpace(t.vars["commit.prefix"] + " " + subject)
+	msg := commitMessage(t.vars["commit.prefix"], answer)
 	committed, err := workspace.CommitLeftovers(ctx, r.host, w.wt, msg)
 	if err != nil {
 		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "commit", "error": err.Error()})
@@ -1028,4 +1022,59 @@ func (t *turn) commitAndPush(answer string) error {
 	head, _ := workspace.Head(ctx, r.host, w.wt)
 	r.event(t.bg, t.run.ID, "git.push", map[string]string{"branch": w.wt.Branch, "head": head})
 	return nil
+}
+
+// subjectLimit bounds the subject of a leftover commit, prefix included.
+const subjectLimit = 72
+
+// commitMessage is the message of a leftover commit: the prefix and the
+// first sentence of the answer, cut at a word boundary to fit
+// subjectLimit.
+func commitMessage(prefix, answer string) string {
+	limit := subjectLimit
+	if prefix = strings.TrimSpace(prefix); prefix != "" {
+		limit -= utf8.RuneCountInString(prefix) + 1
+	}
+	subject := commitSubject(answer, max(limit, 24))
+	if subject == "" {
+		subject = "agent changes"
+	}
+	return strings.TrimSpace(prefix + " " + subject)
+}
+
+// commitSubject is the first sentence of the answer's first line, without
+// markdown decoration, cut to at most limit runes at a word boundary. A
+// first word longer than limit gives "".
+func commitSubject(answer string, limit int) string {
+	line := strings.TrimLeft(firstLine(answer), "#*->` ")
+	line = strings.TrimSpace(strings.ReplaceAll(line, "**", ""))
+	line = firstSentence(line)
+	r := []rune(line)
+	if len(r) <= limit {
+		return line
+	}
+	cut := string(r[:limit+1]) // the rune after the limit tells whether a word ends there
+	i := strings.LastIndexAny(cut, " \t")
+	if i <= 0 {
+		return ""
+	}
+	return strings.TrimRight(cut[:i], " \t,;:-–—(")
+}
+
+// firstSentence returns s up to the end of its first sentence: '.', '!' or
+// '?' followed by a space and an upper-case letter, or by the end of s.
+func firstSentence(s string) string {
+	r := []rune(s)
+	for i, c := range r {
+		if c != '.' && c != '!' && c != '?' {
+			continue
+		}
+		if i+1 == len(r) {
+			return s
+		}
+		if i+2 < len(r) && unicode.IsSpace(r[i+1]) && unicode.IsUpper(r[i+2]) {
+			return string(r[:i+1])
+		}
+	}
+	return s
 }

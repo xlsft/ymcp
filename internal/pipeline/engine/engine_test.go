@@ -1146,6 +1146,28 @@ func TestRunnerBusy(t *testing.T) {
 	}
 }
 
+func TestCommitMessage(t *testing.T) {
+	long := "The README edit is made but `git add`/`git commit` were denied, so the change is left uncommitted in the working tree."
+	for _, tc := range []struct{ prefix, answer, want string }{
+		{"YPC-5", "Fixed the login page.\nAdded login.go.", "YPC-5 Fixed the login page."},
+		{"YPC-5", "Fixed the login page. Added login.go and a test for it.", "YPC-5 Fixed the login page."},
+		{"YPC-5", "## Summary\n\nDone.", "YPC-5 Summary"},
+		{"YPC-5", "**Renamed** login.go, e.g. to auth.go. Tests pass.", "YPC-5 Renamed login.go, e.g. to auth.go."},
+		{"YPC-5", long, "YPC-5 The README edit is made but `git add`/`git commit` were denied, so"},
+		{"YPC-5", "", "YPC-5 agent changes"},
+		{"", "Привет, мир. Ещё одно предложение.", "Привет, мир."},
+		{"X-1", strings.Repeat("a", 100), "X-1 agent changes"},
+	} {
+		got := commitMessage(tc.prefix, tc.answer)
+		if got != tc.want {
+			t.Errorf("commitMessage(%q, %q) = %q, want %q", tc.prefix, tc.answer, got, tc.want)
+		}
+		if n := len([]rune(got)); n > subjectLimit {
+			t.Errorf("commitMessage(%q, %q) has %d runes", tc.prefix, tc.answer, n)
+		}
+	}
+}
+
 func TestHelpers(t *testing.T) {
 	var tl tail
 	for i := range 30 {
