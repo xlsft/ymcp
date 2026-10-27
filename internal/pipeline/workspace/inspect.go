@@ -82,7 +82,7 @@ func Inspect(ctx context.Context, h Host, dir string) ([]Check, error) {
 
 	if !repoOK {
 		notChecked(CheckUserEmail, "not a git repository")
-	} else if email, eerr := run(ctx, h, dir, "config", "user.email"); eerr == nil && email != "" {
+	} else if email, eerr := UserEmail(ctx, h, dir); eerr == nil {
 		add(CheckUserEmail, true, email)
 	} else {
 		add(CheckUserEmail, false, "user.email is not set; run: git config user.email you@example.com (the agent address is derived from it)")
@@ -107,6 +107,20 @@ func Inspect(ctx context.Context, h Host, dir string) ([]Check, error) {
 	}
 
 	return checks, ctx.Err()
+}
+
+// UserEmail returns the git user.email in effect in dir on host h, the base
+// of the agent's commit address (see AgentIdentity). It is an error when the
+// address is not set.
+func UserEmail(ctx context.Context, h Host, dir string) (string, error) {
+	email, err := run(ctx, h, dir, "config", "user.email")
+	if err != nil || email == "" {
+		if cerr := ctx.Err(); cerr != nil {
+			return "", cerr
+		}
+		return "", fmt.Errorf("git user.email is not set in %s: the agent's commit address is derived from it", dir)
+	}
+	return email, nil
 }
 
 // checkPush runs `git push --dry-run` of HEAD to a throwaway branch name. A

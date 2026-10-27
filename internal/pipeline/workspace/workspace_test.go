@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,23 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v", args, err)
 	}
 	return out
+}
+
+func TestUserEmail(t *testing.T) {
+	f := newFixture(t)
+	got, err := UserEmail(context.Background(), Local(), f.repo)
+	if err != nil || got != "dev@xlsft.ru" {
+		t.Fatalf("UserEmail = %q, %v", got, err)
+	}
+	git(t, f.repo, "config", "--unset", "user.email")
+	if got, err := UserEmail(context.Background(), Local(), f.repo); err == nil || !strings.Contains(err.Error(), "user.email is not set") {
+		t.Errorf("unset: UserEmail = %q, %v", got, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := UserEmail(ctx, Local(), f.repo); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: err = %v", err)
+	}
 }
 
 type fixture struct {
