@@ -410,6 +410,13 @@ func TestRequestInputThenCLIAnswer(t *testing.T) {
 		t.Errorf("reason = %q", run.NeedsInputReason)
 	}
 	h.waitFor("State Blocked", func() bool { return h.yt.state(is.Key) == "Blocked" })
+	// Nothing was committed yet: the branch is not pushed.
+	if refs := git(t, h.origin, "for-each-ref", "--format=%(refname)", "refs/heads/"+run.Branch); refs != "" || len(h.events(run.ID, "git.push")) != 0 {
+		t.Errorf("an empty branch was pushed: %q", refs)
+	}
+	if len(h.events(run.ID, "git.push_skipped")) != 1 {
+		t.Errorf("events = %+v", h.events(run.ID, ""))
+	}
 	h.waitFor("the question", func() bool {
 		said := h.yt.agentComments(is.Key)
 		return contains(said, "Postgres or SQLite? I recommend SQLite.") && !contains(said, "Thinking")

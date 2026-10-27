@@ -276,6 +276,23 @@ func Push(ctx context.Context, h Host, wt Worktree) error {
 	return nil
 }
 
+// Ahead counts the commits on the worktree's branch that origin/<base>
+// does not have. A branch with none is not worth pushing.
+func Ahead(ctx context.Context, h Host, wt Worktree) (int, error) {
+	if wt.Base == "" {
+		return 0, errors.New("worktree base is empty")
+	}
+	out, err := run(ctx, h, wt.Path, "rev-list", "--count", "refs/remotes/origin/"+wt.Base+"..HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("counting commits beyond origin/%s: %w", wt.Base, err)
+	}
+	n, err := strconv.Atoi(out)
+	if err != nil {
+		return 0, fmt.Errorf("counting commits beyond origin/%s: unexpected output %q", wt.Base, out)
+	}
+	return n, nil
+}
+
 // Head returns the commit the worktree is at.
 func Head(ctx context.Context, h Host, wt Worktree) (string, error) {
 	sha, err := run(ctx, h, wt.Path, "rev-parse", "HEAD")

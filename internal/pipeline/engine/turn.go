@@ -1011,6 +1011,16 @@ func (t *turn) commitAndPush(answer string) error {
 	if committed {
 		r.event(t.bg, t.run.ID, "git.commit", map[string]string{"message": msg})
 	}
+	// A branch with nothing beyond its base is not pushed; when counting
+	// fails, push anyway.
+	ahead, err := workspace.Ahead(ctx, r.host, w.wt)
+	if err == nil && ahead == 0 {
+		r.event(t.bg, t.run.ID, "git.push_skipped", map[string]string{"branch": w.wt.Branch, "reason": "no commits beyond origin/" + w.wt.Base})
+		return nil
+	}
+	if err != nil {
+		r.log.Warn("counting the branch's commits failed", "run", t.run.Number, "err", err)
+	}
 	if err := workspace.Push(ctx, r.host, w.wt); err != nil {
 		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "push", "error": err.Error()})
 		return fmt.Errorf("pushing the branch failed:\n%s", codeBlock(err.Error()))

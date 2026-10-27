@@ -627,6 +627,30 @@ func TestPush(t *testing.T) {
 	}
 }
 
+func TestAhead(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := Local()
+	wt, err := Create(ctx, h, f.repo, "", "BE-16", "", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Ahead(ctx, h, wt); n != 0 || err != nil {
+		t.Errorf("new branch: Ahead = %d, %v", n, err)
+	}
+	git(t, wt.Path, "commit", "--allow-empty", "-m", "BE-16 one")
+	git(t, wt.Path, "commit", "--allow-empty", "-m", "BE-16 two")
+	if n, err := Ahead(ctx, h, wt); n != 2 || err != nil {
+		t.Errorf("two commits: Ahead = %d, %v", n, err)
+	}
+	if _, err := Ahead(ctx, h, Worktree{Path: wt.Path, Branch: wt.Branch, Base: "nope"}); err == nil {
+		t.Error("an unknown base must fail")
+	}
+	if _, err := Ahead(ctx, h, Worktree{Path: wt.Path}); err == nil {
+		t.Error("an empty base must fail")
+	}
+}
+
 func TestPushRejected(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("hooks need a POSIX shell")
