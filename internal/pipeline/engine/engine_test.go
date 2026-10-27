@@ -949,6 +949,43 @@ func TestRewrittenBranchIsPushedWithLease(t *testing.T) {
 	}
 }
 
+// TestFeedbackTurnSeesFreshOrigin: before a feedback turn the runner
+// fetches origin, so "rebase onto main" works without the agent fetching.
+func TestFeedbackTurnSeesFreshOrigin(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Rebase me", "Open")
+	seen := make(chan string, 1)
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			writeFile(t, "a.txt", "a\n")
+			t.Say("Added a.")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			out, _, _ := workspace.Local().Run(context.Background(), t.s.opts.Dir, []string{"git", "rev-parse", "origin/main"}, nil)
+			seen <- strings.TrimSpace(string(out))
+			t.Say("Rebased.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	h.waitReview(1, is.Key)
+	dir := filepath.Join(t.TempDir(), "other")
+	git(t, filepath.Dir(dir), "clone", h.origin, dir)
+	git(t, dir, "-c", "user.name=O", "-c", "user.email=o@x", "commit", "--allow-empty", "-m", "main moved")
+	git(t, dir, "push", "origin", "main")
+	want := git(t, dir, "rev-parse", "HEAD")
+	h.yt.addComment(is.Key, "alice", "Please rebase onto main")
+	select {
+	case got := <-seen:
+		if got != want {
+			t.Errorf("origin/main in the second turn = %s, want %s", got, want)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("no feedback turn")
+	}
+}
+
 // TestDeniedAfterProgressGoesToReview: a turn that committed work but had
 // calls denied goes to review with the denied calls in its answer; a
 // /approve there retries them.

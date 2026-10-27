@@ -286,6 +286,16 @@ func (t *turn) prepareWorkspace() error {
 			w.wt = workspace.Worktree{}
 		}
 	}
+	if w.wt.Path != "" {
+		// The agent is told origin is current: feedback such as "rebase
+		// onto main" must not need a fetch of its own.
+		if err := workspace.Fetch(t.ctx, r.host, r.p.Workspace.Dir); err != nil {
+			if t.ctx.Err() != nil {
+				return err
+			}
+			r.log.Warn("fetching origin failed", "run", run.Number, "err", err)
+		}
+	}
 	if w.wt.Path == "" {
 		email, err := workspace.UserEmail(t.ctx, r.host, r.p.Workspace.Dir)
 		if err != nil {

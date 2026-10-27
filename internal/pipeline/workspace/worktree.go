@@ -69,6 +69,15 @@ func listWorktrees(ctx context.Context, h Host, dir string) ([]listedWorktree, e
 	return list, nil
 }
 
+// Fetch updates the origin branches of the repository at repoDir, which
+// all its worktrees share.
+func Fetch(ctx context.Context, h Host, repoDir string) error {
+	if _, err := run(ctx, h, repoDir, "fetch", "origin"); err != nil {
+		return fmt.Errorf("fetching origin: %w", err)
+	}
+	return nil
+}
+
 func refExists(ctx context.Context, h Host, dir, ref string) (bool, error) {
 	_, err := run(ctx, h, dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err == nil {
@@ -131,8 +140,8 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 	if _, err := run(ctx, h, repoDir, "check-ref-format", "--branch", branch); err != nil {
 		return Worktree{}, fmt.Errorf("invalid branch name %q", branch)
 	}
-	if _, err := run(ctx, h, repoDir, "fetch", "origin"); err != nil {
-		return Worktree{}, fmt.Errorf("fetching origin: %w", err)
+	if err := Fetch(ctx, h, repoDir); err != nil {
+		return Worktree{}, err
 	}
 
 	base = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(base), "refs/heads/"), "origin/")

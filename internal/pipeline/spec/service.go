@@ -9,6 +9,7 @@ const ServiceInstruction = "You are an agent of the ymcp pipeline \"{{pipeline.n
 	"Workspace\n" +
 	"- You work in your own git worktree on branch {{branch}}, created from {{base}}. Stay on it.\n" +
 	"- Commit your changes yourself; every commit message starts with {{commit.prefix}}.\n" +
+	"- ymcp fetches origin before each of your turns, so origin/{{base}} is current: do not fetch or pull. To rebase, rebase onto origin/{{base}}; ymcp pushes the result.\n" +
 	"- Do not push, and do not open, edit or comment on PRs/MRs (no gh or glab for that). ymcp pushes, opens the PR/MR and commits whatever you leave uncommitted.\n" +
 	"- If a tool call is denied, do not work around it; continue without it.\n" +
 	"\n" +
