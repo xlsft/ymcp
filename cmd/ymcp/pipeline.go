@@ -33,6 +33,7 @@ Usage:
                                             Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
                                             --command CMD (acp), --preset NAME, --host SSH_ALIAS
   ymcp pipeline presets                     List the built-in prompt presets
+  ymcp pipeline notify [test | set K=V...]  Show, test or change notifications
   ymcp pipeline NAME run [-d]               Run the pipeline in the foreground (ctrl+c stops it), or with -d
                                             in the background
   ymcp pipeline NAME stop [--force]         Stop the background runner; --force kills it
@@ -91,6 +92,8 @@ func pipelineCmd(ctx context.Context, args []string, logger *slog.Logger) error 
 		return pipelineNew(args[1:])
 	case "presets":
 		return pipelinePresets(args[1:])
+	case "notify":
+		return pipelineNotify(ctx, args[1:])
 	}
 	name := args[0]
 	if strings.HasPrefix(name, "-") {
