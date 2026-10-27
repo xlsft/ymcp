@@ -161,3 +161,25 @@ func TestNewMsgID(t *testing.T) {
 		t.Errorf("round trip = %+v, %v", got, ok)
 	}
 }
+
+func TestDecorateCodeHost(t *testing.T) {
+	m := Mark{Pipeline: "stress", Run: 8, Msg: "ab12"}
+	got := DecorateCodeHost("Done.", "@xlsft", m)
+	want := "<!-- ymcp:agent pipeline=stress run=8 msg=ab12 -->\n@xlsft's agent #\u20608 (stress)\n\nDone."
+	if got != want {
+		t.Errorf("DecorateCodeHost = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "#8") {
+		t.Error("the run number can still be read as a reference")
+	}
+	// Re-decorating replaces the header, also the plain one and vice versa.
+	if again := DecorateCodeHost(got, "@xlsft", m); again != want {
+		t.Errorf("redecorated = %q", again)
+	}
+	if plain := Decorate(got, "@xlsft", m); StripHeader(plain) != "Done." || strings.Contains(plain, "\u2060") {
+		t.Errorf("plain over code-host header = %q", plain)
+	}
+	if StripHeader(got) != "Done." {
+		t.Errorf("StripHeader = %q", StripHeader(got))
+	}
+}

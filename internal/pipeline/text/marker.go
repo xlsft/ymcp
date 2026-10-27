@@ -24,7 +24,11 @@ var markerRe = regexp.MustCompile(`<!--\s*ymcp:agent\s+pipeline=(\S+)\s+run=(\d+
 
 // prefixRe matches the visible prefix line that follows the marker. The
 // mention is optional so a header written without one is still recognized.
-var prefixRe = regexp.MustCompile(`^[ \t]*(?:\S+['’]s )?[Aa]gent #\d+ \([^\r\n]*\)[ \t]*(?:\r?\n|$)`)
+var prefixRe = regexp.MustCompile(`^[ \t]*(?:\S+['’]s )?[Aa]gent #\x{2060}?\d+ \([^\r\n]*\)[ \t]*(?:\r?\n|$)`)
+
+// wordJoiner is an invisible character that keeps code hosts from reading
+// "#17" as a link to issue or pull request 17.
+const wordJoiner = "\u2060"
 
 // NewMsgID returns a short random message id.
 func NewMsgID() string {
@@ -72,6 +76,14 @@ func Prefix(mention string, m Mark) string {
 // twice, or decorating an edited message, leaves exactly one header.
 func Decorate(body, mention string, m Mark) string {
 	return MarkerLine(m) + "\n" + Prefix(mention, m) + "\n\n" + StripHeader(body)
+}
+
+// DecorateCodeHost is Decorate for GitHub and GitLab: the run number in the
+// prefix carries an invisible word joiner after "#", so the host doesn't
+// link it to (and leave a mention on) issue or pull request 17.
+func DecorateCodeHost(body, mention string, m Mark) string {
+	prefix := strings.Replace(Prefix(mention, m), "#", "#"+wordJoiner, 1)
+	return MarkerLine(m) + "\n" + prefix + "\n\n" + StripHeader(body)
 }
 
 // StripHeader returns body without the marker and prefix lines (and the blank
