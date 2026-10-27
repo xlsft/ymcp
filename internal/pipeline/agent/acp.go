@@ -206,6 +206,7 @@ type acpSession struct {
 	pending   map[string]*pendingPermission
 	tools     map[string]ToolCall // latest state of each tool call
 	text      strings.Builder     // the running turn's answer
+	afterTool bool                // a tool ran since the last text: the next text starts a new paragraph
 	denied    []ToolCall
 	cancelled bool
 }
@@ -280,7 +281,7 @@ func (s *acpSession) Prompt(ctx context.Context, text string) (Result, error) {
 	}
 	s.mu.Lock()
 	s.text.Reset()
-	s.denied, s.cancelled = nil, false
+	s.denied, s.cancelled, s.afterTool = nil, false, false
 	s.mu.Unlock()
 	if s.systemPrompt != "" {
 		text = s.systemPrompt + "\n\n" + text
@@ -413,11 +414,22 @@ func (c acpClient) SessionUpdate(ctx context.Context, n acp.SessionNotification)
 	raw, _ := json.Marshal(u)
 	switch {
 	case u.AgentMessageChunk != nil:
-		if t := u.AgentMessageChunk.Content.Text; t != nil {
+		if t := u.AgentMessageChunk.Content.Text; t != nil && t.Text != "" {
+			// The chunks of one message run together; the text before and
+			// after a tool call are separate paragraphs, as claude's
+			// messages are.
+			chunk := t.Text
 			s.mu.Lock()
-			s.text.WriteString(t.Text)
+			if s.afterTool && s.text.Len() > 0 {
+				prev := strings.TrimRight(s.text.String(), " \t\r\n")
+				s.text.Reset()
+				s.text.WriteString(prev)
+				chunk = "\n\n" + strings.TrimLeft(chunk, " \t\r\n")
+			}
+			s.afterTool = false
+			s.text.WriteString(chunk)
 			s.mu.Unlock()
-			s.events.emit(Event{Kind: EventText, Text: t.Text, Raw: raw})
+			s.events.emit(Event{Kind: EventText, Text: chunk, Raw: raw})
 		}
 	case u.AgentThoughtChunk != nil:
 		if t := u.AgentThoughtChunk.Content.Text; t != nil {
@@ -431,11 +443,15 @@ func (c acpClient) SessionUpdate(ctx context.Context, n acp.SessionNotification)
 		}
 		s.mu.Lock()
 		s.tools[tc.ID] = tc
+		s.afterTool = true
 		s.mu.Unlock()
 		s.events.emit(Event{Kind: EventToolCall, Tool: &tc, Raw: raw})
 	case u.ToolCallUpdate != nil:
 		t := u.ToolCallUpdate
 		tc := s.mergeTool(string(t.ToolCallId), t.Title, t.Kind, t.Status, t.RawInput)
+		s.mu.Lock()
+		s.afterTool = true
+		s.mu.Unlock()
 		s.events.emit(Event{Kind: EventToolUpdate, Tool: &tc, Raw: raw})
 	case u.UsageUpdate != nil:
 		s.events.emit(Event{Kind: EventUsage, Raw: raw, Text: fmt.Sprintf("used=%d size=%d", u.UsageUpdate.Used, u.UsageUpdate.Size)})

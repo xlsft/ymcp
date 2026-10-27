@@ -10,6 +10,27 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/agent/agenttest"
 )
 
+// TestACPTextAroundToolCalls: the text the agent writes before, between
+// and after its tool calls comes back as paragraphs; the chunks of one
+// message run together.
+func TestACPTextAroundToolCalls(t *testing.T) {
+	s, _ := fake(t, "acp", agenttest.Script{Turns: [][]agenttest.Step{{
+		{Text: "Exploring "}, {Text: "the codebase."},
+		{Tool: &agenttest.Tool{Title: "Read", Kind: "read"}},
+		{Text: "The issue is about the list."},
+		{Tool: &agenttest.Tool{Title: "Edit", Kind: "edit"}},
+		{Tool: &agenttest.Tool{Title: "Bash", Kind: "execute"}},
+		{Text: "\nDone."},
+	}}}, StartOptions{})
+	res := s.prompt(t, "go")
+	if want := "Exploring the codebase.\n\nThe issue is about the list.\n\nDone."; res.Text != want {
+		t.Errorf("text = %q, want %q", res.Text, want)
+	}
+	if res := s.prompt(t, "again"); res.Text != "ok" {
+		t.Errorf("the next turn starts afresh: %q", res.Text)
+	}
+}
+
 func TestACPStreamsEventsAndConfigures(t *testing.T) {
 	script := agenttest.Script{Banner: "kimi: loading config…", Turns: [][]agenttest.Step{{
 		{Thought: "Let me look."},
@@ -28,7 +49,8 @@ func TestACPStreamsEventsAndConfigures(t *testing.T) {
 		t.Fatalf("ID = %q", s.ID())
 	}
 	res := s.prompt(t, "do it")
-	want := "hello world. prompt=SERVICE\n\ndo it history= mode=plan model=fake/k3"
+	// The text after a tool call is a paragraph of its own.
+	want := "hello world.\n\nprompt=SERVICE\n\ndo it history= mode=plan model=fake/k3"
 	if res.StopReason != StopEndTurn || res.IsError || res.Text != want {
 		t.Errorf("result = %+v\nwant text %q", res, want)
 	}
@@ -119,7 +141,7 @@ func TestACPPermissionRoundTrip(t *testing.T) {
 		return "reject"
 	})
 	res := s.prompt(t, "run things")
-	if res.StopReason != StopEndTurn || res.Text != "allowed approve_oncerejected done" {
+	if res.StopReason != StopEndTurn || res.Text != "allowed approve_once\n\nrejected done" {
 		t.Errorf("result = %+v", res)
 	}
 	if len(res.Denied) != 1 || res.Denied[0].Status != "denied" || !strings.Contains(string(res.Denied[0].Input), "rm -rf") {
