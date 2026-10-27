@@ -208,11 +208,11 @@ func topIs[T any](t *testing.T, f *fixture) T {
 }
 
 func TestOneProfileOpensItsPipelines(t *testing.T) {
-	f := newFixture(t, "youtrack-xlsft")
-	if p := topIs[*views.Pipelines](t, f); p.Profile() != "youtrack-xlsft" {
+	f := newFixture(t, "youtrack-work")
+	if p := topIs[*views.Pipelines](t, f); p.Profile() != "youtrack-work" {
 		t.Errorf("pipelines of %s", p.Profile())
 	}
-	f.has(t, "youtrack-xlsft", "backend")
+	f.has(t, "youtrack-work", "backend")
 	f.keys("esc")
 	topIs[*views.Profiles](t, f)
 	f.keys("esc") // the first screen stays

@@ -28,16 +28,16 @@ func TestNewPipeline(t *testing.T) {
 	d := start(t, f.deps, nil)
 
 	// Basics: the first profile is picked and signed in to at once.
-	d.must("New pipeline", "Basics", "step 1 of 6", "Pipeline name", "YouTrack profile", "YouTrack (xlsft)",
-		"can't sign in with youtrack-beget", "‹ Back", "Next ›")
+	d.must("New pipeline", "Basics", "step 1 of 6", "Pipeline name", "YouTrack profile", "YouTrack (work)",
+		"can't sign in with youtrack-acme", "‹ Back", "Next ›")
 	d.typ("backend")
 	d.keys("enter")
 	if d.focused() != "profile" {
 		t.Fatalf("enter in the name should go to the next field, at %s", d.focused())
 	}
 	d.keys("down")
-	d.must("signed in to https://xlsft.youtrack.cloud as admin")
-	if d.m.sh.p.Name != "backend" || d.m.sh.p.Profile != "youtrack-xlsft" {
+	d.must("signed in to https://example.youtrack.cloud as admin")
+	if d.m.sh.p.Name != "backend" || d.m.sh.p.Profile != "youtrack-work" {
 		t.Fatalf("name %q profile %q", d.m.sh.p.Name, d.m.sh.p.Profile)
 	}
 	d.keys("tab")
@@ -323,7 +323,7 @@ func TestNewPipeline(t *testing.T) {
 		got, want any
 	}{
 		{"name", p.Name, "backend"},
-		{"profile", p.Profile, "youtrack-xlsft"},
+		{"profile", p.Profile, "youtrack-work"},
 		{"query", p.Source.Query, "project: YPC #Unresolved"},
 		{"working", p.Stages.Working.Enter, "State In Progress Assignee me"},
 		{"review", p.Stages.Review.Enter, "State Verified"},
@@ -361,7 +361,7 @@ func TestEditExisting(t *testing.T) {
 	off := false
 	existing := spec.Pipeline{
 		Name:    "backend",
-		Profile: "youtrack-xlsft",
+		Profile: "youtrack-work",
 		Source:  spec.Source{Query: "project: YPC #Unresolved"},
 		Stages: spec.Stages{
 			Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
@@ -379,8 +379,8 @@ func TestEditExisting(t *testing.T) {
 		Notifications: &spec.Notifications{Providers: []string{"toast"}},
 	}
 	d := start(t, f.deps, &existing)
-	d.must("Edit pipeline backend", "signed in to https://xlsft.youtrack.cloud as admin")
-	if got := f.factory.calls; !slices.Equal(got, []string{"youtrack-xlsft"}) {
+	d.must("Edit pipeline backend", "signed in to https://example.youtrack.cloud as admin")
+	if got := f.factory.calls; !slices.Equal(got, []string{"youtrack-work"}) {
 		t.Fatalf("connected to %v", got)
 	}
 	// Keeping the name of the edited pipeline is fine.
@@ -484,7 +484,7 @@ func TestValidationBlocksNext(t *testing.T) {
 
 // Enter moves through the fields and onto Next, never to another step.
 func TestEnterDoesNotChangeSteps(t *testing.T) {
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"}}
 	d := start(t, newFakes().deps, &existing)
 	for i := 0; i < 3; i++ {
 		d.keys("enter")
@@ -521,7 +521,7 @@ func TestEnterDoesNotChangeSteps(t *testing.T) {
 }
 
 func TestAdvancedSections(t *testing.T) {
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"}, Workspace: spec.Workspace{Dir: "/src/repo"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"}, Workspace: spec.Workspace{Dir: "/src/repo"}}
 	d := start(t, newFakes().deps, &existing)
 	d.goStep(2)
 	d.must("▸ Advanced: host, base branch, issues at once, names")
@@ -612,7 +612,7 @@ func TestCancel(t *testing.T) {
 // Esc closes completions and pickers before it offers to cancel.
 func TestEscClosesPopupsFirst(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(1)
 	d.keys("ctrl+f")
@@ -653,7 +653,7 @@ func TestSourceErrors(t *testing.T) {
 
 func TestTagPickerAllowsNewTags(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(1)
 	d.focus("needsInput.enter")
@@ -717,7 +717,7 @@ func TestPromptEditing(t *testing.T) {
 func TestNoStrategyDetector(t *testing.T) {
 	f := newFakes()
 	f.deps.Strategy = nil
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"}, Workspace: spec.Workspace{Dir: "/src/repo"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "q"}, Workspace: spec.Workspace{Dir: "/src/repo"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(2)
 	d.must("detection isn't available here")
@@ -797,7 +797,7 @@ func TestSSHHosts(t *testing.T) {
 // completes from the host and the checks run there.
 func TestSSHHost(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "q"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(2)
 	d.focus("advanced")
@@ -876,7 +876,7 @@ func TestClause(t *testing.T) {
 
 func TestWorkingMustLeaveTheSource(t *testing.T) {
 	existing := spec.Pipeline{
-		Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"},
+		Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"},
 		Stages: spec.Stages{Working: spec.Stage{Enter: "tag ai", Match: "tag: ai"}},
 	}
 	d := start(t, newFakes().deps, &existing)
@@ -996,7 +996,7 @@ func TestViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	existing := spec.Pipeline{
-		Name: "backend", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"},
+		Name: "backend", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"},
 		Stages:    newPipeline().Stages,
 		Workspace: spec.Workspace{Dir: repo},
 		Agent:     claudeDefaults(),
@@ -1017,7 +1017,7 @@ func TestViews(t *testing.T) {
 // review sums it up.
 func TestAutoCompactToggle(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"}}
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "q"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(4)
 	d.focus("autoCompact")

@@ -13,27 +13,26 @@ import (
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
-// liveHost is the only instance the live test talks to.
-const liveHost = "xlsft.youtrack.cloud"
-
-// TestLive runs read-only checks against project YPC on the xlsft
-// instance with a stored ymcp profile (YMCP_PIPELINE_PROFILE, default
-// youtrack-mcp-xlsft). It only applies a command YouTrack rejects, so
-// nothing changes. Enable with YMCP_PIPELINE_LIVE=1.
+// TestLive runs read-only checks against a project of a YouTrack instance
+// you name, with a stored ymcp profile: YMCP_PIPELINE_LIVE_HOST is the
+// only host it talks to, YMCP_PIPELINE_PROFILE the profile, which must
+// point there, and YMCP_PIPELINE_PROJECT a project with issues and some
+// comments from the last 90 days. It only applies a command YouTrack
+// rejects, so nothing changes. Enable with YMCP_PIPELINE_LIVE=1.
 func TestLive(t *testing.T) {
 	if os.Getenv("YMCP_PIPELINE_LIVE") != "1" {
-		t.Skip("set YMCP_PIPELINE_LIVE=1 to run against " + liveHost)
+		t.Skip("set YMCP_PIPELINE_LIVE=1 to run against a live YouTrack")
 	}
-	profile := os.Getenv("YMCP_PIPELINE_PROFILE")
-	if profile == "" {
-		profile = "youtrack-mcp-xlsft"
+	host, profile, project := os.Getenv("YMCP_PIPELINE_LIVE_HOST"), os.Getenv("YMCP_PIPELINE_PROFILE"), os.Getenv("YMCP_PIPELINE_PROJECT")
+	if host == "" || profile == "" || project == "" {
+		t.Fatal("set YMCP_PIPELINE_LIVE_HOST, YMCP_PIPELINE_PROFILE and YMCP_PIPELINE_PROJECT")
 	}
 	cfg, err := config.Load(profile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u, err := url.Parse(youtrack.NormalizeURL(cfg.URL)); err != nil || u.Host != liveHost {
-		t.Fatalf("profile %s points at %q; the live test only runs against %s", profile, cfg.URL, liveHost)
+	if u, err := url.Parse(youtrack.NormalizeURL(cfg.URL)); err != nil || u.Host != host {
+		t.Fatalf("profile %s points at %q; the live test only runs against %s", profile, cfg.URL, host)
 	}
 	yt, err := youtrack.New(youtrack.Options{BaseURL: cfg.URL, Login: cfg.Login, Password: cfg.Password, Proxy: cfg.Proxy})
 	if err != nil {
@@ -56,13 +55,13 @@ func TestLive(t *testing.T) {
 		t.Errorf("server time %v is %v off the local clock", now, skew)
 	}
 
-	issues, err := w.Search(ctx, "project: YPC")
+	issues, err := w.Search(ctx, "project: "+project)
 	if err != nil || len(issues) == 0 {
 		t.Fatalf("Search = %d issues, %v", len(issues), err)
 	}
 	var ids []string
 	for _, is := range issues {
-		if !strings.HasPrefix(is.Key, "YPC-") || is.ID == "" || is.Updated.IsZero() {
+		if !strings.HasPrefix(is.Key, project+"-") || is.ID == "" || is.Updated.IsZero() {
 			t.Errorf("issue %+v", is)
 		}
 		ids = append(ids, is.ID)
@@ -79,11 +78,11 @@ func TestLive(t *testing.T) {
 	if ok, err := w.Exists(ctx, issues[0].Key); !ok || err != nil {
 		t.Errorf("Exists(%s) = %v, %v", issues[0].Key, ok, err)
 	}
-	if ok, err := w.Exists(ctx, "YPC-999999"); ok || err != nil {
-		t.Errorf("Exists(YPC-999999) = %v, %v", ok, err)
+	if ok, err := w.Exists(ctx, project+"-999999"); ok || err != nil {
+		t.Errorf("Exists(%s-999999) = %v, %v", project, ok, err)
 	}
 
-	members, err := w.Members(ctx, "project: YPC", append(ids, "YPC-999999"))
+	members, err := w.Members(ctx, "project: "+project, append(ids, project+"-999999"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +91,8 @@ func TestLive(t *testing.T) {
 			t.Errorf("Members: %s missing", id)
 		}
 	}
-	if members["YPC-999999"] {
-		t.Error("Members: YPC-999999 present")
+	if members[project+"-999999"] {
+		t.Errorf("Members: %s-999999 present", project)
 	}
 
 	key := issues[0].Key
@@ -116,9 +115,8 @@ func TestLive(t *testing.T) {
 		t.Errorf("Apply(State Bogus) = %v, want *CommandError", err)
 	}
 
-	// The research comments on YPC were written on 2026-10-27 after 13:00 UTC.
-	from := timeCursor(time.Date(2026, 10, 27, 13, 0, 0, 0, time.UTC))
-	items, next, err := w.Comments(ctx, []string{"YPC"}, from)
+	from := timeCursor(time.Now().AddDate(0, 0, -90))
+	items, next, err := w.Comments(ctx, []string{project}, from)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,14 +124,14 @@ func TestLive(t *testing.T) {
 		t.Errorf("Comments from %s: %d items, next %q", from, len(items), next)
 	}
 	for _, c := range items {
-		if !strings.HasPrefix(c.IssueKey, "YPC-") || c.ID == "" || c.Created.IsZero() {
+		if !strings.HasPrefix(c.IssueKey, project+"-") || c.ID == "" || c.Created.IsZero() {
 			t.Errorf("comment %+v", c)
 		}
 		if c.Deleted && c.Text != "" {
 			t.Errorf("deleted comment with text: %+v", c)
 		}
 	}
-	again, next2, err := w.Comments(ctx, []string{"YPC"}, next)
+	again, next2, err := w.Comments(ctx, []string{project}, next)
 	if err != nil || !usable(next2) {
 		t.Errorf("Comments from %s: %d items, next %q, %v", next, len(again), next2, err)
 	}
@@ -142,11 +140,11 @@ func TestLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, next3, err := w.Comments(ctx, []string{"YPC"}, boot)
+	_, next3, err := w.Comments(ctx, []string{project}, boot)
 	if err != nil || !usable(next3) {
 		t.Errorf("Comments from bootstrap %s: next %q, %v", boot, next3, err)
 	}
-	if _, _, err := w.Comments(ctx, []string{"YPC"}, "garbage"); !errors.Is(err, ErrBadCursor) {
+	if _, _, err := w.Comments(ctx, []string{project}, "garbage"); !errors.Is(err, ErrBadCursor) {
 		t.Errorf("garbage cursor: %v, want ErrBadCursor", err)
 	}
 }

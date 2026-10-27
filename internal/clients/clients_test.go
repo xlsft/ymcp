@@ -110,21 +110,21 @@ func TestZedKeepsCommentsAndKeys(t *testing.T) {
 func TestProfilesAreSeparateServers(t *testing.T) {
 	e := newEnv(t)
 	os.MkdirAll(filepath.Join(e.Home, ".cursor"), 0o755)
-	beget := Server{Name: "youtrack-beget", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-beget"}}
+	acme := Server{Name: "youtrack-acme", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-acme"}}
 	c := byID(t, "cursor")
-	for _, s := range []Server{srv, beget} {
+	for _, s := range []Server{srv, acme} {
 		if err := c.Install(e.Env, s); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !c.Installed(e.Env, "youtrack") || !c.Installed(e.Env, "youtrack-beget") || c.Installed(e.Env, "other") {
+	if !c.Installed(e.Env, "youtrack") || !c.Installed(e.Env, "youtrack-acme") || c.Installed(e.Env, "other") {
 		t.Fatal("both profiles should be registered, and nothing else")
 	}
 	if err := c.Uninstall(e.Env, "youtrack"); err != nil {
 		t.Fatal(err)
 	}
 	got := read(t, filepath.Join(e.Home, ".cursor", "mcp.json"))
-	if strings.Contains(got, `"youtrack":`) || !strings.Contains(got, `"youtrack-beget"`) {
+	if strings.Contains(got, `"youtrack":`) || !strings.Contains(got, `"youtrack-acme"`) {
 		t.Errorf("after removing youtrack:\n%s", got)
 	}
 
@@ -132,10 +132,10 @@ func TestProfilesAreSeparateServers(t *testing.T) {
 	codex := byID(t, "codex")
 	os.MkdirAll(filepath.Join(e.Home, ".codex"), 0o755)
 	codex.Install(e.Env, srv)
-	codex.Install(e.Env, beget)
+	codex.Install(e.Env, acme)
 	codex.Install(e.Env, srv)
 	toml := read(t, filepath.Join(e.Home, ".codex", "config.toml"))
-	if strings.Count(toml, "[mcp_servers.youtrack]") != 1 || strings.Count(toml, "[mcp_servers.youtrack-beget]") != 1 {
+	if strings.Count(toml, "[mcp_servers.youtrack]") != 1 || strings.Count(toml, "[mcp_servers.youtrack-acme]") != 1 {
 		t.Errorf("config.toml:\n%s", toml)
 	}
 }
@@ -341,8 +341,8 @@ func TestJSONCEntriesAreIndentedLikeTheirSiblings(t *testing.T) {
 }
 `)
 	zed := byID(t, "zed")
-	beget := Server{Name: "youtrack-beget", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-beget"}}
-	for _, s := range []Server{srv, beget, srv} {
+	acme := Server{Name: "youtrack-acme", Command: "/opt/ymcp", Args: []string{"--profile", "youtrack-acme"}}
+	for _, s := range []Server{srv, acme, srv} {
 		if err := zed.Install(e.Env, s); err != nil {
 			t.Fatal(err)
 		}
@@ -361,10 +361,10 @@ func TestJSONCEntriesAreIndentedLikeTheirSiblings(t *testing.T) {
             ],
             "command": "/opt/ymcp"
         },
-        "youtrack-beget": {
+        "youtrack-acme": {
             "args": [
                 "--profile",
-                "youtrack-beget"
+                "youtrack-acme"
             ],
             "command": "/opt/ymcp"
         }

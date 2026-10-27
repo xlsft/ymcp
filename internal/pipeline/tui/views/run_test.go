@@ -100,7 +100,7 @@ func agentComment(id string, n int, body string, at time.Time) IssueComment {
 func withIssues(f *fixture) *fakeIssues {
 	yt := newFakeIssues(func() time.Time { return f.clock })
 	yt.issues["2-127"] = ytwatch.Issue{ID: "2-127", Key: "BE-127", Summary: "CSV export of the reports",
-		URL:         "https://xlsft.youtrack.cloud/issue/BE-127",
+		URL:         "https://example.youtrack.cloud/issue/BE-127",
 		Description: "Users want to **export** reports as CSV.\n\n## Acceptance\n- a button on the report page\n- dates in one format\n\n![](https://x/y.png)\n\n```\nGET /reports/42.csv\n```",
 		Fields:      map[string]string{"State": "In Progress", "Priority": "Major", "Assignee": "xlsft", "Estimation": "2d"}}
 	yt.issues["2-123"] = ytwatch.Issue{ID: "2-123", Key: "BE-123", Summary: "Fix login", Fields: map[string]string{"State": "Open"}}
@@ -165,7 +165,7 @@ func TestRunModal(t *testing.T) {
 	d.hasNot("sending…", "enter send")
 
 	d.keys("o")
-	if len(f.opened) != 1 || f.opened[0] != "https://xlsft.youtrack.cloud/issue/BE-127" {
+	if len(f.opened) != 1 || f.opened[0] != "https://example.youtrack.cloud/issue/BE-127" {
 		t.Errorf("opened %v", f.opened)
 	}
 	d.keys("p")
@@ -323,12 +323,12 @@ func TestIssueCard(t *testing.T) {
 	f := newFixture(t)
 	yt := withIssues(f)
 	yt.issues["2-131"] = ytwatch.Issue{ID: "2-131", Key: "BE-131", Summary: "Rate limit the login endpoint",
-		URL:         "https://xlsft.youtrack.cloud/issue/BE-131",
+		URL:         "https://example.youtrack.cloud/issue/BE-131",
 		Description: "Too many **login** attempts get through.",
 		Fields:      map[string]string{"State": "Open", "Priority": "Critical"}}
 	yt.add("2-131", IssueComment{ID: "4-7", Author: "anna", AuthorName: "Anna Petrova", Text: "Ten a minute is enough.", Created: t0.Add(-20 * time.Minute)})
 	backlog := f.backlog.issues[0] // as the search found it: no description
-	d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-xlsft", backlog), 160, 45)
+	d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-work", backlog), 160, 45)
 	d.fits(160, 45)
 	d.has("backend", "BE-131", "Rate limit the login endpoint", "State: Open", "Priority: Critical", "backlog",
 		"Too many login attempts get through.", "Comments · 1", "Anna Petrova @anna · 20m ago", "Ten a minute is enough.",
@@ -360,7 +360,7 @@ func TestIssueCard(t *testing.T) {
 	d.hasNot("runner passes it", "has ended")
 
 	d.keys("o")
-	if len(f.opened) != 1 || f.opened[0] != "https://xlsft.youtrack.cloud/issue/BE-131" {
+	if len(f.opened) != 1 || f.opened[0] != "https://example.youtrack.cloud/issue/BE-131" {
 		t.Errorf("opened %v", f.opened)
 	}
 	d.keys("esc")
@@ -376,7 +376,7 @@ func TestIssueCardSizes(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			f := newFixture(t)
 			withIssues(f)
-			d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-xlsft", f.backlog.issues[0]), size[0], size[1])
+			d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-work", f.backlog.issues[0]), size[0], size[1])
 			d.fits(size[0], size[1])
 			if size[0] == 80 {
 				d.has("Not taken yet", "BE-131")
@@ -592,7 +592,7 @@ func TestDump(t *testing.T) {
 	}
 	for _, size := range [][2]int{{120, 34}, {100, 30}, {160, 45}} {
 		w, h := size[0], size[1]
-		grid := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), w, h)
+		grid := drive(t, NewPipelines(&f.d, "youtrack-work"), w, h)
 		write(fmt.Sprintf("grid-%dx%d.txt", w, h), grid.m.View())
 		board := drive(t, NewBoard(&f.d, "backend"), w, h)
 		run := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), w, h)

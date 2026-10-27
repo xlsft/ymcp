@@ -25,14 +25,14 @@ type catalog struct {
 }
 
 // withCatalog makes the fixture list backend, frontend and extra more
-// pipelines of youtrack-xlsft named svc-01, svc-02, ….
+// pipelines of youtrack-work named svc-01, svc-02, ….
 func withCatalog(f *fixture, extra int) *catalog {
 	c := &catalog{list: []spec.Pipeline{
-		pipelineSpec("backend", "youtrack-xlsft", "project: BE #Unresolved"),
-		pipelineSpec("frontend", "youtrack-xlsft", "project: FE #Unresolved"),
+		pipelineSpec("backend", "youtrack-work", "project: BE #Unresolved"),
+		pipelineSpec("frontend", "youtrack-work", "project: FE #Unresolved"),
 	}}
 	for i := 1; i <= extra; i++ {
-		c.list = append(c.list, pipelineSpec(fmt.Sprintf("svc-%02d", i), "youtrack-xlsft", "project: SVC"))
+		c.list = append(c.list, pipelineSpec(fmt.Sprintf("svc-%02d", i), "youtrack-work", "project: SVC"))
 	}
 	f.d.Pipelines = func() ([]spec.Pipeline, error) {
 		var out []spec.Pipeline
@@ -86,9 +86,9 @@ func (d *driver) selectedCard() string {
 
 func TestPipelines(t *testing.T) {
 	f := newFixture(t)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 100, 30)
 	d.fits(100, 30)
-	d.has("ymcp pipelines", "youtrack-xlsft", "⚑ 2 need input",
+	d.has("ymcp pipelines", "youtrack-work", "⚑ 2 need input",
 		// backend's card: name and runner, the agent, the counts with the
 		// failed and needs-input flags inside, the source query
 		"backend", "● running", "Claude", "working 2 · review 2 · done 1", "✗ 1  ⚑ 1", "project: BE #Unresolved",
@@ -119,7 +119,7 @@ func TestPipelines(t *testing.T) {
 		t.Errorf("b: %#v", got)
 	}
 	d.keys("e")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Existing == nil || got.Existing.Name != "backend" || got.Profile != "youtrack-xlsft" {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Existing == nil || got.Existing.Name != "backend" || got.Profile != "youtrack-work" {
 		t.Errorf("e: %#v", got)
 	}
 
@@ -165,24 +165,24 @@ func TestPipelines(t *testing.T) {
 func TestPipelinesDaemonError(t *testing.T) {
 	f := newFixture(t)
 	f.daemon.err = errors.New("pipeline frontend: agent claude not found")
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 100, 30)
 	d.keys("right", "r")
 	d.has("✗ could not start frontend: pipeline frontend: agent claude not found")
 }
 
 func TestPipelinesEmpty(t *testing.T) {
 	f := newFixture(t)
-	d := drive(t, NewPipelines(&f.d, "youtrack-beget"), 80, 24)
-	d.has("No pipelines in youtrack-beget yet.", "Press n or enter on + to create one.", "New pipeline")
+	d := drive(t, NewPipelines(&f.d, "youtrack-acme"), 80, 24)
+	d.has("No pipelines in youtrack-acme yet.", "Press n or enter on + to create one.", "New pipeline")
 	if got := d.selectedCard(); got != "+" {
 		t.Errorf("selected %q, want +", got)
 	}
 	d.keys("enter")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-beget" || got.Existing != nil {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-acme" || got.Existing != nil {
 		t.Errorf("enter on +: %#v", got)
 	}
 	d.keys("n")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-beget" {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-acme" {
 		t.Errorf("n: %#v", got)
 	}
 }
@@ -195,7 +195,7 @@ func TestPipelinesGrid(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", c.w, c.h), func(t *testing.T) {
 			f := newFixture(t)
 			withCatalog(f, 10)
-			d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), c.w, c.h)
+			d := drive(t, NewPipelines(&f.d, "youtrack-work"), c.w, c.h)
 			d.fits(c.w, c.h)
 			top := strings.Split(d.view(), "\n")[2] // the top edges of the first row
 			if got := strings.Count(top, "╭") + strings.Count(top, "┏"); got != c.cols {
@@ -233,7 +233,7 @@ func TestPipelinesGrid(t *testing.T) {
 func TestPipelinesMove(t *testing.T) {
 	f := newFixture(t)
 	withCatalog(f, 10) // 12 pipelines and the + card
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 100, 30)
 	// Two columns: 0 1 / 2 3 / … / 10 11 / 12(+).
 	for _, step := range []struct {
 		key  string
@@ -281,7 +281,7 @@ func TestPipelinesMove(t *testing.T) {
 func TestPipelinesScroll(t *testing.T) {
 	f := newFixture(t)
 	withCatalog(f, 10)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 100, 24) // two rows of two
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 100, 24) // two rows of two
 	d.fits(100, 24)
 	d.has("backend", "frontend", "svc-01", "svc-02", "↓ 9 more")
 	d.hasNot("svc-03", "more  ↓")
@@ -311,7 +311,7 @@ func TestPipelinesScroll(t *testing.T) {
 func TestPipelinesMenu(t *testing.T) {
 	f := newFixture(t)
 	withCatalog(f, 1)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 120, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 120, 30)
 	d.keys("enter")
 	d.fits(120, 30)
 	d.has("─ backend ─", "› Open board", "Stop runner", "Edit", "Logs", "Copy…", "Rename…", "Delete…",
@@ -399,7 +399,7 @@ func TestPipelinesMenu(t *testing.T) {
 func TestPipelinesCopyRename(t *testing.T) {
 	f := newFixture(t)
 	c := withCatalog(f, 1)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 120, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 120, 30)
 
 	// Copy… from the menu suggests a name.
 	d.keys("enter", "c")

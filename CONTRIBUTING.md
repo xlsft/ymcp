@@ -97,8 +97,8 @@ GitLab.
 
 Live tests are opt-in and never run in CI. `YMCP_PIPELINE_LIVE=1` sends a tiny prompt to each agent installed, in
 a throwaway repository (it bills your accounts), and reads YouTrack and GitHub without writing anything: the
-YouTrack test refuses any instance but xlsft.youtrack.cloud and takes its profile from `YMCP_PIPELINE_PROFILE`, the
-GitHub one reads github.com/xlsft/ymcp with your `gh` login. `YMCP_NOTIFY_LIVE=1` shows one real notification. Try
+YouTrack test talks only to the host in `YMCP_PIPELINE_LIVE_HOST`, through the profile in `YMCP_PIPELINE_PROFILE`, and
+reads the project in `YMCP_PIPELINE_PROJECT`; the GitHub one reads github.com/xlsft/ymcp with your `gh` login. `YMCP_NOTIFY_LIVE=1` shows one real notification. Try
 whole pipelines on your own instance and a sandbox repository, never on a shared one.
 
 ## Releasing

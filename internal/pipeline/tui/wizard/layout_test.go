@@ -76,7 +76,7 @@ func TestAgentStepRussianLayout(t *testing.T) {
 
 func TestRepoStepRussianLayout(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "q"},
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "q"},
 		Workspace: spec.Workspace{Dir: "/src/repo"}, Strategy: spec.Strategy{Kind: "gitlab-mr"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(2)
@@ -95,7 +95,7 @@ func TestRepoStepRussianLayout(t *testing.T) {
 
 func TestReviewStepRussianLayout(t *testing.T) {
 	f := newFakes()
-	existing := spec.Pipeline{Name: "x", Profile: "youtrack-xlsft", Source: spec.Source{Query: "project: YPC #Unresolved"},
+	existing := spec.Pipeline{Name: "x", Profile: "youtrack-work", Source: spec.Source{Query: "project: YPC #Unresolved"},
 		Workspace: spec.Workspace{Dir: "/src/repo"}}
 	d := start(t, f.deps, &existing)
 	d.goStep(5)

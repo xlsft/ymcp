@@ -93,15 +93,15 @@ func newFixture(t *testing.T) *fixture {
 		{ID: "2-123", Key: "BE-123", Summary: "Fix login"}, // has a run: not in the backlog
 	}}
 	pipelines := []spec.Pipeline{
-		pipelineSpec("backend", "youtrack-xlsft", "project: BE #Unresolved"),
-		pipelineSpec("frontend", "youtrack-xlsft", "project: FE #Unresolved"),
+		pipelineSpec("backend", "youtrack-work", "project: BE #Unresolved"),
+		pipelineSpec("frontend", "youtrack-work", "project: FE #Unresolved"),
 	}
 	f.d = Deps{
 		Store: st,
 		Profiles: func() ([]config.Config, error) {
 			return []config.Config{
-				{Name: "youtrack-beget", URL: "https://projectsystem.online", Login: "x"},
-				{Name: "youtrack-xlsft", DisplayName: "YouTrack (xlsft)", URL: "https://xlsft.youtrack.cloud", Login: "x"},
+				{Name: "youtrack-acme", URL: "https://acme.youtrack.cloud", Login: "x"},
+				{Name: "youtrack-work", DisplayName: "YouTrack (work)", URL: "https://example.youtrack.cloud", Login: "x"},
 			}, nil
 		},
 		Pipelines: func() ([]spec.Pipeline, error) {
@@ -147,7 +147,7 @@ func (f *fixture) run(pipeline, key, summary string, status store.RunStatus, ago
 	var r store.Run
 	f.at(ago, func() {
 		var err error
-		r, err = f.st.CreateRun(ctx, pipeline, "youtrack-xlsft", "2-"+strings.Split(key, "-")[1], key)
+		r, err = f.st.CreateRun(ctx, pipeline, "youtrack-work", "2-"+strings.Split(key, "-")[1], key)
 		f.must(err)
 		f.must(f.st.AddEvent(ctx, r.ID, "run.captured", map[string]string{"issue": key, "summary": summary}))
 		r.Status, r.Stage, r.Agent = status, "working", "Claude"
@@ -360,23 +360,23 @@ func TestProfiles(t *testing.T) {
 	f := newFixture(t)
 	d := drive(t, NewProfiles(&f.d), 100, 30)
 	d.has("ymcp pipelines", "⚑ 2 need input",
-		"YouTrack (xlsft) (youtrack-xlsft)", "xlsft.youtrack.cloud", "2 pipelines · 1 running",
+		"YouTrack (work) (youtrack-work)", "example.youtrack.cloud", "2 pipelines · 1 running",
 		"backend", "● running", "2 working · 1 needs input · 2 review", "⚑ 1 needs input",
 		"frontend", "○ stopped",
-		"youtrack-beget", "no pipelines yet — press n to create one",
+		"youtrack-acme", "no pipelines yet — press n to create one",
 		"enter pipelines", "n new pipeline", "i inbox", "q quit")
 
 	// The cursor starts on the first profile.
 	d.keys("enter")
-	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-beget"}) {
+	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-acme"}) {
 		t.Errorf("enter: %#v", got)
 	}
 	d.keys("down", "enter")
-	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-xlsft"}) {
+	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-work"}) {
 		t.Errorf("down enter: %#v", got)
 	}
 	d.keys("n")
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-xlsft" || got.Existing != nil {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-work" || got.Existing != nil {
 		t.Errorf("n: %#v", got)
 	}
 	d.keys("i")
@@ -401,13 +401,13 @@ func TestProfilesUnconfigured(t *testing.T) {
 	f := newFixture(t)
 	f.d.Profiles = func() ([]config.Config, error) { return nil, nil }
 	d := drive(t, NewProfiles(&f.d), 100, 30)
-	d.has("youtrack-xlsft", "profile not configured", "backend")
+	d.has("youtrack-work", "profile not configured", "backend")
 }
 
 func TestBoard(t *testing.T) {
 	f := newFixture(t)
 	d := drive(t, NewBoard(&f.d, "backend"), 100, 30)
-	d.has("backend", "youtrack-xlsft · Claude · /home/dev/code/backend", "● running", "agents 1/1",
+	d.has("backend", "youtrack-work · Claude · /home/dev/code/backend", "● running", "agents 1/1",
 		"BACKLOG 3", "WORKING 2", "NEEDS INPUT 1", "REVIEW 2", "DONE 2",
 		"BE-131", "Rate limit the", "login endpoint", "BE-140",
 		"BE-123", "#5", "Fix login", "4m12s writing",
@@ -445,7 +445,7 @@ func TestBoard(t *testing.T) {
 		t.Errorf("enter: %#v", got)
 	}
 	d.keys("o")
-	if want := "https://xlsft.youtrack.cloud/issue/BE-123"; len(f.opened) != 1 || f.opened[0] != want {
+	if want := "https://example.youtrack.cloud/issue/BE-123"; len(f.opened) != 1 || f.opened[0] != want {
 		t.Errorf("opened %v, want %s", f.opened, want)
 	}
 
@@ -473,14 +473,14 @@ func TestBoard(t *testing.T) {
 	// in the browser.
 	opened := len(f.opened)
 	d.keys("left", "left", "left", "enter")
-	if got, ok := d.lastNav().(OpenIssue); !ok || got.Pipeline != "backend" || got.Profile != "youtrack-xlsft" || got.Issue.Key != "BE-131" {
+	if got, ok := d.lastNav().(OpenIssue); !ok || got.Pipeline != "backend" || got.Profile != "youtrack-work" || got.Issue.Key != "BE-131" {
 		t.Errorf("enter on the backlog: %#v", got)
 	}
 	if len(f.opened) != opened {
 		t.Errorf("enter on the backlog opened %v", f.opened[opened:])
 	}
 	d.keys("o")
-	if got := f.opened[len(f.opened)-1]; got != "https://xlsft.youtrack.cloud/issue/BE-131" {
+	if got := f.opened[len(f.opened)-1]; got != "https://example.youtrack.cloud/issue/BE-131" {
 		t.Errorf("o on the backlog opened %s", got)
 	}
 	d.keys("esc")
@@ -601,7 +601,7 @@ func TestSizes(t *testing.T) {
 	f := newFixture(t)
 	screens := map[string]func() tea.Model{
 		"profiles":  func() tea.Model { return NewProfiles(&f.d) },
-		"pipelines": func() tea.Model { return NewPipelines(&f.d, "youtrack-xlsft") },
+		"pipelines": func() tea.Model { return NewPipelines(&f.d, "youtrack-work") },
 		"board":     func() tea.Model { return NewBoard(&f.d, "backend") },
 		"run":       func() tea.Model { return NewRun(&f.d, "backend", f.runs["BE-127"].Number, true) },
 		"inbox":     func() tea.Model { return NewInbox(&f.d) },

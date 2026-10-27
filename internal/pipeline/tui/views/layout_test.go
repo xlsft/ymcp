@@ -27,15 +27,15 @@ func TestProfilesRussianLayout(t *testing.T) {
 	f := newFixture(t)
 	d := drive(t, NewProfiles(&f.d), 100, 30)
 	d.keys("о", "т") // j n
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-xlsft" {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-work" {
 		t.Errorf("т: %#v", got)
 	}
 	d.keys("л", "т") // k n
-	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-beget" {
+	if got, ok := d.lastNav().(OpenWizard); !ok || got.Profile != "youtrack-acme" {
 		t.Errorf("л т: %#v", got)
 	}
 	d.keys("П", "д") // G l
-	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-xlsft"}) {
+	if got := d.lastNav(); got != (OpenPipelines{Profile: "youtrack-work"}) {
 		t.Errorf("П д: %#v", got)
 	}
 	d.keys("ш") // i
@@ -55,7 +55,7 @@ func TestProfilesRussianLayout(t *testing.T) {
 func TestPipelinesRussianLayout(t *testing.T) {
 	f := newFixture(t)
 	c := withCatalog(f, 0)
-	d := drive(t, NewPipelines(&f.d, "youtrack-xlsft"), 120, 30)
+	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 120, 30)
 	d.keys("щ") // o
 	if got := d.lastNav(); got != (OpenBoard{Pipeline: "backend"}) {
 		t.Errorf("щ: %#v", got)
@@ -119,7 +119,7 @@ func TestBoardRussianLayout(t *testing.T) {
 	f := newFixture(t)
 	d := drive(t, NewBoard(&f.d, "backend"), 100, 30)
 	d.keys("щ") // o, on BE-123
-	if want := "https://xlsft.youtrack.cloud/issue/BE-123"; len(f.opened) != 1 || f.opened[0] != want {
+	if want := "https://example.youtrack.cloud/issue/BE-123"; len(f.opened) != 1 || f.opened[0] != want {
 		t.Errorf("opened %v, want %s", f.opened, want)
 	}
 	d.keys("д", "ф") // l a
@@ -165,7 +165,7 @@ func TestRunRussianLayout(t *testing.T) {
 	}
 
 	d.keys("щ") // o
-	if len(f.opened) != 1 || f.opened[0] != "https://xlsft.youtrack.cloud/issue/BE-127" {
+	if len(f.opened) != 1 || f.opened[0] != "https://example.youtrack.cloud/issue/BE-127" {
 		t.Errorf("opened %v", f.opened)
 	}
 	d.keys("з") // p

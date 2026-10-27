@@ -297,7 +297,7 @@ func TestApplyServerErrorIsNotCommandError(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	// Answers recorded from xlsft.youtrack.cloud (commands/assist on YPC-1).
+	// Answers recorded from example.youtrack.cloud (commands/assist on YPC-1).
 	answers := map[string]string{
 		"State In Progress": `{"suggestions":[{"option":"In Progress","description":"State"},{"option":"State In Progress","description":"at 13:34"}],
 			"commands":[{"error":false,"delete":false,"description":"Set State <span class=\"bold\">In Progress</span>"}]}`,

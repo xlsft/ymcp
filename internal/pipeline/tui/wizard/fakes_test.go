@@ -54,7 +54,7 @@ func (f *fakeYT) called(prefix string) []string {
 	return out
 }
 
-func (f *fakeYT) BaseURL() string                    { return "https://xlsft.youtrack.cloud" }
+func (f *fakeYT) BaseURL() string                    { return "https://example.youtrack.cloud" }
 func (f *fakeYT) Me(context.Context) (string, error) { return f.login, nil }
 
 func (f *fakeYT) Search(_ context.Context, q string) ([]ytwatch.Issue, error) {
@@ -145,7 +145,7 @@ func newFakeYT() *fakeYT {
 			"(project: YPC #Unresolved) and (tag: ai)": {{ID: "2-3", Key: "YPC-3", Summary: "Fix login redirect"}},
 		},
 		full: map[string]ytwatch.Issue{
-			"YPC-3": {ID: "2-3", Key: "YPC-3", Summary: "Fix login redirect", Description: "Login redirects to /404.", URL: "https://xlsft.youtrack.cloud/issue/YPC-3", Fields: map[string]string{"Priority": "Major"}},
+			"YPC-3": {ID: "2-3", Key: "YPC-3", Summary: "Fix login redirect", Description: "Login redirects to /404.", URL: "https://example.youtrack.cloud/issue/YPC-3", Fields: map[string]string{"Priority": "Major"}},
 		},
 		fields: map[string][]Field{
 			"YPC": {
@@ -170,7 +170,7 @@ func (f *fakeFactory) Connect(_ context.Context, profile string) (YouTrack, erro
 	f.mu.Lock()
 	f.calls = append(f.calls, profile)
 	f.mu.Unlock()
-	if profile == "youtrack-beget" {
+	if profile == "youtrack-acme" {
 		return nil, errors.New("dial tcp: connection refused")
 	}
 	return f.yt, nil
@@ -258,7 +258,7 @@ func (f *fakeChecker) Check(_ context.Context, p spec.Pipeline) ([]engine.CheckR
 	f.mu.Unlock()
 	return []engine.CheckResult{
 		{Name: "pipeline", OK: true, Detail: "the configuration is valid"},
-		{Name: "YouTrack", OK: true, Detail: "signed in to https://xlsft.youtrack.cloud as admin"},
+		{Name: "YouTrack", OK: true, Detail: "signed in to https://example.youtrack.cloud as admin"},
 		{Name: "source query", OK: true, Detail: "3 issues match: YPC-3, YPC-4, YPC-7"},
 		{Name: "stages.needsInput.enter command", OK: true, Warning: true, Detail: "tag needs-input doesn't exist yet; YouTrack creates it on first use"},
 		{Name: "workspace: git repository", OK: true, Detail: p.Workspace.Dir},
@@ -286,8 +286,8 @@ func newFakes() *fakes {
 	f.deps = Deps{
 		Local: fakeLocal{
 			profiles: []config.Config{
-				{Name: "youtrack-beget", DisplayName: "YouTrack (beget)", URL: "https://projectsystem.online", Login: "itorshin"},
-				{Name: "youtrack-xlsft", DisplayName: "YouTrack (xlsft)", URL: "https://xlsft.youtrack.cloud", Login: "admin"},
+				{Name: "youtrack-acme", DisplayName: "YouTrack (acme)", URL: "https://acme.youtrack.cloud", Login: "itorshin"},
+				{Name: "youtrack-work", DisplayName: "YouTrack (work)", URL: "https://example.youtrack.cloud", Login: "admin"},
 			},
 			existing: map[string]bool{"frontend": true},
 		},
