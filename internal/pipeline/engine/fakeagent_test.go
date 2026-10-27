@@ -108,6 +108,9 @@ func (s *fakeSession) Prompt(ctx context.Context, text string) (agent.Result, er
 		return agent.Result{StopReason: agent.StopEndTurn, Text: t.text}, nil
 	}
 	res := fn(t)
+	if t.err != nil {
+		return res, t.err
+	}
 	if res.Text == "" {
 		res.Text = t.text
 	}
@@ -162,6 +165,7 @@ type fakeTurn struct {
 	prompt string
 	text   string
 	cancel chan struct{}
+	err    error // returned by Prompt, as when the agent can't start
 }
 
 func (t *fakeTurn) cancelled() bool {

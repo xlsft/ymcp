@@ -915,6 +915,78 @@ func TestNoResumeStartsNewSessionWithRecap(t *testing.T) {
 	}
 }
 
+// TestDeletedWorktreeIsCreatedAgain: a worktree deleted between turns is
+// made again before the next turn, with the branch's earlier work.
+func TestDeletedWorktreeIsCreatedAgain(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Keep my work", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			writeFile(t, "a.txt", "a\n")
+			t.Say("First.")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			if _, err := os.Stat(filepath.Join(t.s.opts.Dir, "a.txt")); err != nil {
+				t.Say("lost a.txt: " + err.Error())
+			} else {
+				t.Say("Second.")
+			}
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitReview(1, is.Key)
+	if err := os.RemoveAll(run.Worktree); err != nil {
+		t.Fatal(err)
+	}
+	h.yt.addComment(is.Key, "alice", "Once more")
+	h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	if said := h.yt.agentComments(is.Key); !contains(said, "Second.") {
+		t.Errorf("agent comments = %q", said)
+	}
+	if len(h.events(run.ID, "worktree.missing")) != 1 {
+		t.Errorf("events = %+v", h.events(run.ID, ""))
+	}
+	if starts := h.ag.startLog(); len(starts) != 2 || starts[1].Dir == "" {
+		t.Errorf("starts = %+v", starts)
+	} else if _, err := os.Stat(starts[1].Dir); err != nil {
+		t.Errorf("the second turn's directory: %v", err)
+	}
+}
+
+// TestMissingWorkingDirectoryIsNamed: an agent that can't start because
+// its directory is gone gets an error that says so, not exec's "no such
+// file" about the binary.
+func TestMissingWorkingDirectoryIsNamed(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Lose the directory", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			os.RemoveAll(t.s.opts.Dir)
+			t.err = errors.New("fake: start: fork/exec /usr/bin/fake: no such file or directory")
+			return agent.Result{}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Back in " + filepath.Base(t.s.opts.Dir))
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitStatus(1, store.StatusNeedsInput)
+	if !strings.Contains(run.NeedsInputReason, "working directory "+run.Worktree+" does not exist") || !strings.Contains(run.NeedsInputReason, "fork/exec") {
+		t.Errorf("reason = %q", run.NeedsInputReason)
+	}
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "try again"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitReview(1, is.Key)
+	if said := h.yt.agentComments(is.Key); !contains(said, "Back in "+run.Branch) {
+		t.Errorf("agent comments = %q", said)
+	}
+}
+
 func TestDeletedPlaceholderIsPostedAgain(t *testing.T) {
 	h := newHarness(t, nil)
 	is := h.yt.addIssue("Delete my placeholder", "Open")

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,9 @@ type Host interface {
 	// together with the captured output. An empty dir means the host's
 	// default directory; a nil stdin means no input.
 	Run(ctx context.Context, dir string, argv []string, stdin io.Reader) (stdout, stderr []byte, err error)
+	// IsDir reports whether path is an existing directory on the host. A
+	// path that does not exist is (false, nil).
+	IsDir(ctx context.Context, path string) (bool, error)
 	// CacheDir is the per-user cache directory on the host: os.UserCacheDir
 	// for this machine; an ssh host would answer ~/.cache.
 	CacheDir(ctx context.Context) (string, error)
@@ -53,6 +57,15 @@ func (localHost) Run(ctx context.Context, dir string, argv []string, stdin io.Re
 	if len(argv) == 0 {
 		return nil, nil, errors.New("empty command")
 	}
+	if dir != "" {
+		// exec would blame the program for a missing directory.
+		if ok, err := isDir(dir); err != nil || !ok {
+			if err == nil {
+				err = fmt.Errorf("directory %s does not exist", dir)
+			}
+			return nil, nil, err
+		}
+	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
@@ -63,6 +76,19 @@ func (localHost) Run(ctx context.Context, dir string, argv []string, stdin io.Re
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+func (localHost) IsDir(_ context.Context, path string) (bool, error) { return isDir(path) }
+
+func isDir(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return fi.IsDir(), nil
 }
 
 func (localHost) CacheDir(context.Context) (string, error) {

@@ -153,6 +153,22 @@ func TestLocalHost(t *testing.T) {
 	if _, _, err := h.Run(context.Background(), dir, nil, nil); err == nil {
 		t.Error("empty argv must fail")
 	}
+	// A missing directory is named as such, not blamed on the program.
+	gone := filepath.Join(dir, "gone")
+	if _, _, err := h.Run(context.Background(), gone, []string{"git", "--version"}, nil); err == nil || !strings.Contains(err.Error(), gone+" does not exist") {
+		t.Errorf("missing dir: err = %v", err)
+	}
+	if ok, err := h.IsDir(context.Background(), dir); !ok || err != nil {
+		t.Errorf("IsDir(dir) = %v, %v", ok, err)
+	}
+	if ok, err := h.IsDir(context.Background(), gone); ok || err != nil {
+		t.Errorf("IsDir(gone) = %v, %v", ok, err)
+	}
+	file := filepath.Join(dir, "file")
+	writeFile(t, file, "x")
+	if ok, err := h.IsDir(context.Background(), file); ok || err != nil {
+		t.Errorf("IsDir(file) = %v, %v", ok, err)
+	}
 }
 
 func TestAgentIdentity(t *testing.T) {
@@ -677,6 +693,41 @@ func TestRemove(t *testing.T) {
 	}
 	if err := Remove(ctx, h, f.repo, Worktree{}); err == nil {
 		t.Error("empty worktree must fail")
+	}
+}
+
+func TestExists(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := Local()
+	wt, err := Create(ctx, h, f.repo, "", "BE-15", "", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Exists(ctx, h, wt); !ok || err != nil {
+		t.Errorf("Exists = %v, %v", ok, err)
+	}
+	if ok, _ := Exists(ctx, h, Worktree{}); ok {
+		t.Error("an empty worktree exists")
+	}
+	if err := os.RemoveAll(wt.Path); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Exists(ctx, h, wt); ok || err != nil {
+		t.Errorf("deleted: Exists = %v, %v", ok, err)
+	}
+	// Create makes it again on the same branch.
+	again, err := Create(ctx, h, f.repo, "", "BE-15", "", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := Exists(ctx, h, again); !ok {
+		t.Error("the recreated worktree does not exist")
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := Exists(cctx, h, again); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: err = %v", err)
 	}
 }
 

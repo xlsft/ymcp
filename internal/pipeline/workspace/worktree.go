@@ -196,6 +196,23 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 	return wt, nil
 }
 
+// Exists reports whether the worktree is still usable: its directory is
+// there and git sees a working tree in it. A worktree deleted by hand is
+// not; Create makes it again. Only a ctx error is returned.
+func Exists(ctx context.Context, h Host, wt Worktree) (bool, error) {
+	if wt.Path == "" {
+		return false, nil
+	}
+	ok, err := h.IsDir(ctx, wt.Path)
+	if err != nil || !ok {
+		return false, ctx.Err()
+	}
+	if _, err := run(ctx, h, wt.Path, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return false, ctx.Err()
+	}
+	return true, nil
+}
+
 // Remove deletes the worktree and its administrative files; the branch stays.
 // Uncommitted changes are discarded, so call CommitLeftovers first. A worktree
 // that is already gone is not an error.

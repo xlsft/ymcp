@@ -225,6 +225,18 @@ func (t *turn) prepareWorkspace() error {
 	if err != nil {
 		return fmt.Errorf("workspace.commitPrefix: %w", err)
 	}
+	if w.wt.Path != "" {
+		// Someone may have deleted the worktree since the last turn.
+		ok, err := workspace.Exists(t.ctx, r.host, w.wt)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			r.log.Warn("the worktree is gone; creating it again", "run", run.Number, "path", w.wt.Path)
+			r.event(t.bg, run.ID, "worktree.missing", map[string]string{"path": w.wt.Path})
+			w.wt = workspace.Worktree{}
+		}
+	}
 	if w.wt.Path == "" {
 		email, err := workspace.UserEmail(t.ctx, r.host, r.p.Workspace.Dir)
 		if err != nil {
@@ -792,7 +804,13 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 		return t.fail("timeout: "+cause, reason)
 	}
 	if perr != nil {
-		return t.fail("agent failed", withTail("The agent failed: "+perr.Error(), &t.out))
+		msg := "The agent failed: " + perr.Error()
+		if dir := t.w.wt.Path; dir != "" {
+			if ok, err := r.host.IsDir(t.bg, dir); err == nil && !ok {
+				msg = "The agent could not run: its working directory " + dir + " does not exist. The next turn creates it again.\n\n" + perr.Error()
+			}
+		}
+		return t.fail("agent failed", withTail(msg, &t.out))
 	}
 	switch res.StopReason {
 	case agent.StopError, agent.StopRefusal, agent.StopMaxTokens:
