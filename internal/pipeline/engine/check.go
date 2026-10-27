@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
@@ -90,6 +91,7 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 		for _, c := range checks {
 			add("workspace: "+c.Name, c.OK, c.Detail)
 		}
+		checkWorktrees(ctx, p, host, add, warn)
 	}
 
 	// The agent.
@@ -115,6 +117,25 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 		warn("agent", w)
 	}
 	return out, nil
+}
+
+// checkWorktrees says where the run worktrees go and warns about a root
+// inside a .git directory, where Claude Code refuses to edit files.
+func checkWorktrees(ctx context.Context, p spec.Pipeline, host workspace.Host, add func(string, bool, string), warn func(string, string)) {
+	const name = "workspace: worktrees"
+	root := strings.TrimSpace(p.Workspace.Worktrees)
+	if root == "" {
+		var err error
+		if root, err = workspace.DefaultRoot(ctx, host, p.Name); err != nil {
+			add(name, false, err.Error())
+			return
+		}
+	}
+	if slices.Contains(strings.FieldsFunc(root, func(r rune) bool { return r == '/' || r == '\\' }), ".git") {
+		warn(name, root+" is inside a .git directory: Claude Code refuses to edit files there")
+		return
+	}
+	add(name, true, root)
 }
 
 // checkYouTrack checks the source query and the stage commands.

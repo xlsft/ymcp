@@ -44,6 +44,9 @@ func isolate(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	// Worktrees go to the user cache directory; keep it in the temp home.
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("LocalAppData", filepath.Join(home, "appdata"))
 	t.Setenv("GIT_CONFIG_GLOBAL", empty)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(home))
@@ -301,6 +304,12 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	run := h.waitReview(1, is.Key)
 	if run.IssueKey != is.Key || run.Branch == "" || run.Worktree == "" || run.AgentSession != "session-1" {
 		t.Fatalf("run = %+v", run)
+	}
+	// The worktree is in the user cache directory, outside the repository.
+	cache, _ := os.UserCacheDir()
+	want, _ := filepath.EvalSymlinks(filepath.Join(cache, "ymcp", "worktrees", "backend", run.Branch))
+	if got, _ := filepath.EvalSymlinks(run.Worktree); got != want || want == "" {
+		t.Errorf("worktree = %q, want %q", run.Worktree, want)
 	}
 	if got := h.yt.state(is.Key); got != "Review" {
 		t.Errorf("state = %q, want Review", got)
@@ -975,6 +984,7 @@ func TestCheck(t *testing.T) {
 		"pipeline": true, "YouTrack": true, "source query": true,
 		"stages.working.enter command": true, "stages.closed.enter command": false,
 		"working leaves the source": true, "workspace: git repository": true, "agent": true,
+		"workspace: worktrees": true,
 	}
 	for name, ok := range want {
 		r, found := byName[name]
@@ -988,6 +998,18 @@ func TestCheck(t *testing.T) {
 	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Warning && r.Detail == "fake warning" }) {
 		t.Errorf("agent warning missing: %+v", res)
 	}
+
+	if r := byName["workspace: worktrees"]; !strings.HasSuffix(filepath.ToSlash(r.Detail), "/ymcp/worktrees/backend") {
+		t.Errorf("worktrees detail = %q", r.Detail)
+	}
+	// A worktree root inside .git: a warning.
+	h.p.Workspace.Worktrees = filepath.Join(h.repo, ".git", "wts")
+	o.Pipeline = h.p
+	res, _ = CheckWith(context.Background(), o)
+	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Name == "workspace: worktrees" && r.Warning }) {
+		t.Errorf("no .git warning: %+v", res)
+	}
+	h.p.Workspace.Worktrees = ""
 
 	// An issue in both the source and the working stage: a warning.
 	h.p.Stages.Working.Match = "State: Open"

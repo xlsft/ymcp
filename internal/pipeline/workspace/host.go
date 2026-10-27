@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -28,6 +29,9 @@ type Host interface {
 	// together with the captured output. An empty dir means the host's
 	// default directory; a nil stdin means no input.
 	Run(ctx context.Context, dir string, argv []string, stdin io.Reader) (stdout, stderr []byte, err error)
+	// CacheDir is the per-user cache directory on the host: os.UserCacheDir
+	// for this machine; an ssh host would answer ~/.cache.
+	CacheDir(ctx context.Context) (string, error)
 }
 
 // dirMaker is implemented by hosts that can create directories without
@@ -59,6 +63,14 @@ func (localHost) Run(ctx context.Context, dir string, argv []string, stdin io.Re
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+func (localHost) CacheDir(context.Context) (string, error) {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(dir), nil
 }
 
 func (localHost) MkdirAll(_ context.Context, path string) error {

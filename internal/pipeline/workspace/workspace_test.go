@@ -24,6 +24,9 @@ func isolate(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	// Worktrees go to the user cache directory; keep it in the temp home.
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("LocalAppData", filepath.Join(home, "appdata"))
 	t.Setenv("GIT_CONFIG_GLOBAL", empty)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(home))
@@ -324,9 +327,16 @@ func TestCreateAppliesIdentity(t *testing.T) {
 	if wt.Branch != "BE-1-fix" || wt.Base != "main" {
 		t.Errorf("worktree = %+v", wt)
 	}
-	wantPath := filepath.Join(f.repo, ".git", "ymcp", "worktrees", "BE-1-fix")
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(cache, "ymcp", "worktrees", "BE-1-fix")
 	if realPath(t, wt.Path) != realPath(t, wantPath) {
 		t.Errorf("path = %q, want %q", wt.Path, wantPath)
+	}
+	if rel, err := filepath.Rel(realPath(t, f.repo), realPath(t, wt.Path)); err != nil || !strings.HasPrefix(rel, "..") {
+		t.Errorf("worktree %s is inside the repository %s", wt.Path, f.repo)
 	}
 	if got := git(t, f.repo, "config", "--get", "extensions.worktreeConfig"); got != "true" {
 		t.Errorf("extensions.worktreeConfig = %q", got)
@@ -365,6 +375,32 @@ func TestCreateAppliesIdentity(t *testing.T) {
 	if err != nil || head != git(t, wt.Path, "rev-parse", "HEAD") {
 		t.Errorf("Head = %q, %v", head, err)
 	}
+}
+
+func TestDefaultRoot(t *testing.T) {
+	isolate(t)
+	ctx := context.Background()
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DefaultRoot(ctx, Local(), "backend")
+	if err != nil || filepath.Clean(got) != filepath.Join(cache, "ymcp", "worktrees", "backend") {
+		t.Errorf("DefaultRoot = %q, %v", got, err)
+	}
+	if got, err := DefaultRoot(ctx, Local(), ""); err != nil || filepath.Clean(got) != filepath.Join(cache, "ymcp", "worktrees") {
+		t.Errorf("DefaultRoot without a pipeline = %q, %v", got, err)
+	}
+	if _, err := DefaultRoot(ctx, cachelessHost{Local()}, "backend"); err == nil || !strings.Contains(err.Error(), "cache directory") {
+		t.Errorf("no cache dir: err = %v", err)
+	}
+}
+
+// cachelessHost is a host whose cache directory is unknown.
+type cachelessHost struct{ Host }
+
+func (cachelessHost) CacheDir(context.Context) (string, error) {
+	return "", errors.New("$HOME is not defined")
 }
 
 func TestCreateWithRootAndBase(t *testing.T) {

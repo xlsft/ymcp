@@ -73,12 +73,35 @@ func refExists(ctx context.Context, h Host, dir, ref string) bool {
 	return err == nil
 }
 
+// DefaultRoot is the directory that holds the worktrees of a pipeline when
+// its workspace.worktrees is not set: <cache>/ymcp/worktrees/<pipeline>,
+// where <cache> is the host user's cache directory (see Host.CacheDir). An
+// empty pipeline gives <cache>/ymcp/worktrees.
+//
+// Worktrees live outside the repository on purpose: Claude Code refuses to
+// edit any path under a .git directory, and a worktree inside the working
+// tree would be walked by tools such as `go test ./...`.
+func DefaultRoot(ctx context.Context, h Host, pipeline string) (string, error) {
+	cache, err := h.CacheDir(ctx)
+	if err != nil {
+		return "", fmt.Errorf("locating the cache directory on %s: %w", h.Name(), err)
+	}
+	if strings.TrimSpace(cache) == "" {
+		return "", fmt.Errorf("the cache directory on %s is unknown", h.Name())
+	}
+	root := joinPath(cache, "ymcp", "worktrees")
+	if pipeline != "" {
+		root = joinPath(root, pipeline)
+	}
+	return root, nil
+}
+
 // Create makes the worktree for one run in the repository at repoDir, on
 // branch, and gives it the commit identity id.
 //
 // It fetches origin first. base is the branch to start from; empty means the
 // default branch of origin. root is the directory that holds worktrees; empty
-// means <git-common-dir>/ymcp/worktrees. The worktree lives at root/<branch>.
+// means DefaultRoot(ctx, h, ""). The worktree lives at root/<branch>.
 //
 // If a worktree for branch already exists it is reused as it is. If the branch
 // exists without a worktree (a previous run removed it), it is checked out
@@ -98,15 +121,12 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 	if _, err := run(ctx, h, repoDir, "check-ref-format", "--branch", branch); err != nil {
 		return Worktree{}, fmt.Errorf("invalid branch name %q", branch)
 	}
-	common, err := commonDir(ctx, h, repoDir)
-	if err != nil {
-		return Worktree{}, err
-	}
 	if _, err := run(ctx, h, repoDir, "fetch", "origin"); err != nil {
 		return Worktree{}, fmt.Errorf("fetching origin: %w", err)
 	}
 
 	base = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(base), "refs/heads/"), "origin/")
+	var err error
 	if base == "" {
 		if base, err = DefaultBranch(ctx, h, repoDir); err != nil {
 			return Worktree{}, err
@@ -143,7 +163,9 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 
 	if !reuse {
 		if root == "" {
-			root = joinPath(common, "ymcp", "worktrees")
+			if root, err = DefaultRoot(ctx, h, ""); err != nil {
+				return Worktree{}, err
+			}
 		}
 		wt.Path = joinPath(root, branch)
 		switch {
@@ -158,6 +180,11 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 		}
 		if err != nil {
 			return Worktree{}, fmt.Errorf("creating worktree: %w", err)
+		}
+		// The path as git lists it (symlinks resolved), so a later Create
+		// that reuses the worktree returns the same path.
+		if top, err := run(ctx, h, wt.Path, "rev-parse", "--show-toplevel"); err == nil && top != "" {
+			wt.Path = top
 		}
 	}
 

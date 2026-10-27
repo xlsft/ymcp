@@ -116,6 +116,13 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(p.Workspace.Worktrees) == "" {
+		root, err := workspace.DefaultRoot(ctx, host, p.Name)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %s: %w", p.Name, err)
+		}
+		p.Workspace.Worktrees = root
+	}
 
 	yt, cfg, err := opts.Connect(ctx, p.Profile, logger)
 	if err != nil {

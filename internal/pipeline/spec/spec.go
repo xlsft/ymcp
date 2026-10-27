@@ -68,7 +68,7 @@ type Workspace struct {
 	Base         string `json:"base,omitempty"`      // empty = the default branch of origin
 	Branch       string `json:"branch"`              // template, default "{{issue.id}}-{{issue.summary | slug}}"
 	CommitPrefix string `json:"commitPrefix"`        // template, default "{{issue.id}}"
-	Worktrees    string `json:"worktrees,omitempty"` // empty = <git-common-dir>/ymcp/worktrees
+	Worktrees    string `json:"worktrees,omitempty"` // empty = <user cache dir>/ymcp/worktrees/<pipeline name> on the host
 	Parallel     int    `json:"parallel"`            // default 1
 	KeepWorktree bool   `json:"keepWorktree,omitempty"`
 }
