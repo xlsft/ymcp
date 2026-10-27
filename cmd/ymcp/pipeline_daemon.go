@@ -14,6 +14,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/proc"
 )
 
 // daemonEnv is set to 1 in the environment of a detached runner.
@@ -262,7 +263,7 @@ func pipelineStop(ctx context.Context, name string, args []string) error {
 	}
 	here, _ := os.Hostname()
 	local := host == here
-	if local && !processAlive(pid) {
+	if local && !proc.Alive(pid) {
 		if err := st.ReleaseRunner(ctx, name, pid); err != nil {
 			return err
 		}
@@ -275,7 +276,7 @@ func pipelineStop(ctx context.Context, name string, args []string) error {
 
 	wait := *timeout
 	if *force {
-		if err := killProcess(pid); err != nil && processAlive(pid) {
+		if err := killProcess(pid); err != nil && proc.Alive(pid) {
 			return fmt.Errorf("killing pid %d: %w", pid, err)
 		}
 		wait = killWait
@@ -298,7 +299,7 @@ func pipelineStop(ctx context.Context, name string, args []string) error {
 		case err != nil:
 			return err
 		case !held || holder != pid:
-		case local && !processAlive(pid):
+		case local && !proc.Alive(pid):
 			if err := st.ReleaseRunner(ctx, name, pid); err != nil {
 				return err
 			}

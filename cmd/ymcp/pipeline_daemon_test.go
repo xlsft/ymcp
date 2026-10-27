@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/proc"
 )
 
 // Modes of the fake runner that TestDaemonHelper plays.
@@ -109,7 +110,7 @@ func runnerPID(t *testing.T, st *store.Store, name string) int {
 // killLeftover keeps a failed test from leaving the fake runner behind.
 func killLeftover(t *testing.T, st *store.Store, name string) {
 	t.Cleanup(func() {
-		if pid := runnerPID(t, st, name); pid != 0 && processAlive(pid) {
+		if pid := runnerPID(t, st, name); pid != 0 && proc.Alive(pid) {
 			_ = killProcess(pid)
 		}
 	})
@@ -118,7 +119,7 @@ func killLeftover(t *testing.T, st *store.Store, name string) {
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
-	for processAlive(pid) {
+	for proc.Alive(pid) {
 		if time.Now().After(deadline) {
 			t.Fatalf("pid %d is still alive", pid)
 		}
@@ -137,7 +138,7 @@ func TestDaemonRoundTrip(t *testing.T) {
 
 			out := mustPipeline(t, "api", "run", "-d")
 			pid := runnerPID(t, st, "api")
-			if pid == 0 || pid == os.Getpid() || !processAlive(pid) {
+			if pid == 0 || pid == os.Getpid() || !proc.Alive(pid) {
 				t.Fatalf("runner pid = %d\n%s", pid, out)
 			}
 			logPath, _ := pipelineLogPath("api")
@@ -202,7 +203,7 @@ func TestDaemonStopForce(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Errorf("stop of a stubborn runner: err = %v", err)
 	}
-	if !processAlive(pid) {
+	if !proc.Alive(pid) {
 		t.Fatal("a plain stop killed the runner")
 	}
 	out := mustPipeline(t, "api", "stop", "--force")

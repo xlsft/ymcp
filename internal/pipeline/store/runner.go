@@ -6,17 +6,31 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/xlsft/ymcp/internal/proc"
 )
 
 // defaultStale is how long a runner may go without a heartbeat when
 // AcquireRunner is not told.
 const defaultStale = 30 * time.Second
 
+// processAlive tells whether a pid of this machine is alive; a test seam.
+var processAlive = proc.Alive
+
+// HolderGone reports whether the holder of a runner lock, pid on
+// holderHost, is known to be dead: it ran on host, this machine, and no
+// process has its pid any more. A holder on another machine is never known
+// to be gone; only its heartbeat tells.
+func HolderGone(pid int, holderHost, host string) bool {
+	return host != "" && holderHost == host && !processAlive(pid)
+}
+
 // AcquireRunner takes the runner lock of a pipeline for the process pid on
-// host. It is ErrRunnerBusy when another runner holds it and has sent a
-// heartbeat within staleAfter (30 seconds when not positive); a lock whose
-// holder has gone quiet for longer is taken over, and the same pid on the
-// same host may take its own lock again.
+// host, this machine. It is ErrRunnerBusy when another runner holds it and
+// has sent a heartbeat within staleAfter (30 seconds when not positive); a
+// lock whose holder has gone quiet for longer, or whose holder ran on this
+// machine and is dead (see HolderGone), is taken over, and the same pid on
+// the same host may take its own lock again.
 func (s *Store) AcquireRunner(ctx context.Context, pipeline string, pid int, host string, staleAfter time.Duration) error {
 	if staleAfter <= 0 {
 		staleAfter = defaultStale
@@ -34,7 +48,7 @@ func (s *Store) AcquireRunner(ctx context.Context, pipeline string, pid int, hos
 			return fmt.Errorf("reading the runner of %s: %w", pipeline, err)
 		default:
 			ours := holderPID == pid && holderHost == host
-			if !ours && now.Sub(fromMS(beat)) <= staleAfter {
+			if !ours && now.Sub(fromMS(beat)) <= staleAfter && !HolderGone(holderPID, holderHost, host) {
 				return fmt.Errorf("%w: %s is held by pid %d on %s", ErrRunnerBusy, pipeline, holderPID, holderHost)
 			}
 		}

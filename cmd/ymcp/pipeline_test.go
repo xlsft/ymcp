@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -480,6 +481,29 @@ func TestRunnerLineStale(t *testing.T) {
 	}
 	if line, live, _ = runnerLine(ctx, st, "x"); !live || !strings.HasPrefix(line, "running") {
 		t.Errorf("fresh runner: %q %v", line, live)
+	}
+}
+
+// TestRunnerLineDeadHolder: a runner on this machine whose process is gone
+// is stopped at once, fresh heartbeat or not, and a new one may start.
+func TestRunnerLineDeadHolder(t *testing.T) {
+	isolatePipelines(t)
+	st := openTestStore(t)
+	ctx := context.Background()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := os.Hostname()
+	if err := st.AcquireRunner(ctx, "x", cmd.Process.Pid, host, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	line, live, err := runnerLine(ctx, st, "x")
+	if err != nil || live || !strings.Contains(line, "is gone") {
+		t.Errorf("dead runner: %q %v %v", line, live, err)
+	}
+	if err := st.AcquireRunner(ctx, "x", os.Getpid(), host, time.Minute); err != nil {
+		t.Errorf("a new runner can't take the lock of a dead one: %v", err)
 	}
 }
 

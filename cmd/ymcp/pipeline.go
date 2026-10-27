@@ -265,6 +265,9 @@ func runnerLine(ctx context.Context, st *store.Store, name string) (line string,
 	if age > runnerStale {
 		return fmt.Sprintf("stopped (pid %d on %s, last heartbeat %s)", pid, host, ago(beat)), false, nil
 	}
+	if here, _ := os.Hostname(); store.HolderGone(pid, host, here) {
+		return fmt.Sprintf("stopped (pid %d on %s is gone)", pid, host), false, nil
+	}
 	return fmt.Sprintf("running (pid %d on %s, heartbeat %s)", pid, host, ago(beat)), true, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -569,7 +570,44 @@ func TestEventsPaging(t *testing.T) {
 	}
 }
 
+// fakeAlive makes the pids in dead the dead ones for the test.
+func fakeAlive(t *testing.T, dead ...int) {
+	t.Helper()
+	prev := processAlive
+	processAlive = func(pid int) bool { return !slices.Contains(dead, pid) }
+	t.Cleanup(func() { processAlive = prev })
+}
+
+// TestRunnerLockDeadHolder: a holder on this machine whose process is gone
+// gives the lock up at once, fresh heartbeat or not; one on another
+// machine only when its heartbeat is stale.
+func TestRunnerLockDeadHolder(t *testing.T) {
+	fakeAlive(t, 100)
+	s := open(t)
+	const stale = time.Minute
+	if err := s.AcquireRunner(ctx, "p", 100, "hostA", stale); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AcquireRunner(ctx, "p", 200, "hostB", stale); !errors.Is(err, ErrRunnerBusy) {
+		t.Errorf("from another machine: err = %v, want ErrRunnerBusy", err)
+	}
+	if err := s.AcquireRunner(ctx, "p", 200, "hostA", stale); err != nil {
+		t.Errorf("a dead holder on this machine kept the lock: %v", err)
+	}
+	if pid, _, _, _, _ := s.Runner(ctx, "p"); pid != 200 {
+		t.Errorf("holder = %d", pid)
+	}
+	// A live holder keeps it.
+	if err := s.AcquireRunner(ctx, "p", 300, "hostA", stale); !errors.Is(err, ErrRunnerBusy) {
+		t.Errorf("a live holder lost the lock: %v", err)
+	}
+	if !HolderGone(100, "hostA", "hostA") || HolderGone(100, "hostA", "hostB") || HolderGone(200, "hostA", "hostA") || HolderGone(100, "", "") {
+		t.Error("HolderGone")
+	}
+}
+
 func TestRunnerLock(t *testing.T) {
+	fakeAlive(t)
 	s := open(t)
 	clock := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return clock }
