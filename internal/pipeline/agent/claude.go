@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -145,6 +146,19 @@ func (s *claudeSession) argv(text string) (args []string, resume bool) {
 	return append(args, s.opts.Args...), resume
 }
 
+// redactArgs replaces the prompt and the system prompt in a claude argv
+// with their length, so the command line can be logged.
+func redactArgs(args []string) []string {
+	out := slices.Clone(args)
+	for i := 0; i+1 < len(out); i++ {
+		if out[i] == "-p" || out[i] == "--append-system-prompt" {
+			out[i+1] = fmt.Sprintf("<%d chars>", len([]rune(out[i+1])))
+			i++
+		}
+	}
+	return out
+}
+
 func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error) {
 	if !s.turn.TryLock() {
 		return Result{}, errors.New("claude: a turn is already running")
@@ -162,6 +176,7 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 	}
 
 	args, resume := s.argv(text)
+	s.agent.logger.Debug("starting claude", "command", s.agent.command, "args", redactArgs(args))
 	cmd := exec.Command(s.agent.command, args...)
 	cmd.Dir = s.opts.Dir
 	cmd.Env = environ(s.opts.Env)

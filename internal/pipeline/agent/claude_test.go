@@ -280,3 +280,11 @@ func TestClaudeCrashWithChildHoldingOutput(t *testing.T) {
 	}
 	gone(t, waitChild(t, state))
 }
+
+func TestRedactArgs(t *testing.T) {
+	got := redactArgs([]string{"-p", "fix it", "--verbose", "--append-system-prompt", "секрет", "--model", "sonnet"})
+	want := []string{"-p", "<6 chars>", "--verbose", "--append-system-prompt", "<6 chars>", "--model", "sonnet"}
+	if !slices.Equal(got, want) {
+		t.Errorf("redactArgs = %q, want %q", got, want)
+	}
+}
