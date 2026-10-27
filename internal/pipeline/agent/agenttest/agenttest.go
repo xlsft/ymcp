@@ -88,6 +88,15 @@ type Step struct {
 	Denied []Tool `json:"denied,omitempty"`
 	// Usage (ACP) sends a usage_update.
 	Usage bool `json:"usage,omitempty"`
+	// MCP (ACP) calls a tool of the first MCP server of the session and
+	// answers "<tool>: <result text>" or "mcp error: <error>".
+	MCP *MCPCall `json:"mcp,omitempty"`
+}
+
+// MCPCall is a tool call to an MCP server over HTTP.
+type MCPCall struct {
+	Tool string         `json:"tool"`
+	Args map[string]any `json:"args,omitempty"`
 }
 
 // Tool is a tool call of a Step.

@@ -9,6 +9,7 @@
 // Agents run in their own process group (a job object on Windows), so
 // Cancel and Close also stop whatever the agent started, and with an
 // environment scrubbed of the variables of an enclosing agent session.
+// With WithHost they run on another machine through ssh instead.
 package agent
 
 import (
@@ -93,8 +94,15 @@ type MCPServer struct {
 
 // StartOptions configure a session.
 type StartOptions struct {
+	// Dir is the working directory, on the agent's host.
 	Dir string
-	// Env is merged onto the scrubbed environment of ymcp (see Scrub).
+	// RunDir is a directory of ymcp's own for the run, outside the
+	// worktree, on the agent's host. On a remote host claude's MCP config
+	// and prompts are written there; when it is empty they go to a
+	// temporary directory.
+	RunDir string
+	// Env is merged onto the scrubbed environment of ymcp (see Scrub), or
+	// onto the login environment of a remote host (see WithHost).
 	Env         map[string]string
 	Model, Mode string
 	// Args are appended to the agent's command line after the adapter's
@@ -183,6 +191,7 @@ type Setting func(*settings)
 type settings struct {
 	mode, model string
 	logger      *slog.Logger
+	host        Host // nil: this machine
 }
 
 // WithMode tells Check the mode the pipeline uses, for its warnings.

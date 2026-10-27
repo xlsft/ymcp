@@ -28,7 +28,7 @@ type claudeAgent struct {
 func (a *claudeAgent) Name() string { return "claude" }
 
 func (a *claudeAgent) Check(ctx context.Context) (Info, error) {
-	info, err := checkBinary(ctx, a.command)
+	info, err := a.checkBinary(ctx, a.command)
 	if err != nil {
 		return info, err
 	}
@@ -53,7 +53,11 @@ func (a *claudeAgent) Start(ctx context.Context, opts StartOptions) (Session, er
 	} else {
 		s.id = newUUID()
 	}
-	if len(opts.MCP) > 0 {
+	if a.host != nil {
+		if err := s.remoteFiles(ctx); err != nil {
+			return nil, err
+		}
+	} else if len(opts.MCP) > 0 {
 		dir, err := os.MkdirTemp("", "ymcp-claude-")
 		if err != nil {
 			return nil, fmt.Errorf("claude: mcp config: %w", err)
@@ -91,13 +95,17 @@ type claudeSession struct {
 	opts      StartOptions
 	tmp       string
 	mcpConfig string
+	// On a remote host: the directory of the files handed to claude, and
+	// whether ymcp made it (rather than StartOptions.RunDir).
+	remoteDir string
+	remoteTmp bool
 	events    *eventQueue
 	turn      sync.Mutex // held by a running Prompt
 
 	mu        sync.Mutex
 	id        string
 	started   bool // the session exists on claude's side: resume it
-	group     *procGroup
+	group     stopper
 	cancelled bool
 	closed    bool
 }
@@ -177,15 +185,14 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 
 	args, resume := s.argv(text)
 	s.agent.logger.Debug("starting claude", "command", s.agent.command, "args", redactArgs(args))
-	cmd := exec.Command(s.agent.command, args...)
-	cmd.Dir = s.opts.Dir
-	cmd.Env = environ(s.opts.Env)
-	cmd.Stdin = nil // /dev/null: claude -p would wait for input otherwise
+	argv := append([]string{s.agent.command}, args...)
+	// stdin is /dev/null: claude -p would wait for input otherwise.
 	var stderr tail
-	stdout, g, err := startPiped(cmd, &stderr)
+	proc, err := s.agent.launch(ctx, s.opts.Dir, s.opts.Env, argv, s.promptFiles(argv), false, &stderr)
 	if err != nil {
 		return failed(err.Error()), fmt.Errorf("claude: start: %w", err)
 	}
+	cmd, stdout, g := proc.cmd, proc.stdout, proc.group
 	defer stdout.Close()
 	s.mu.Lock()
 	s.group = g
@@ -194,6 +201,7 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 	var waitErr error
 	go func() {
 		waitErr = cmd.Wait()
+		g.exited()
 		g.kill() // whatever claude left running; this also ends the output
 		close(exited)
 	}()
@@ -300,6 +308,7 @@ func (s *claudeSession) Close() error {
 	if s.tmp != "" {
 		os.RemoveAll(s.tmp)
 	}
+	s.removeRemoteFiles()
 	s.events.close()
 	return nil
 }
@@ -507,9 +516,16 @@ func hasFlag(args []string, flags ...string) bool {
 	return false
 }
 
-// checkBinary finds command and reads `command --version`. A command
-// that has no version flag only gets a warning.
-func checkBinary(ctx context.Context, command string) (Info, error) {
+// checkBinary finds command, here or on the host, and reads `command
+// --version`. A command that has no version flag only gets a warning.
+func (s settings) checkBinary(ctx context.Context, command string) (Info, error) {
+	if s.host != nil {
+		return checkRemoteBinary(ctx, s.host, command)
+	}
+	return checkLocalBinary(ctx, command)
+}
+
+func checkLocalBinary(ctx context.Context, command string) (Info, error) {
 	path, err := exec.LookPath(command)
 	if err != nil {
 		return Info{}, fmt.Errorf("agent: %w", err)
@@ -543,4 +559,69 @@ func checkBinary(ctx context.Context, command string) (Info, error) {
 		}
 	}
 	return info, nil
+}
+
+// Files of a claude session on a remote host, in its remoteDir.
+const (
+	remoteMCPConfig    = "mcp.json"
+	remotePrompt       = "prompt.txt"
+	remoteSystemPrompt = "system-prompt.txt"
+)
+
+// remoteFiles prepares the directory of the files handed to claude on the
+// host and writes the MCP config there.
+func (s *claudeSession) remoteFiles(ctx context.Context) error {
+	h := s.agent.host
+	dir := strings.TrimRight(s.opts.RunDir, "/")
+	if dir == "" {
+		out, stderr, err := h.Run(ctx, "", []string{"sh", "-c", `mktemp -d "${TMPDIR:-/tmp}/ymcp-claude.XXXXXX"`}, nil)
+		dir = strings.TrimSpace(string(out))
+		if err != nil || !strings.HasPrefix(dir, "/") {
+			return fmt.Errorf("claude: a temporary directory on %s: %v: %s", h.Name(), err, strings.TrimSpace(string(stderr)))
+		}
+		s.remoteTmp = true
+	}
+	s.remoteDir = dir
+	if len(s.opts.MCP) == 0 {
+		return nil
+	}
+	s.mcpConfig = dir + "/" + remoteMCPConfig
+	if err := writeRemote(ctx, h, s.mcpConfig, string(claudeMCPConfig(s.opts.MCP))); err != nil {
+		s.removeRemoteFiles()
+		return fmt.Errorf("claude: mcp config: %w", err)
+	}
+	return nil
+}
+
+// promptFiles hands the prompt and the system prompt to a claude on a
+// remote host in files, so the ssh command line stays short.
+func (s *claudeSession) promptFiles(argv []string) map[int]string {
+	if s.agent.host == nil {
+		return nil
+	}
+	files := map[int]string{}
+	names := map[string]string{"-p": remotePrompt, "--append-system-prompt": remoteSystemPrompt}
+	for i := 1; i+1 < len(argv); i++ {
+		if name, ok := names[argv[i]]; ok {
+			files[i+1] = s.remoteDir + "/" + name
+			delete(names, argv[i])
+			i++
+		}
+	}
+	return files
+}
+
+// removeRemoteFiles deletes what the session wrote on a remote host.
+func (s *claudeSession) removeRemoteFiles() {
+	h, dir := s.agent.host, s.remoteDir
+	if h == nil || !strings.HasPrefix(dir, "/") || len(dir) < 2 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	argv := []string{"rm", "-f", "--", dir + "/" + remoteMCPConfig, dir + "/" + remotePrompt, dir + "/" + remoteSystemPrompt}
+	if s.remoteTmp && strings.Contains(dir, "/ymcp-claude.") {
+		argv = []string{"rm", "-rf", "--", dir}
+	}
+	_, _, _ = h.Run(ctx, "", argv, nil)
 }

@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent/agenttest"
+	"github.com/xlsft/ymcp/internal/pipeline/workspace/sshtest"
 )
 
 func TestMain(m *testing.M) {
-	agenttest.Main()
+	agenttest.Main() // first: a remote fake agent inherits the fake ssh's environment
+	sshtest.Main()
 	os.Exit(m.Run())
 }
 

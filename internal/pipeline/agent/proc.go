@@ -49,7 +49,7 @@ func withStderr(msg string, t *tail) string {
 // pipes of our own, which Wait neither waits for nor closes: children of
 // the agent may hold them open, and the agent's last output must not be
 // cut off. stderr is copied into errs; the caller reads and closes stdout.
-func startPiped(cmd *exec.Cmd, errs *tail) (stdout *os.File, g *procGroup, err error) {
+func startPiped(cmd *exec.Cmd, errs io.Writer) (stdout *os.File, g *procGroup, err error) {
 	or, ow, err := os.Pipe()
 	if err != nil {
 		return nil, nil, err

@@ -33,7 +33,7 @@ type acpAgent struct {
 func (a *acpAgent) Name() string { return a.provider }
 
 func (a *acpAgent) Check(ctx context.Context) (Info, error) {
-	info, err := checkBinary(ctx, a.command)
+	info, err := a.checkBinary(ctx, a.command)
 	if err != nil {
 		return info, err
 	}
@@ -51,9 +51,7 @@ func (a *acpAgent) Check(ctx context.Context) (Info, error) {
 }
 
 func (a *acpAgent) Start(ctx context.Context, opts StartOptions) (Session, error) {
-	cmd := exec.Command(a.command, append(append([]string(nil), a.args...), opts.Args...)...)
-	cmd.Dir = opts.Dir
-	cmd.Env = environ(opts.Env)
+	argv := append(append([]string{a.command}, a.args...), opts.Args...)
 	s := &acpSession{
 		provider: a.provider,
 		events:   newEventQueue(),
@@ -62,20 +60,16 @@ func (a *acpAgent) Start(ctx context.Context, opts StartOptions) (Session, error
 		exited:   make(chan struct{}),
 		done:     make(chan struct{}),
 	}
-	stdin, err := cmd.StdinPipe()
+	p, err := a.launch(ctx, opts.Dir, opts.Env, argv, nil, true, &s.stderr)
 	if err != nil {
-		s.events.close()
-		return nil, fmt.Errorf("%s: %w", a.provider, err)
-	}
-	stdout, g, err := startPiped(cmd, &s.stderr)
-	if err != nil {
-		stdin.Close()
 		s.events.close()
 		return nil, fmt.Errorf("%s: start: %w", a.provider, err)
 	}
-	s.cmd, s.stdin, s.stdout, s.group = cmd, stdin, stdout, g
+	s.cmd, s.stdin, s.stdout, s.group = p.cmd, p.stdin, p.stdout, p.group
+	stdin, stdout, g := p.stdin, p.stdout, p.group
 	go func() {
-		err := cmd.Wait()
+		err := p.cmd.Wait()
+		g.exited()
 		g.kill() // children of a dead agent would keep the pipe open
 		s.waitErr = err
 		close(s.exited)
@@ -195,7 +189,7 @@ type acpSession struct {
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
 	stdout       *os.File
-	group        *procGroup
+	group        stopper
 	conn         *acp.ClientSideConnection
 	events       *eventQueue
 	stderr       tail

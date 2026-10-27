@@ -101,7 +101,39 @@ type fakeACP struct {
 	nextID atomic.Int64
 
 	mu       sync.Mutex
-	permOpen bool // a permission request is open
+	permOpen bool                              // a permission request is open
+	servers  map[acp.SessionId][]acp.McpServer // of the sessions this process opened
+}
+
+func (a *fakeACP) setServers(id acp.SessionId, servers []acp.McpServer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.servers == nil {
+		a.servers = map[acp.SessionId][]acp.McpServer{}
+	}
+	a.servers[id] = servers
+}
+
+// callMCP runs an MCP step against the first HTTP server of the session.
+func (a *fakeACP) callMCP(ctx context.Context, id acp.SessionId, c *MCPCall) string {
+	a.mu.Lock()
+	servers := a.servers[id]
+	a.mu.Unlock()
+	for _, s := range servers {
+		if s.Http == nil {
+			continue
+		}
+		headers := map[string]string{}
+		for _, h := range s.Http.Headers {
+			headers[h.Name] = h.Value
+		}
+		text, err := callTool(ctx, s.Http.Url, headers, c.Tool, c.Args)
+		if err != nil {
+			return "mcp error: " + err.Error()
+		}
+		return c.Tool + ": " + text
+	}
+	return "mcp error: the session has no HTTP MCP server"
 }
 
 var _ acp.Agent = (*fakeACP)(nil)
@@ -163,6 +195,7 @@ func (a *fakeACP) NewSession(ctx context.Context, p acp.NewSessionRequest) (acp.
 	a.log("session/new", p)
 	s := &session{ID: fmt.Sprintf("fake_%d_%d", os.Getpid(), a.nextID.Add(1)), Cwd: p.Cwd, Mode: "default", Model: "fake/default"}
 	s.save(a.script.State)
+	a.setServers(acp.SessionId(s.ID), p.McpServers)
 	return acp.NewSessionResponse{SessionId: acp.SessionId(s.ID), ConfigOptions: configOptions(s)}, nil
 }
 
@@ -179,6 +212,7 @@ func (a *fakeACP) ResumeSession(ctx context.Context, p acp.ResumeSessionRequest)
 		s.Mode = "default" // kimi forgets the mode
 		s.save(a.script.State)
 	}
+	a.setServers(p.SessionId, p.McpServers)
 	return acp.ResumeSessionResponse{ConfigOptions: configOptions(s)}, nil
 }
 
@@ -288,6 +322,8 @@ func (a *fakeACP) Prompt(ctx context.Context, p acp.PromptRequest) (acp.PromptRe
 			case <-ctx.Done():
 				return cancelled, nil
 			}
+		case st.MCP != nil:
+			a.text(ctx, id, a.callMCP(ctx, id, st.MCP))
 		case st.Usage:
 			a.update(ctx, id, acp.SessionUpdate{UsageUpdate: &acp.SessionUsageUpdate{Used: 1234, Size: 100000}})
 		case st.Spawn:
