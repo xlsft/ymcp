@@ -4,10 +4,12 @@
 
 # ymcp: YouTrack MCP server
 
-[ymcp](https://github.com/xlsft/ymcp) gives AI clients the full YouTrack MCP toolset, plus deletes, sprints,
-attachments, history, time reports and a raw API tool. This image runs it as a
+[ymcp](https://github.com/xlsft/ymcp) is a toolchain for YouTrack: an MCP server and pipelines that hand issues to
+coding agents. The MCP server gives AI clients the full YouTrack MCP toolset, plus deletes, sprints, attachments,
+history, time reports and a raw API tool. This image runs it as a
 [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) server, serving every
 configured YouTrack instance (profile) on one port. It signs in with a login and password, like the YouTrack web UI.
+Pipelines are not in the image; they need a local install.
 
 ## Quick start
 

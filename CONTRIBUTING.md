@@ -72,6 +72,35 @@ go build -o bin/ymcp ./cmd/ymcp && ./bin/ymcp --env .env call <tool> '<json>'
 
 Keep test data recognisable (e.g. a `[ymcp test]` prefix) and delete it afterwards.
 
+## Pipeline packages
+
+`ymcp pipeline` lives in `cmd/ymcp/pipeline*.go` and these packages:
+
+| Package | |
+|---|---|
+| `internal/pipeline/spec` | The pipeline JSON: fields, defaults, validation, prompt presets |
+| `internal/pipeline/engine` | The runner: polling, stages, turns, feedback, needs input |
+| `internal/pipeline/agent` | Claude Code (CLI) and ACP agents |
+| `internal/pipeline/vcs` | Strategies: branch, GitHub PR and issue, GitLab MR; tokens |
+| `internal/pipeline/ytwatch` | YouTrack searches, comments and commands for the runner |
+| `internal/pipeline/mcpserver` | The per-run MCP server the agent talks to |
+| `internal/pipeline/workspace` | Git worktrees and branches |
+| `internal/pipeline/store` | Runs, messages and events in `state.db` (SQLite) |
+| `internal/pipeline/text` | Templates, the agent marker and header, feedback lists |
+| `internal/pipeline/tui` | The TUI and the setup wizard |
+| `internal/notify` | Notifications; `internal/notify/toast` is the system notification provider |
+
+Unit tests use fakes and never touch the network: `internal/pipeline/agent/agenttest` plays a Claude Code or ACP
+agent from a script (and recorded Claude transcripts), the engine runs against the fake YouTrack of
+`internal/youtrack/youtracktest`, a fake agent and an in-memory code host, and `vcs` tests answer from an `httptest` GitHub and
+GitLab.
+
+Live tests are opt-in and never run in CI. `YMCP_PIPELINE_LIVE=1` sends a tiny prompt to each agent installed, in
+a throwaway repository (it bills your accounts), and reads YouTrack and GitHub without writing anything: the
+YouTrack test refuses any instance but xlsft.youtrack.cloud and takes its profile from `YMCP_PIPELINE_PROFILE`, the
+GitHub one reads github.com/xlsft/ymcp with your `gh` login. `YMCP_NOTIFY_LIVE=1` shows one real notification. Try
+whole pipelines on your own instance and a sandbox repository, never on a shared one.
+
 ## Releasing
 
 Releases are automatic; nobody tags by hand. Each also updates the Homebrew cask in
