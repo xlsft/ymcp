@@ -153,3 +153,21 @@ func TestAutoCompactOnMerge(t *testing.T) {
 		t.Errorf("visible comments = %q", visible)
 	}
 }
+
+func TestSameText(t *testing.T) {
+	mark := seenMark("1700000000000", "/clear")
+	for _, c := range []struct {
+		mark, body string
+		want       bool
+	}{
+		{mark, "/clear", true},
+		{mark, "/clear again", false},
+		{"1700000000000", "/clear", true},      // an old mark: a command never runs twice
+		{"1700000000000", "/approve", true},    // the same
+		{"1700000000000", "Please fix", false}, // an old mark: the edit counts
+	} {
+		if got := sameText(c.mark, c.body); got != c.want {
+			t.Errorf("sameText(%q, %q) = %v", c.mark, c.body, got)
+		}
+	}
+}

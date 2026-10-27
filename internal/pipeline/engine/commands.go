@@ -73,11 +73,15 @@ func seenMark(stamp, body string) string {
 }
 
 // sameText reports whether a seen mark was made for a comment with body.
-// Marks from before the hash was kept never match.
+// A mark from before the hash was kept can't tell; for a command it
+// counts as the same text, so that no command runs twice.
 func sameText(mark, body string) bool {
 	_, h, ok := strings.Cut(mark, " ")
+	if !ok {
+		return isControl(body) || isCommand(body)
+	}
 	_, want, _ := strings.Cut(seenMark("", body), " ")
-	return ok && h == want
+	return h == want
 }
 
 // controls carries out the commands in the inbox of each active run:
