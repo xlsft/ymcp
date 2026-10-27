@@ -193,6 +193,11 @@ func (t *fakeTurn) Hang() { <-t.cancel }
 // Ask asks for permission to run a tool and returns the chosen option id,
 // or "" when the turn was cancelled.
 func (t *fakeTurn) Ask(title string) string {
+	return t.AskWith(title, "execute", []agent.Option{{ID: "yes", Name: "Allow", Kind: "allow_once"}, {ID: "no", Name: "Reject", Kind: "reject_once"}})
+}
+
+// AskWith is Ask for a tool of the kind, offering the options.
+func (t *fakeTurn) AskWith(title, kind string, options []agent.Option) string {
 	s := t.s
 	s.mu.Lock()
 	s.reqs++
@@ -200,10 +205,9 @@ func (t *fakeTurn) Ask(title string) string {
 	ch := make(chan string, 1)
 	s.answers[id] = ch
 	s.mu.Unlock()
-	tool := agent.ToolCall{ID: "call-" + id, Title: title, Kind: "execute", Status: "pending", Input: []byte(`{"command":"make test"}`)}
+	tool := agent.ToolCall{ID: "call-" + id, Title: title, Kind: kind, Status: "pending", Input: []byte(`{"command":"make test"}`)}
 	s.emit(agent.Event{Kind: agent.EventPermission, Text: title, Tool: &tool, Permission: &agent.Permission{
-		RequestID: id, Tool: tool,
-		Options: []agent.Option{{ID: "yes", Name: "Allow", Kind: "allow_once"}, {ID: "no", Name: "Reject", Kind: "reject_once"}},
+		RequestID: id, Tool: tool, Options: options,
 	}})
 	select {
 	case o := <-ch:

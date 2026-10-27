@@ -662,9 +662,14 @@ func (t *turn) flush() {
 }
 
 // option picks the option of a permission request of the given kind
-// family ("allow" or "reject"), preferring the one-time variant.
-func option(p agent.Permission, family string) string {
-	for _, k := range []string{family + "_once", family + "_always"} {
+// family ("allow" or "reject"), preferring the one-time variant, or with
+// always the lasting one.
+func option(p agent.Permission, family string, always bool) string {
+	kinds := []string{family + "_once", family + "_always"}
+	if always {
+		kinds[0], kinds[1] = kinds[1], kinds[0]
+	}
+	for _, k := range kinds {
 		for _, o := range p.Options {
 			if o.Kind == k {
 				return o.ID
@@ -680,13 +685,15 @@ func option(p agent.Permission, family string) string {
 }
 
 // answerPermission replies to a request; a missing reject option cancels
-// the turn's request instead.
-func (t *turn) answerPermission(sess agent.Session, p agent.Permission, allow bool, why string) {
+// the turn's request instead. An allowing answer with always picks the
+// option that keeps the tool allowed for the rest of the agent's session,
+// when the request offers one.
+func (t *turn) answerPermission(sess agent.Session, p agent.Permission, allow, always bool, why string) {
 	family := "reject"
 	if allow {
 		family = "allow"
 	}
-	id := option(p, family)
+	id := option(p, family, always)
 	var err error
 	if id == "" {
 		err = fmt.Errorf("the request has no %s option", family)
@@ -706,18 +713,42 @@ func (t *turn) answerPermission(sess agent.Session, p agent.Permission, allow bo
 // pipeline's permissions setting.
 func (t *turn) permission(sess agent.Session, p agent.Permission) {
 	switch {
+	case ownTool(p.Tool):
+		t.answerPermission(sess, p, true, true, "ymcp's own tool")
 	case t.w.isApproved(p.Tool.Title):
-		t.answerPermission(sess, p, true, "approved earlier")
+		t.answerPermission(sess, p, true, false, "approved earlier")
 	case t.r.p.Permissions == "allow":
-		t.answerPermission(sess, p, true, "permissions: allow")
+		t.answerPermission(sess, p, true, false, "permissions: allow")
 	case t.r.p.Permissions == "deny":
-		t.answerPermission(sess, p, false, "permissions: deny")
+		t.answerPermission(sess, p, false, false, "permissions: deny")
 	default:
 		t.perms = append(t.perms, p)
 		if len(t.perms) == 1 {
 			t.openPermission()
 		}
 	}
+}
+
+// ownTool reports whether a permission request is about a tool of ymcp's
+// own MCP server (the YouTrack tools and the pipeline's request_input and
+// report), which every agent may use like claude does by --allowedTools.
+// ACP agents title an MCP call by server and tool, kimi as
+// mcp__ymcp__get_issue, opencode as ymcp_get_issue. A request of a kind
+// that changes or runs something is never one, whatever its title.
+func ownTool(tc agent.ToolCall) bool {
+	switch tc.Kind {
+	case "", "other", "read", "search", "think":
+	default:
+		return false
+	}
+	title := strings.TrimSpace(tc.Title)
+	for _, prefix := range []string{"mcp__ymcp__", "ymcp_", "ymcp/", "ymcp:", "ymcp."} {
+		if name, ok := strings.CutPrefix(title, prefix); ok {
+			name = strings.TrimSpace(name)
+			return name != "" && strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789_") == ""
+		}
+	}
+	return false
 }
 
 // openPermission asks a human about the oldest open request: the run
@@ -804,7 +835,10 @@ func (t *turn) permissionAnswers(sess agent.Session) {
 		if isVCSSource(it.Source) {
 			r.vcsComment(t.bg, it) // forget it
 		}
-		t.answerPermission(sess, t.perms[0], cmd == "/approve", "answered by "+it.Author)
+		// An approved tool stays allowed in the agent's session, so it
+		// does not ask about it again; a rejection is for this call only.
+		approved := cmd == "/approve"
+		t.answerPermission(sess, t.perms[0], approved, approved, "answered by "+it.Author)
 		t.closePermission()
 	}
 }
@@ -813,7 +847,7 @@ func (t *turn) permissionAnswers(sess agent.Session) {
 // remembers the tool for the run and retries.
 func (t *turn) permissionTimeout(sess agent.Session) {
 	p := t.perms[0]
-	t.answerPermission(sess, p, false, "no answer within "+fmtDuration(t.r.p.Timeouts.Permission.Duration))
+	t.answerPermission(sess, p, false, false, "no answer within "+fmtDuration(t.r.p.Timeouts.Permission.Duration))
 	t.late = append(t.late, p.Tool.Title)
 	t.closePermission()
 }

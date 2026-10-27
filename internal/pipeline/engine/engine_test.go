@@ -523,6 +523,95 @@ func TestPermissionAsk(t *testing.T) {
 	}
 }
 
+// allOptions are the four answers kimi offers.
+var allOptions = []agent.Option{
+	{ID: "once", Name: "Allow", Kind: "allow_once"},
+	{ID: "always", Name: "Allow always", Kind: "allow_always"},
+	{ID: "no", Name: "Reject", Kind: "reject_once"},
+	{ID: "never", Name: "Reject always", Kind: "reject_always"},
+}
+
+// TestOwnToolsAreAllowed: an ACP agent's requests for ymcp's own MCP tools
+// are allowed at once, for the session when it can be, whatever the
+// pipeline's permissions say; a request that only borrows the name is not.
+func TestOwnToolsAreAllowed(t *testing.T) {
+	for _, mode := range []string{"ask", "deny"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t, func(p *spec.Pipeline) { p.Permissions = mode })
+			is := h.yt.addIssue("Read the issue", "Open")
+			h.ag.script(func(t *fakeTurn) agent.Result {
+				a := t.AskWith("mcp__ymcp__get_issue", "other", allOptions)
+				b := t.AskWith("ymcp_get_issue_comments", "", allOptions[:1])
+				c := t.AskWith("mcp__ymcp__request_input", "other", append([]agent.Option{}, allOptions[1], allOptions[2]))
+				t.Say(fmt.Sprintf("answers: %s %s %s", a, b, c))
+				if mode == "deny" {
+					t.Say(" fake: " + t.AskWith("mcp__ymcp__x", "execute", allOptions))
+				}
+				return agent.Result{}
+			})
+			h.start()
+			run := h.waitReview(1, is.Key)
+			want := "answers: always once always"
+			if mode == "deny" {
+				want += " fake: no"
+			}
+			if said := h.yt.agentComments(is.Key); !contains(said, want) {
+				t.Errorf("agent comments = %q, want %q", said, want)
+			}
+			if len(h.events(run.ID, "run.needs_input")) != 0 {
+				t.Error("the run waited for a human")
+			}
+		})
+	}
+}
+
+// TestApprovedACPRequestIsAllowedForTheSession: /approve answers with the
+// lasting allow option when there is one; /reject only refuses the call.
+func TestApprovedACPRequestIsAllowedForTheSession(t *testing.T) {
+	for reply, want := range map[string]string{"/approve": "always", "/reject": "no"} {
+		t.Run(reply, func(t *testing.T) {
+			h := newHarness(t, nil)
+			is := h.yt.addIssue("Run the tests", "Open")
+			h.ag.script(func(t *fakeTurn) agent.Result {
+				t.Say("answer: " + t.AskWith("Bash", "execute", allOptions))
+				return agent.Result{}
+			})
+			h.start()
+			h.waitStatus(1, store.StatusNeedsInput)
+			h.waitFor("the permission comment", func() bool { return contains(h.yt.agentComments(is.Key), "Reply `/approve`") })
+			if err := Answer(context.Background(), h.st, h.p.Name, 1, reply); err != nil {
+				t.Fatal(err)
+			}
+			h.waitReview(1, is.Key)
+			if said := h.yt.agentComments(is.Key); !contains(said, "answer: "+want) {
+				t.Errorf("agent comments = %q", said)
+			}
+		})
+	}
+}
+
+func TestOwnTool(t *testing.T) {
+	for _, tc := range []struct {
+		title, kind string
+		want        bool
+	}{
+		{"mcp__ymcp__get_issue", "other", true},
+		{"mcp__ymcp__report", "", true},
+		{"ymcp_get_issue", "read", true},
+		{"ymcp/search_issues", "search", true},
+		{"mcp__ymcp__get_issue", "execute", false},
+		{"mcp__ymcp__", "other", false},
+		{"mcp__ymcp__get issue; rm -rf", "other", false},
+		{"mcp__github__get_issue", "other", false},
+		{"Bash", "other", false},
+		{"ymcpx_get_issue", "other", false},
+	} {
+		if got := ownTool(agent.ToolCall{Title: tc.title, Kind: tc.kind}); got != tc.want {
+			t.Errorf("ownTool(%q, %q) = %v", tc.title, tc.kind, got)
+		}
+	}
+}
+
 func TestPermissionAllowAndDeny(t *testing.T) {
 	for mode, want := range map[string]string{"allow": "yes", "deny": "no"} {
 		t.Run(mode, func(t *testing.T) {
@@ -1315,7 +1404,8 @@ func TestACPAgentEndToEnd(t *testing.T) {
 	}
 	h.waitReview(1, is.Key)
 	said := h.yt.agentComments(is.Key)
-	if !contains(said, "allowed approve_once") || !contains(said, "Done.") {
+	// /approve picks the option that keeps the tool allowed in the session.
+	if !contains(said, "allowed approve_always") || !contains(said, "Done.") {
 		t.Errorf("agent comments = %q", said)
 	}
 }
