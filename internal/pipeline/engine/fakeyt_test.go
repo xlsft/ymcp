@@ -182,6 +182,31 @@ func (f *fakeYT) agentComments(key string) []string {
 	return out
 }
 
+// restoreComment brings back a comment marked deleted, as the UI's
+// restore does: it counts as touched.
+func (f *fakeYT) restoreComment(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.comments {
+		if c.ID == id {
+			c.Deleted, c.Updated = false, nowMS()
+			f.activities = append(f.activities, fakeActivity{seq: len(f.activities) + 1, at: c.Updated, category: "CommentsCategory", commentID: c.ID})
+		}
+	}
+}
+
+// editText edits a comment as a human would.
+func (f *fakeYT) editText(id, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.comments {
+		if c.ID == id {
+			c.Text, c.Updated = body, nowMS()
+			f.activities = append(f.activities, fakeActivity{seq: len(f.activities) + 1, at: c.Updated, category: "CommentTextCategory", commentID: c.ID})
+		}
+	}
+}
+
 // hiddenComments returns the texts of the issue's comments marked deleted.
 func (f *fakeYT) hiddenComments(key string) []string {
 	f.mu.Lock()

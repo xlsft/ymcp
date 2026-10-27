@@ -397,7 +397,16 @@ func (r *Runner) pollComments(ctx context.Context) {
 			if err != nil {
 				return err
 			}
-			if seen && prev == stamp {
+			mark := seenMark(stamp, c.Text)
+			if seen && (prev == stamp || prev == mark) {
+				continue
+			}
+			if seen && sameText(prev, c.Text) {
+				// Restored after a /clear, or touched without an edit: not
+				// a new message, so a command in it doesn't run again.
+				if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
+					return err
+				}
 				continue
 			}
 			skip := ""
@@ -429,7 +438,7 @@ func (r *Runner) pollComments(ctx context.Context) {
 					return err
 				}
 			}
-			if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, stamp); err != nil {
+			if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
 				return err
 			}
 		}

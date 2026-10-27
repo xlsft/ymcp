@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
@@ -72,6 +73,22 @@ func TestClearCommand(t *testing.T) {
 	}
 }
 
+// TestRestoredCommandRunsOnce: a command comment restored after /clear hid
+// it is no new message: the command does not run again. An edit is one.
+func TestRestoredCommandRunsOnce(t *testing.T) {
+	h, is, run, _ := reviewedRun(t, nil)
+	id := h.yt.addComment(is.Key, "alice", "/clear")
+	h.waitFor("comments cleared", func() bool { return len(h.events(run.ID, "comments.cleared")) == 1 })
+	h.yt.restoreComment(id)
+	h.waitFor("the comment seen again", func() bool { return slices.Contains(h.yt.issueComments(is.Key), "/clear") })
+	time.Sleep(300 * time.Millisecond) // a dozen polls
+	if n := len(h.events(run.ID, "command")); n != 1 {
+		t.Fatalf("the command ran %d times", n)
+	}
+	h.yt.editText(id, "/clear again")
+	h.waitFor("the edit runs", func() bool { return len(h.events(run.ID, "command")) == 2 })
+}
+
 // TestCompactCommand: /compact has the agent sum the run up in a session
 // of its own, hides the run's comments and leaves the summary with the
 // links, on the issue and on the pull request.
@@ -111,12 +128,12 @@ func TestCancelCommand(t *testing.T) {
 	h, is, run, _ := reviewedRun(t, nil)
 	h.yt.addComment(is.Key, "alice", "/cancel not needed any more")
 	r := h.waitStatus(1, store.StatusCanceled)
-	if !strings.Contains(r.NeedsInputReason, "Canceled by alice with /cancel. not needed any more") {
+	if r.NeedsInputReason != "Canceled by alice with /cancel: not needed any more." {
 		t.Errorf("reason = %q", r.NeedsInputReason)
 	}
 	h.waitFor("pull request closed", func() bool { return slices.Contains(h.vcs.closeLog(), run.PRNumber) })
 	h.waitFor("closing command", func() bool { return slices.Contains(h.yt.commandLog(), is.Key+": State Closed") })
-	if !slices.ContainsFunc(h.yt.agentComments(is.Key), func(s string) bool { return strings.Contains(s, "**Canceled** by alice. not needed any more") }) {
+	if !slices.ContainsFunc(h.yt.agentComments(is.Key), func(s string) bool { return strings.Contains(s, "**Canceled** by alice: not needed any more.") }) {
 		t.Errorf("agent comments = %q", h.yt.agentComments(is.Key))
 	}
 }

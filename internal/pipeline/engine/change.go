@@ -399,7 +399,15 @@ func (r *Runner) pollVCSComments(ctx context.Context, run store.Run) error {
 			if err != nil {
 				return err
 			}
-			if seen && prev == stamp {
+			mark := seenMark(stamp, c.Body)
+			if seen && (prev == stamp || prev == mark) {
+				continue
+			}
+			if seen && sameText(prev, c.Body) {
+				// Unhidden, or touched without an edit: not a new message.
+				if err := tx.MarkSeen(ctx, r.vcsSource, key, mark); err != nil {
+					return err
+				}
 				continue
 			}
 			skip := ""
@@ -438,7 +446,7 @@ func (r *Runner) pollVCSComments(ctx context.Context, run store.Run) error {
 					return err
 				}
 			}
-			if err := tx.MarkSeen(ctx, r.vcsSource, key, stamp); err != nil {
+			if err := tx.MarkSeen(ctx, r.vcsSource, key, mark); err != nil {
 				return err
 			}
 		}

@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -59,6 +61,23 @@ func withoutControls(items []store.InboxItem) []store.InboxItem {
 		}
 	}
 	return out
+}
+
+// seenMark is what the seen items keep of a comment: its update stamp and
+// a hash of its text. A comment that comes back with the same text, such
+// as one restored after a /clear, is then not taken as a new message, and
+// a command in it does not run twice.
+func seenMark(stamp, body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return stamp + " " + hex.EncodeToString(sum[:8])
+}
+
+// sameText reports whether a seen mark was made for a comment with body.
+// Marks from before the hash was kept never match.
+func sameText(mark, body string) bool {
+	_, h, ok := strings.Cut(mark, " ")
+	_, want, _ := strings.Cut(seenMark("", body), " ")
+	return ok && h == want
 }
 
 // controls carries out the commands in the inbox of each active run:
@@ -130,12 +149,9 @@ func (r *Runner) consumeCommand(ctx context.Context, run store.Run, it store.Inb
 // cancelByCommand cancels a run on /cancel: its change is closed as on any
 // cancel, and the closed stage's command closes the issue.
 func (r *Runner) cancelByCommand(ctx context.Context, w *worker, run store.Run, author, why string) {
-	reason := "Canceled by " + author + " with /cancel."
-	if why != "" {
-		reason += " " + why
-	}
-	r.cancelRun(ctx, w, reason, "Canceled by "+author+".")
-	if _, err := r.publish(ctx, run, nil, msgNotice, stateDone, "**Canceled** by "+author+"."+suffix(why)); err != nil {
+	reason := "Canceled by " + author + " with /cancel" + because(why)
+	r.cancelRun(ctx, w, reason, "Canceled by "+author+because(why))
+	if _, err := r.publish(ctx, run, nil, msgNotice, stateDone, "**Canceled** by "+author+because(why)); err != nil {
 		r.warnUnlessGone("publishing the cancel failed", run, err)
 	}
 	if st := r.p.Stages.Closed; st.Enter != "" {
@@ -143,12 +159,13 @@ func (r *Runner) cancelByCommand(ctx context.Context, w *worker, run store.Run, 
 	}
 }
 
-// suffix is " text" for a non-empty text.
-func suffix(s string) string {
-	if s == "" {
-		return ""
+// because ends a sentence with the reason given, if any: ": why." or ".".
+func because(why string) string {
+	why = strings.TrimRight(strings.TrimSpace(why), ".")
+	if why == "" {
+		return "."
 	}
-	return " " + s
+	return ": " + why + "."
 }
 
 // clearRun hides every comment of the run, people's and the agent's, on
