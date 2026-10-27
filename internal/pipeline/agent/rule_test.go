@@ -2,10 +2,11 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
-func TestClaudeRule(t *testing.T) {
+func TestClaudeRules(t *testing.T) {
 	call := func(title string, in map[string]any) ToolCall {
 		b, _ := json.Marshal(in)
 		return ToolCall{Title: title, Status: "denied", Input: b}
@@ -16,9 +17,17 @@ func TestClaudeRule(t *testing.T) {
 		want string
 	}{
 		{"bash", call("Bash", map[string]any{"command": "git push origin main", "description": "Push"}), "Bash(git push origin main)"},
-		{"bash keeps commas and pipes", call("Bash", map[string]any{"command": "go test ./... 2>&1 | grep -v ok, fine"}), "Bash(go test ./... 2>&1 | grep -v ok, fine)"},
+		{"bash keeps commas, splits pipes", call("Bash", map[string]any{"command": "go test ./... 2>&1 | grep -v ok, fine"}), "Bash(go test ./... 2>&1) · Bash(grep -v ok, fine)"},
 		{"bash escapes backslashes", call("Bash", map[string]any{"command": `printf 'a\n'`}), `Bash(printf 'a\\n')`},
-		{"bash multi-line", call("Bash", map[string]any{"command": "make\nmake test"}), "Bash(make\nmake test)"},
+		{"bash multi-line", call("Bash", map[string]any{"command": "make\nmake test"}), "Bash(make) · Bash(make test)"},
+		// claude never matches a whole line that starts with cd.
+		{"bash compound", call("Bash", map[string]any{"command": `cd "/w t" && rm -f /tmp/x.json && X=1 go run ./cmd/tasks count`}),
+			`Bash(cd "/w t") · Bash(rm -f /tmp/x.json) · Bash(X=1 go run ./cmd/tasks count)`},
+		{"bash or and semicolon", call("Bash", map[string]any{"command": "make || make clean; make"}), "Bash(make) · Bash(make clean)"},
+		{"bash operators in quotes", call("Bash", map[string]any{"command": `git commit -m "a && b; c | d" && echo 'x || y'`}),
+			`Bash(git commit -m "a && b; c | d") · Bash(echo 'x || y')`},
+		{"bash background job", call("Bash", map[string]any{"command": "sleep 1 & wait"}), "Bash(sleep 1 & wait)"},
+		{"bash with one inexact part", call("Bash", map[string]any{"command": "ls && rm *"}), ""},
 		{"powershell", call("PowerShell", map[string]any{"command": "Get-ChildItem"}), "PowerShell(Get-ChildItem)"},
 		// Never the whole shell.
 		{"bash without a command", call("Bash", nil), ""},
@@ -48,8 +57,8 @@ func TestClaudeRule(t *testing.T) {
 		{"odd title", call("Bash Edit", nil), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ClaudeRule(tc.call); got != tc.want {
-				t.Errorf("ClaudeRule = %q, want %q", got, tc.want)
+			if got := strings.Join(ClaudeRules(tc.call), " · "); got != tc.want {
+				t.Errorf("ClaudeRules = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -85,12 +94,10 @@ func TestClaudeRuleSurvivesTheAllowedToolsList(t *testing.T) {
 	}
 	for _, cmd := range []string{"git push origin main", "a, b c", `echo "x y" , z`, "true) Bash (", "x)", "(y"} {
 		in, _ := json.Marshal(map[string]string{"command": cmd})
-		rule := ClaudeRule(ToolCall{Title: "Bash", Input: in})
-		if rule == "" {
-			continue
-		}
-		if got := split("mcp__ymcp," + rule); len(got) != 2 || got[1] != rule {
-			t.Errorf("%q splits into %q", rule, got)
+		for _, rule := range ClaudeRules(ToolCall{Title: "Bash", Input: in}) {
+			if got := split("mcp__ymcp," + rule); len(got) != 2 || got[1] != rule {
+				t.Errorf("%q splits into %q", rule, got)
+			}
 		}
 	}
 }

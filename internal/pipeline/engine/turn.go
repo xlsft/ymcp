@@ -1329,7 +1329,7 @@ func firstSentence(s string) string {
 type denials struct {
 	tools []string // the tools, for people
 	// rules is what /approve allows: for claude the rule of each call
-	// (agent.ClaudeRule), so that only that call is allowed, not the tool;
+	// (agent.ClaudeRules), so that only that call is allowed, not the tool;
 	// for ACP agents the tool titles their permission requests carry.
 	rules   []string
 	calls   []agent.ToolCall // claude's denied calls, for deniedCalls
@@ -1353,8 +1353,10 @@ func (t *turn) denials(res agent.Result) denials {
 			}
 			add(&d.tools, c.Title)
 			d.calls = append(d.calls, c)
-			if rule := agent.ClaudeRule(c); rule != "" {
-				add(&d.rules, rule)
+			if rules := agent.ClaudeRules(c); rules != nil {
+				for _, rule := range rules {
+					add(&d.rules, rule)
+				}
 			} else {
 				d.inexact = append(d.inexact, c)
 			}
