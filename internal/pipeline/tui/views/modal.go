@@ -127,7 +127,7 @@ func scrollWindow(lines []string, rows int, scroll *int) []string {
 }
 
 // replyPlaceholder is what the empty comment box says.
-const replyPlaceholder = "Write a comment… (/approve, /reject)"
+const replyPlaceholder = "Write a comment…"
 
 // replyBox is the comment box of the run card, drawn like the input of a
 // chat: enter sends, alt+enter starts a new line, esc leaves it with the

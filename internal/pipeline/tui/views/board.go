@@ -329,7 +329,11 @@ func (m *Board) key(k string) tea.Cmd {
 		if c.run != nil {
 			return navigate(OpenRun{Pipeline: m.name, Number: c.run.Number})
 		}
-		return m.openIssue(c)
+		profile := ""
+		if m.p != nil {
+			profile = m.p.Profile
+		}
+		return navigate(OpenIssue{Pipeline: m.name, Profile: profile, Issue: *c.issue})
 	case "a":
 		if c.run == nil || c.run.Status.Final() {
 			m.fail(fmt.Errorf("only an active run can be answered"))

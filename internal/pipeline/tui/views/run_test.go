@@ -126,9 +126,9 @@ func TestRunModal(t *testing.T) {
 		"Anna Petrova @anna · 50m ago", "Please also cover the admin reports.",
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",
 		"Log", "captured", "question",
-		"waiting 12m", "Write a comment… (/approve, /reject)",
+		"waiting 12m", "Write a comment…",
 		"r reply", "tab log", "esc close")
-	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**",
+	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**", "(/approve",
 		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
 	lines := strings.Split(d.view(), "\n")
 	// The top bar runs across the card: the title on the left, the chips
@@ -217,7 +217,7 @@ func TestRunModalPermission(t *testing.T) {
 	fe := f.runs["FE-9"]
 	yt.issues["2-9"] = ytwatch.Issue{ID: "2-9", Key: "FE-9", Summary: "Dark mode"}
 	d := drive(t, NewRun(&f.d, "frontend", fe.Number, false), 120, 40)
-	d.has("a approve", "x reject", "Write a comment… (/approve, /reject)")
+	d.has("a approve", "x reject", "Write a comment…")
 	d.hasNot("Permission", "posts the comment", "/approve  allow")
 	d.keys("a")
 	d.has("Post /approve on FE-9?")
@@ -271,14 +271,123 @@ func TestRunModalPermission(t *testing.T) {
 	}
 }
 
-// TestRunModalNoSuggestions: "/" offers nothing when the run does not
-// wait on a permission.
-func TestRunModalNoSuggestions(t *testing.T) {
+// TestRunModalCommands: "/" offers the commands that apply to the run, also
+// when it does not wait on a permission, narrowed by what is typed.
+func TestRunModalCommands(t *testing.T) {
 	f := newFixture(t)
 	withIssues(f)
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 120, 40)
 	d.typeText("/")
-	d.hasNot("allow what the agent asked for")
+	d.has("› /compact  hide the run's comments and leave a short summary",
+		"/clear    hide the run's comments; they stay in the history",
+		"/cancel   cancel the run and close the issue", "tab complete")
+	d.hasNot("/approve", "/reject")
+	d.typeText("c")
+	d.has("/compact", "/clear", "/cancel")
+	d.typeText("l")
+	d.has("› /clear")
+	d.hasNot("/compact", "/cancel")
+	d.keys("tab")
+	if got := d.m.(*Run).reply.ta.Value(); got != "/clear" {
+		t.Fatalf("completed %q, want /clear", got)
+	}
+	d.hasNot("they stay in the history")
+
+	// A finished run cannot be canceled any more.
+	d = drive(t, NewRun(&f.d, "backend", f.runs["BE-110"].Number, true), 120, 40)
+	d.typeText("/")
+	d.has("› /compact", "/clear")
+	d.hasNot("/cancel", "/approve")
+
+	// Text that is not a command start offers nothing.
+	d.keys("esc", "esc", "r")
+	d.m.(*Run).reply.clear()
+	d.typeText("hello /c")
+	d.hasNot("/compact")
+}
+
+// TestReplyPlaceholders: the empty boxes do not advertise commands.
+func TestReplyPlaceholders(t *testing.T) {
+	if got := newReplyBox().ta.Placeholder; got != "Write a comment…" {
+		t.Errorf("comment box placeholder %q", got)
+	}
+	if got := newAnswerBox().ta.Placeholder; got != "Your answer…" {
+		t.Errorf("answer box placeholder %q", got)
+	}
+}
+
+// TestIssueCard: a backlog issue opens the run card without a run: the
+// issue and its thread, a note where the log would be, a comment box that
+// posts to YouTrack, and none of the run's keys or commands.
+func TestIssueCard(t *testing.T) {
+	f := newFixture(t)
+	yt := withIssues(f)
+	yt.issues["2-131"] = ytwatch.Issue{ID: "2-131", Key: "BE-131", Summary: "Rate limit the login endpoint",
+		URL:         "https://xlsft.youtrack.cloud/issue/BE-131",
+		Description: "Too many **login** attempts get through.",
+		Fields:      map[string]string{"State": "Open", "Priority": "Critical"}}
+	yt.add("2-131", IssueComment{ID: "4-7", Author: "anna", AuthorName: "Anna Petrova", Text: "Ten a minute is enough.", Created: t0.Add(-20 * time.Minute)})
+	backlog := f.backlog.issues[0] // as the search found it: no description
+	d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-xlsft", backlog), 160, 45)
+	d.fits(160, 45)
+	d.has("backend", "BE-131", "Rate limit the login endpoint", "State: Open", "Priority: Critical", "backlog",
+		"Too many login attempts get through.", "Comments · 1", "Anna Petrova @anna · 20m ago", "Ten a minute is enough.",
+		"Not taken yet — the runner picks it up from", "● running",
+		"Write a comment…", "r comment", "o issue", "esc close")
+	d.hasNot("#0", "Log", "No events yet.", "stage", "a approve", "x reject", "c cancel", "tab log", "p PR", "needs input")
+
+	// No run keys.
+	d.keys("c")
+	d.has("BE-131 is not taken yet, so it has no run")
+	d.hasNot("Cancel run")
+
+	// No commands to complete.
+	d.keys("r")
+	d.typeText("/")
+	d.hasNot("/compact", "/clear", "/cancel", "/approve", "tab complete")
+	d.m.(*Run).reply.clear()
+
+	// The comment goes to YouTrack, by the issue's database id.
+	d.typeText("Use a token bucket.")
+	d.keys("enter")
+	if len(yt.added) != 1 || yt.added[0] != "Use a token bucket." {
+		t.Fatalf("posted %q", yt.added)
+	}
+	if n := len(yt.comments["2-131"]); n != 2 {
+		t.Errorf("BE-131 has %d comments, want 2", n)
+	}
+	d.has("Comments · 2", "Use a token bucket.", "Commented on BE-131.")
+	d.hasNot("runner passes it", "has ended")
+
+	d.keys("o")
+	if len(f.opened) != 1 || f.opened[0] != "https://xlsft.youtrack.cloud/issue/BE-131" {
+		t.Errorf("opened %v", f.opened)
+	}
+	d.keys("esc")
+	if got := d.lastNav(); got != (Back{}) {
+		t.Errorf("esc: %#v", got)
+	}
+}
+
+// TestIssueCardSizes renders a backlog card at common and tiny sizes; when
+// narrow, the note stands over the thread.
+func TestIssueCardSizes(t *testing.T) {
+	for _, size := range [][2]int{{200, 50}, {120, 40}, {80, 24}, {60, 20}, {40, 12}, {20, 6}} {
+		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
+			f := newFixture(t)
+			withIssues(f)
+			d := drive(t, NewIssueCard(&f.d, "backend", "youtrack-xlsft", f.backlog.issues[0]), size[0], size[1])
+			d.fits(size[0], size[1])
+			if size[0] == 80 {
+				d.has("Not taken yet", "BE-131")
+				d.hasNot("tab shows the log")
+			}
+			d.keys("tab", "r")
+			d.fits(size[0], size[1])
+			d.keys("esc", "?")
+			d.fits(size[0], size[1])
+		})
+	}
 }
 
 func TestRunModalLogPanel(t *testing.T) {

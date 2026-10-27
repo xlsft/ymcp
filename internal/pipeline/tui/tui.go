@@ -209,6 +209,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.push(views.NewBoard(a.d, msg.Pipeline))
 	case views.OpenRun:
 		return a, a.push(views.NewRun(a.d, msg.Pipeline, msg.Number, msg.Answer))
+	case views.OpenIssue:
+		return a, a.push(views.NewIssueCard(a.d, msg.Pipeline, msg.Profile, msg.Issue))
 	case views.OpenLogs:
 		return a, a.push(views.NewLogs(a.d, msg.Pipeline))
 	case views.OpenInbox:

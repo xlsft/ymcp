@@ -293,7 +293,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 		for _, c := range msg {
 			d.run(c, depth+1)
 		}
-	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenInbox, OpenWizard, OpenLogs:
+	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenIssue, OpenInbox, OpenWizard, OpenLogs:
 		d.nav = append(d.nav, msg)
 	default:
 		var next tea.Cmd
@@ -461,10 +461,19 @@ func TestBoard(t *testing.T) {
 		t.Errorf("BE-118 is %s (%v), want canceled", r.Status, err)
 	}
 
-	// Backlog cards have no run: enter opens the issue.
+	// Backlog cards have no run: enter opens the issue's card, o the issue
+	// in the browser.
+	opened := len(f.opened)
 	d.keys("left", "left", "left", "enter")
+	if got, ok := d.lastNav().(OpenIssue); !ok || got.Pipeline != "backend" || got.Profile != "youtrack-xlsft" || got.Issue.Key != "BE-131" {
+		t.Errorf("enter on the backlog: %#v", got)
+	}
+	if len(f.opened) != opened {
+		t.Errorf("enter on the backlog opened %v", f.opened[opened:])
+	}
+	d.keys("o")
 	if got := f.opened[len(f.opened)-1]; got != "https://xlsft.youtrack.cloud/issue/BE-131" {
-		t.Errorf("enter on the backlog opened %s", got)
+		t.Errorf("o on the backlog opened %s", got)
 	}
 	d.keys("esc")
 	if got := d.lastNav(); got != (Back{}) {

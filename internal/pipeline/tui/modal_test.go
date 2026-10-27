@@ -94,6 +94,27 @@ func TestRunModalOverBoard(t *testing.T) {
 	}
 }
 
+// TestIssueModalOverBoard: a backlog issue opens the card over the board,
+// and esc goes back to it.
+func TestIssueModalOverBoard(t *testing.T) {
+	f, yt, _ := modalFixture(t)
+	board := topIs[*views.Board](t, f)
+	f.send(views.OpenIssue{Pipeline: "backend", Profile: "a", Issue: ytwatch.Issue{ID: "2-1", Key: "BE-1", Summary: "Fix the login cookie"}})
+	topIs[*views.Run](t, f)
+	f.has(t, "BE-1", "Fix the login cookie", "Which cookie?", "Not taken yet")
+	f.keys("r")
+	f.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Any cookie.")})
+	f.keys("enter")
+	if len(yt.added) != 1 || yt.added[0] != "Any cookie." {
+		t.Errorf("posted %q", yt.added)
+	}
+	f.has(t, "Commented on BE-1.")
+	f.keys("esc")
+	if topIs[*views.Board](t, f) != board {
+		t.Error("esc did not go back to the board")
+	}
+}
+
 func TestRunModalOverInbox(t *testing.T) {
 	f, _, _ := modalFixture(t)
 	f.keys("i")

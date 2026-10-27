@@ -19,7 +19,7 @@ type answerBox struct {
 
 func newAnswerBox() answerBox {
 	ta := textarea.New()
-	ta.Placeholder = "Your answer — /approve or /reject answers a permission request"
+	ta.Placeholder = "Your answer…"
 	ta.ShowLineNumbers = false
 	ta.Prompt = theme.Accent.Render("┃") + " "
 	ta.CharLimit = 8000

@@ -47,11 +47,15 @@ const (
 // opened from, laid out like a YouTrack issue: the issue with its fields,
 // description and comment thread on the left with a reply box that posts
 // real comments, the run's event log on the right.
+//
+// A backlog issue opens the same card without a run (see NewIssueCard):
+// the issue and its thread, a note where the log would be, no run keys.
 type Run struct {
 	base
 	pipeline string
 	number   int
 	home     string
+	backlog  bool // an issue the runner has not taken yet: no run
 
 	loaded   bool
 	loading  bool
@@ -145,8 +149,24 @@ func NewRun(d *Deps, pipeline string, number int, reply bool) *Run {
 	return &Run{base: newBase(d), pipeline: pipeline, number: number, home: home, reply: newReplyBox(), wantReply: reply}
 }
 
-// Init loads the run.
-func (m *Run) Init() tea.Cmd { return m.reload() }
+// NewIssueCard makes the card of a backlog issue of a pipeline: the run
+// card without a run. It reads no run from the store; the issue and its
+// comments load through Deps.Issues as for a run.
+func NewIssueCard(d *Deps, pipeline, profile string, issue ytwatch.Issue) *Run {
+	m := NewRun(d, pipeline, 0, false)
+	m.backlog, m.loaded = true, true
+	m.run = store.Run{Pipeline: pipeline, Profile: profile, IssueKey: issue.Key, IssueID: issue.ID}
+	m.issue, m.info.summary = issue, issue.Summary
+	return m
+}
+
+// Init loads the run, or a backlog issue's thread at once.
+func (m *Run) Init() tea.Cmd {
+	if m.backlog {
+		return tea.Batch(m.reload(), m.loadIssue(false))
+	}
+	return m.reload()
+}
 
 // Answering reports whether the reply box has the focus, so the root app
 // keeps its own keys out of it.
@@ -165,6 +185,11 @@ func (m *Run) load(info runInfo) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 	defer cancel()
 	msg := runLoaded{to: m.id}
+	if m.backlog { // no run: only the runner and the profiles
+		msg.runner, msg.err = m.d.runner(ctx, m.pipeline)
+		msg.profiles, _ = m.d.Profiles()
+		return msg
+	}
 	r, err := m.d.Store.RunByNumber(ctx, m.pipeline, m.number)
 	if errors.Is(err, store.ErrNotFound) {
 		err = fmt.Errorf("pipeline %s has no run #%d", m.pipeline, m.number)
@@ -248,13 +273,16 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.err != nil {
 			m.fail(msg.err)
-			if msg.run.ID == 0 {
+			if msg.run.ID == 0 && !m.backlog {
 				return m, nil
 			}
 		}
 		first := !m.loaded
 		m.loaded = true
-		m.run, m.info, m.runner, m.profiles = msg.run, msg.info, msg.runner, msg.profiles
+		m.runner, m.profiles = msg.runner, msg.profiles
+		if !m.backlog { // a backlog card keeps the run it was made with
+			m.run, m.info = msg.run, msg.info
+		}
 		if len(msg.events) > 0 {
 			m.events = append(m.events, msg.events...)
 			if len(m.events) > feedKeep {
@@ -363,6 +391,8 @@ func (m *Run) hasComment(id string) bool {
 func (m *Run) posted() string {
 	key := m.run.IssueKey
 	switch {
+	case m.backlog:
+		return fmt.Sprintf("Commented on %s.", key)
 	case m.run.Status.Final():
 		return fmt.Sprintf("Commented on %s. Run #%d has ended, so no agent reads it.", key, m.number)
 	case m.runner.state != runnerRunning:
@@ -431,6 +461,15 @@ func (m *Run) key(k string) tea.Cmd {
 	scroll := &m.docScroll
 	if m.focus == paneLog {
 		page, scroll = max(m.logRows-1, 1), &m.logScroll
+	}
+	if m.backlog {
+		switch k {
+		case "tab", "shift+tab": // no log to switch to
+			return nil
+		case "a", "x", "c", "t", "[", "]", "p":
+			m.fail(fmt.Errorf("%s is not taken yet, so it has no run", m.run.IssueKey))
+			return nil
+		}
 	}
 	switch k {
 	case "q":
@@ -596,10 +635,13 @@ func (m *Run) box(bw, bh int) []string {
 	ruleAt := -1
 	if !border && rows > 0 {
 		right := ""
-		if m.loaded {
+		switch {
+		case m.backlog:
+			right = theme.Dim.Render("backlog")
+		case m.loaded:
 			right = statusStyle(m.run.Status)
 		}
-		body = append(body, spread(title(fmt.Sprintf("%s #%d", m.pipeline, m.number)), right, cw))
+		body = append(body, spread(title(m.heading()), right, cw))
 		rows--
 	}
 	switch {
@@ -652,6 +694,15 @@ func (m *Run) box(bw, bh int) []string {
 	return frameBox(padded, bw-2, "", "")
 }
 
+// heading is the title of the card: the pipeline and the run number, the
+// pipeline alone for a backlog issue.
+func (m *Run) heading() string {
+	if m.backlog {
+		return m.pipeline
+	}
+	return fmt.Sprintf("%s #%d", m.pipeline, m.number)
+}
+
 // topBar is the head of the card across its width: the pipeline and run,
 // the issue key and summary on the left, the issue's fields and the run's
 // state as chips on the right (on a second line when they need it), then
@@ -663,7 +714,7 @@ func (m *Run) topBar(w int, border bool, rows int) []string {
 	}
 	head := theme.Accent.Render(m.run.IssueKey) + " " + theme.Bold.Render(oneLine(summary))
 	if border {
-		head = title(fmt.Sprintf("%s #%d", m.pipeline, m.number)) + "  " + head
+		head = title(m.heading()) + "  " + head
 	}
 	chips := m.chips()
 	var out []string
@@ -674,7 +725,9 @@ func (m *Run) topBar(w int, border bool, rows int) []string {
 		rows, _ := chipRows(chips, w, 2)
 		out = append(out, rows...)
 	}
-	out = append(out, cut(m.agentLine(), w))
+	if !m.backlog { // no agent yet; the note sits where the log would be
+		out = append(out, cut(m.agentLine(), w))
+	}
 	if m.hasChange() {
 		if rows >= 20 {
 			out = append(out, "")
@@ -780,7 +833,7 @@ func (m *Run) panes(cw, rows int) []string {
 			out = append(out, "")
 		}
 		left := rows - len(out)
-		if m.focus == paneLog {
+		if m.focus == paneLog && !m.backlog {
 			return append(out, m.logPane(cw, left, false)...)
 		}
 		return append(out, m.issuePane(cw, left, false)...)
@@ -791,7 +844,12 @@ func (m *Run) panes(cw, rows int) []string {
 	}
 	n := rows - len(out)
 	left := m.issuePane(lw, n, true)
-	right := m.logPane(rw, n, true)
+	var right []string
+	if m.backlog {
+		right = m.notePane(rw, n)
+	} else {
+		right = m.logPane(rw, n, true)
+	}
 	for i := range n {
 		l, r := "", ""
 		if i < len(left) {
@@ -834,7 +892,10 @@ func (m *Run) issuePane(w, rows int, wide bool) []string {
 		return nil
 	}
 	var head []string
-	if !wide {
+	switch {
+	case !wide && m.backlog: // the note of the log pane, over the thread
+		head = append(wrapLines(theme.Dim.Render(backlogNote), w, 2), "")
+	case !wide:
 		head = []string{cut(theme.Dim.Render("tab shows the log"), w), ""}
 	}
 	foot := m.replyArea(w, rows)
@@ -882,7 +943,7 @@ func (m *Run) issuePane(w, rows int, wide bool) []string {
 var keyFields = []string{"State", "Type", "Priority"}
 
 // chips are the issue's key fields and the run's stage, status, branch
-// and pull request, as chips.
+// and pull request, as chips; a backlog issue's fields and "backlog".
 func (m *Run) chips() []string {
 	r := m.run
 	var chips []string
@@ -890,6 +951,9 @@ func (m *Run) chips() []string {
 		if v := strings.TrimSpace(m.issue.Fields[f]); v != "" {
 			chips = append(chips, chipStyle.Render(f+": "+v))
 		}
+	}
+	if m.backlog {
+		return append(chips, chipStyle.Render("backlog"))
 	}
 	if r.Stage != "" {
 		chips = append(chips, chipStyle.Render("stage "+r.Stage))
@@ -967,17 +1031,41 @@ func finishedAt(r store.Run) *time.Time {
 // replyCommand is a command the comment box completes after "/".
 type replyCommand struct{ cmd, desc string }
 
-// replyCommands answer a permission request.
-var replyCommands = []replyCommand{
-	{"/approve", "allow what the agent asked for"},
-	{"/reject", "refuse it; the agent goes on without"},
+// The commands the runner reads in a comment: the answers to a permission
+// request, and those that act on any run or on a run still going.
+var (
+	permissionCommands = []replyCommand{
+		{"/approve", "allow what the agent asked for"},
+		{"/reject", "refuse it; the agent goes on without"},
+	}
+	runCommands = []replyCommand{
+		{"/compact", "hide the run's comments and leave a short summary"},
+		{"/clear", "hide the run's comments; they stay in the history"},
+	}
+	cancelCommand = replyCommand{"/cancel", "cancel the run and close the issue"}
+)
+
+// commands are the commands that apply to the card now; none for a
+// backlog issue.
+func (m *Run) commands() []replyCommand {
+	if m.backlog || !m.loaded {
+		return nil
+	}
+	var out []replyCommand
+	if m.waitsOnPermission() {
+		out = append(out, permissionCommands...)
+	}
+	out = append(out, runCommands...)
+	if !m.run.Status.Final() {
+		out = append(out, cancelCommand)
+	}
+	return out
 }
 
 // suggestions are the commands that complete what is typed in the comment
-// box: shown while the run waits on a permission and the text is the
-// start of one.
+// box: shown while the text is the start of one that applies now.
 func (m *Run) suggestions() []replyCommand {
-	if !m.reply.focused || !m.waitsOnPermission() {
+	if !m.reply.focused {
 		return nil
 	}
 	v := m.reply.ta.Value()
@@ -985,7 +1073,7 @@ func (m *Run) suggestions() []replyCommand {
 		return nil
 	}
 	var out []replyCommand
-	for _, c := range replyCommands {
+	for _, c := range m.commands() {
 		if strings.HasPrefix(c.cmd, v) && c.cmd != v {
 			out = append(out, c)
 		}
@@ -1170,10 +1258,26 @@ func (m *Run) logPane(w, rows int, wide bool) []string {
 	return append(out, scrollWindow(m.logLines, m.logRows, &m.logScroll)...)
 }
 
+// backlogNote stands where the log of a run would be on a backlog card.
+const backlogNote = "Not taken yet — the runner picks it up from the backlog."
+
+// notePane is the right side of a backlog card: a dim header with the
+// runner's state, then backlogNote.
+func (m *Run) notePane(w, rows int) []string {
+	out := []string{spread(theme.Header.Render("Run"), m.runner.label(), w)}
+	if rows >= 8 {
+		out = append(out, "")
+	}
+	return append(out, wrap(theme.Dim.Render(backlogNote), w)...)
+}
+
 // help is the help line of the card.
 func (m *Run) help() []binding {
 	if m.reply.focused {
 		return []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
+	}
+	if m.backlog {
+		return []binding{{"r", "comment"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"esc", "close"}, {"q", "quit"}}
 	}
 	h := []binding{{"r", "reply"}}
 	if m.waitsOnPermission() {

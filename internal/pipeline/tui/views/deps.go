@@ -5,7 +5,8 @@
 // card's issue and comments), the code host through Changes.
 //
 // The run card is a modal (see Overlay): the root app draws it over the
-// screen it was opened from.
+// screen it was opened from. A backlog issue opens the same card without a
+// run (see NewIssueCard).
 //
 // Screens do not know about each other: they ask the root app to move by
 // returning navigation messages (OpenBoard, OpenRun, Back, …). The root app
@@ -170,6 +171,13 @@ type (
 		Pipeline string
 		Number   int
 		Answer   bool
+	}
+	// OpenIssue shows the card of a backlog issue, which has no run yet,
+	// over the screen on top.
+	OpenIssue struct {
+		Pipeline string
+		Profile  string
+		Issue    ytwatch.Issue
 	}
 	// OpenInbox shows every run that waits for input.
 	OpenInbox struct{}
