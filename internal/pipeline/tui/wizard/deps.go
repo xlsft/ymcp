@@ -277,7 +277,10 @@ type inspector struct{}
 
 func (inspector) Inspect(ctx context.Context, host, dir string) ([]workspace.Check, error) {
 	if h := strings.TrimSpace(host); h != "" && h != "local" {
-		return nil, fmt.Errorf("workspace host %q: ssh hosts are not supported yet", h)
+		// The path is on the host; ~ there is not ours.
+		s := workspace.SSH(h)
+		defer s.Close()
+		return workspace.Inspect(ctx, s, dir)
 	}
 	return workspace.Inspect(ctx, workspace.Local(), expandHome(dir))
 }

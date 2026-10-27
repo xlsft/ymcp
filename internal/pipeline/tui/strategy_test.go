@@ -43,7 +43,7 @@ func TestStrategyDetector(t *testing.T) {
 		{url: "", wantErr: true},
 	} {
 		d := strategyDetector{
-			host: func(string) (workspace.Host, error) { return originHost{tc.url}, nil },
+			host: func(string) (workspace.Host, func(), error) { return originHost{tc.url}, func() {}, nil },
 			token: func(context.Context, vcs.Repo) (vcs.Auth, error) {
 				if tc.tokenErr != nil {
 					return vcs.Auth{}, tc.tokenErr
@@ -61,5 +61,20 @@ func TestStrategyDetector(t *testing.T) {
 		if err != nil || got.Kind != tc.kind || got.Repo != tc.repo || got.AuthOK != tc.authOK || got.Auth != tc.auth {
 			t.Errorf("%q: Detect = %+v, %v", tc.url, got, err)
 		}
+	}
+}
+
+func TestHostNamed(t *testing.T) {
+	for _, name := range []string{"", "local", " local "} {
+		h, closeHost, err := hostNamed(name)
+		if err != nil || h.Name() != "local" {
+			t.Errorf("hostNamed(%q) = %v, %v", name, h, err)
+		}
+		closeHost()
+	}
+	h, closeHost, err := hostNamed("devbox")
+	defer closeHost()
+	if s, ok := h.(*workspace.SSHHost); err != nil || !ok || s.Name() != "devbox" {
+		t.Errorf("hostNamed(devbox) = %#v, %v", h, err)
 	}
 }

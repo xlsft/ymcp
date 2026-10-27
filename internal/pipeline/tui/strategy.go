@@ -13,30 +13,38 @@ import (
 // strategyDetector suggests a strategy from the repository's origin and
 // says where its token would come from.
 type strategyDetector struct {
-	host func(name string) (workspace.Host, error)
+	// host returns the workspace host and a function that closes it.
+	host func(name string) (workspace.Host, func(), error)
 	// token is vcs.TokenFor; tests replace it.
 	token func(ctx context.Context, repo vcs.Repo) (vcs.Auth, error)
 }
 
 func newStrategyDetector() strategyDetector {
-	return strategyDetector{host: localHost, token: vcs.TokenFor}
+	return strategyDetector{host: hostNamed, token: vcs.TokenFor}
 }
 
-func localHost(name string) (workspace.Host, error) {
+// hostNamed is this machine for "" and "local", the ssh host otherwise.
+func hostNamed(name string) (workspace.Host, func(), error) {
 	if n := strings.TrimSpace(name); n != "" && n != "local" {
-		return nil, fmt.Errorf("workspace host %q: ssh hosts are not supported yet", n)
+		s := workspace.SSH(n)
+		return s, func() { s.Close() }, nil
 	}
-	return workspace.Local(), nil
+	return workspace.Local(), func() {}, nil
 }
 
 func (d strategyDetector) Detect(ctx context.Context, host, dir string) (wizard.Detection, error) {
-	h, err := d.host(host)
+	h, closeHost, err := d.host(host)
 	if err != nil {
 		return wizard.Detection{}, err
 	}
+	defer closeHost()
 	out, stderr, err := h.Run(ctx, dir, []string{"git", "remote", "get-url", "origin"}, nil)
 	if err != nil {
-		return wizard.Detection{}, fmt.Errorf("git remote get-url origin: %s", strings.TrimSpace(string(stderr)))
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return wizard.Detection{}, fmt.Errorf("git remote get-url origin: %s", msg)
 	}
 	repo, err := vcs.ParseRemote(strings.TrimSpace(string(out)))
 	if err != nil {
