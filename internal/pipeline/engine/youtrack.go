@@ -166,7 +166,7 @@ func (r *Runner) previousAnswers(cs []comment, number int) []string {
 	var out []string
 	for _, c := range cs {
 		if m, ok := text.ParseMarker(c.Text); ok && m.Pipeline == r.p.Name && m.Run == number {
-			if t := strings.TrimSpace(text.StripHeader(c.Text)); t != "" && t != text.Thinking {
+			if t := strings.TrimSpace(text.StripHeader(c.Text)); t != "" && t != text.Working {
 				out = append(out, t)
 			}
 		}

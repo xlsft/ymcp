@@ -507,7 +507,7 @@ func (t *turn) openVCSPlaceholders() {
 	}
 	for _, rp := range t.vcsReplies {
 		to := rp.to
-		m, c, err := r.publishVCS(t.bg, run, nil, &to, msgReply, stateThinking, text.Thinking)
+		m, c, err := r.publishVCS(t.bg, run, nil, &to, msgReply, stateThinking, text.Working)
 		if err != nil {
 			r.log.Warn("posting a placeholder on the change failed", "run", run.Number, "err", err)
 			continue

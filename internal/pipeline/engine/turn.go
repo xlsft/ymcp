@@ -169,7 +169,7 @@ func (t *turn) run1(answer string) string {
 		if t.placeholder != nil {
 			t.placeholder.Kind = msgAnswer
 		}
-		m, err := r.publish(t.bg, run, t.placeholder, msgAnswer, stateThinking, text.Thinking)
+		m, err := r.publish(t.bg, run, t.placeholder, msgAnswer, stateThinking, text.Working)
 		switch {
 		case err == nil:
 			t.placeholder = &m

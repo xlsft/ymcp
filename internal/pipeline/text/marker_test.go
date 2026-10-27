@@ -72,7 +72,7 @@ func TestDecorateIdempotentAndReplaces(t *testing.T) {
 	bodies := []string{
 		"Done!",
 		"",
-		Thinking,
+		Working,
 		"Русский текст 🚀\n\n- пункт\n- пункт",
 		"line1\r\nline2",
 		"  indented first line",
@@ -86,7 +86,7 @@ func TestDecorateIdempotentAndReplaces(t *testing.T) {
 		if n := strings.Count(once, "ymcp:agent"); n != 1 {
 			t.Errorf("%d markers in %q", n, once)
 		}
-		// Replacing "Thinking" by the answer keeps one header, with the new one.
+		// Replacing "Working..." by the answer keeps one header, with the new one.
 		re := Decorate(once, "@someone", other)
 		if n := strings.Count(re, "ymcp:agent"); n != 1 {
 			t.Errorf("%d markers after redecorate: %q", n, re)
@@ -101,11 +101,11 @@ func TestDecorateIdempotentAndReplaces(t *testing.T) {
 }
 
 func TestDecorateEditFlow(t *testing.T) {
-	thinking := Decorate(Thinking, "@xlsft", m17)
+	thinking := Decorate(Working, "@xlsft", m17)
 	// The answer is written over the placeholder: the agent sends a body, the
 	// engine decorates it again.
 	answer := Decorate("All done.", "@xlsft", m17)
-	if strings.Contains(answer, Thinking) {
+	if strings.Contains(answer, Working) {
 		t.Error("placeholder survived")
 	}
 	// Decorating the whole text read back from YouTrack, with CRLF endings.

@@ -190,7 +190,7 @@ func TestChangeFeedbackRepliesInThreads(t *testing.T) {
 		func(ft *fakeTurn) agent.Result {
 			thinking = 0
 			for _, r := range h.vcs.agentReplies() {
-				if r.Body == text.Thinking {
+				if r.Body == text.Working {
 					thinking++
 				}
 			}
@@ -233,7 +233,7 @@ func TestChangeFeedbackRepliesInThreads(t *testing.T) {
 	}
 	r0, ok := replyTo(rs, cs[0].ID)
 	if !ok || r0.Thread != "discussion_r501" || r0.Body != "Fixed the nil check.\n\nBoth handled." || r0.Edits != 1 ||
-		text.StripHeader(r0.History[0]) != text.Thinking || !strings.Contains(r0.Raw, "@octo's agent #\u20601 (backend)") {
+		text.StripHeader(r0.History[0]) != text.Working || !strings.Contains(r0.Raw, "@octo's agent #\u20601 (backend)") {
 		t.Errorf("reply to the line comment = %+v", r0)
 	}
 	if r1, ok := replyTo(rs, cs[1].ID); !ok || r1.Body != "Yes, it is covered." {
@@ -371,7 +371,7 @@ func TestDeletedChangePlaceholderIsPostedAgain(t *testing.T) {
 	c := h.vcs.comment(vcs.Comment{Author: "octo", Body: "Please rename"})
 	<-started
 	rs := h.vcs.agentReplies()
-	if len(rs) != 1 || rs[0].Body != text.Thinking {
+	if len(rs) != 1 || rs[0].Body != text.Working {
 		t.Fatalf("replies = %+v", rs)
 	}
 	h.vcs.deleteComment(rs[0].ID)
