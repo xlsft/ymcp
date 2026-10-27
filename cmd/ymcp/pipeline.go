@@ -674,20 +674,33 @@ func knownPipeline(name string, runs []store.Run) error {
 	return nil
 }
 
-// runsTable lists runs; the reasons of runs waiting for input follow it.
+// runsTable lists runs, status first: a run that waits for input keeps
+// the stage it waits in (usually working), so the stage alone would hide
+// it. Every run waiting for input follows with its reason and how to
+// answer it.
 func runsTable(runs []store.Run) string {
 	rows := make([][]string, 0, len(runs))
 	for _, r := range runs {
 		rows = append(rows, []string{
-			"#" + strconv.Itoa(r.Number), orDash(r.IssueKey), orDash(r.Stage), string(r.Status),
+			"#" + strconv.Itoa(r.Number), orDash(r.IssueKey), string(r.Status), orDash(r.Stage),
 			orDash(r.Branch), ago(r.UpdatedAt),
 		})
 	}
-	out := table([]string{"RUN", "ISSUE", "STAGE", "STATUS", "BRANCH", "UPDATED"}, rows)
+	out := table([]string{"RUN", "ISSUE", "STATUS", "STAGE", "BRANCH", "UPDATED"}, rows)
+	waiting := 0
 	for _, r := range runs {
-		if r.Status == store.StatusNeedsInput && r.NeedsInputReason != "" {
-			out += fmt.Sprintf("\n%s #%d: %s", styleWarn.Render("?"), r.Number, oneLine(r.NeedsInputReason, 200))
+		if r.Status != store.StatusNeedsInput {
+			continue
 		}
+		waiting++
+		reason := oneLine(r.NeedsInputReason, 200)
+		if reason == "" {
+			reason = "waiting for an answer"
+		}
+		out += fmt.Sprintf("\n%s #%d needs input: %s", styleWarn.Render("?"), r.Number, reason)
+	}
+	if waiting > 0 {
+		out += "\n" + styleDim.Render("  answer with: ymcp pipeline "+runs[0].Pipeline+" answer RUN TEXT")
 	}
 	return out
 }

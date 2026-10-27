@@ -432,12 +432,23 @@ func TestPipelineRunsStatus(t *testing.T) {
 	}
 	newRun(t, st, "api", "A-3", store.StatusClosed)
 	newRun(t, st, "other", "B-1", store.StatusWorking)
+	newRun(t, st, "api", "A-4", store.StatusNeedsInput) // no reason recorded
 	_ = r1
 
 	out := mustPipeline(t, "api", "runs")
-	for _, want := range []string{"RUN", "ISSUE", "STAGE", "STATUS", "BRANCH", "UPDATED", "#1", "A-1", "review", "#2", "needs_input", "A-2-fix", "just now", "? #2: which database?"} {
+	for _, want := range []string{"RUN", "ISSUE", "STATUS", "STAGE", "BRANCH", "UPDATED", "#1", "A-1", "review", "#2", "A-2-fix", "just now",
+		"? #2 needs input: which database?", "? #4 needs input: waiting for an answer", "answer with: ymcp pipeline api answer RUN TEXT"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("runs lacks %q:\n%s", want, out)
+		}
+	}
+	// The status comes before the stage the run waits in.
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) > 3 && f[0] == "#2" && (f[2] != "needs_input" || f[3] != "working") {
+			t.Errorf("row #2 = %q", line)
+		}
+		if f := strings.Fields(line); len(f) > 3 && f[0] == "RUN" && (f[2] != "STATUS" || f[3] != "STAGE") {
+			t.Errorf("header = %q", line)
 		}
 	}
 	if strings.Contains(out, "A-3") || strings.Contains(out, "B-1") {
@@ -451,7 +462,7 @@ func TestPipelineRunsStatus(t *testing.T) {
 	if err := st.AcquireRunner(ctx, "api", 4242, "box", time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if out := mustPipeline(t, "api", "status"); !strings.Contains(out, "running (pid 4242 on box") || !strings.Contains(out, "1 needs_input, 1 review") {
+	if out := mustPipeline(t, "api", "status"); !strings.Contains(out, "running (pid 4242 on box") || !strings.Contains(out, "2 needs_input, 1 review") {
 		t.Errorf("status:\n%s", out)
 	}
 }
