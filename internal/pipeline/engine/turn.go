@@ -1123,14 +1123,39 @@ func (t *turn) commitAndPush(answer string) (pushed bool, err error) {
 	if err != nil {
 		r.log.Warn("counting the branch's commits failed", "run", t.run.Number, "err", err)
 	}
-	if err := workspace.Push(ctx, r.host, w.wt); err != nil {
+	err = workspace.Push(ctx, r.host, w.wt)
+	forced := false
+	if err != nil && workspace.NonFastForward(err) {
+		// The agent rewrote the branch, e.g. rebased it: push over what the
+		// runner pushed last, and only over that.
+		if lease, ok, serr := r.st.RunState(t.bg, t.run.ID, statePushedHead); serr == nil && ok && lease != "" {
+			r.event(t.bg, t.run.ID, "git.push_rejected", map[string]string{"branch": w.wt.Branch, "error": err.Error(), "lease": lease})
+			if err = workspace.ForcePush(ctx, r.host, w.wt, lease); err == nil {
+				forced = true
+			}
+		}
+	}
+	if err != nil {
 		r.event(t.bg, t.run.ID, "git.failed", map[string]string{"step": "push", "error": err.Error()})
 		return false, fmt.Errorf("pushing the branch failed:\n%s", codeBlock(err.Error()))
 	}
 	head, _ := workspace.Head(ctx, r.host, w.wt)
-	r.event(t.bg, t.run.ID, "git.push", map[string]string{"branch": w.wt.Branch, "head": head})
+	if head != "" {
+		if err := r.st.SetRunState(t.bg, t.run.ID, statePushedHead, head); err != nil {
+			r.log.Warn("saving the pushed commit failed", "run", t.run.Number, "err", err)
+		}
+	}
+	data := map[string]string{"branch": w.wt.Branch, "head": head}
+	if forced {
+		data["forced"] = "with lease"
+	}
+	r.event(t.bg, t.run.ID, "git.push", data)
 	return true, nil
 }
+
+// statePushedHead is the run state key of the commit the runner last pushed
+// to the run's branch: the lease of a push over a rewritten branch.
+const statePushedHead = "pushed_head"
 
 // subjectLimit bounds the subject of a leftover commit, prefix included.
 const subjectLimit = 72

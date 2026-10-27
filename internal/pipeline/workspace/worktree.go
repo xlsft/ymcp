@@ -276,6 +276,37 @@ func Push(ctx context.Context, h Host, wt Worktree) error {
 	return nil
 }
 
+// ForcePush pushes the worktree's branch over origin's, but only while
+// origin's branch is still at lease (git push --force-with-lease=<branch>:<lease>):
+// history the agent rewrote, e.g. by a rebase, replaces the commit lease
+// that the caller pushed last, and commits anyone else pushed since are
+// never lost. Only the worktree's own branch is pushed.
+func ForcePush(ctx context.Context, h Host, wt Worktree, lease string) error {
+	if wt.Branch == "" {
+		return errors.New("worktree branch is empty")
+	}
+	if strings.TrimSpace(lease) == "" || strings.ContainsAny(lease, ": ") {
+		return fmt.Errorf("pushing %s over origin's: no valid lease", wt.Branch)
+	}
+	if _, err := run(ctx, h, wt.Path, "push", "-u", "--force-with-lease="+wt.Branch+":"+lease, "origin", wt.Branch); err != nil {
+		return fmt.Errorf("pushing %s over origin's: %w", wt.Branch, err)
+	}
+	return nil
+}
+
+// NonFastForward reports whether err is a push that origin refused because
+// its branch is not an ancestor of the one pushed: the history was
+// rewritten (non-fast-forward), or origin has commits the worktree lacks
+// (fetch first). A push a hook or a protected branch declined is not one.
+func NonFastForward(err error) bool {
+	var ce *cmdError
+	if !errors.As(err, &ce) {
+		return false
+	}
+	return strings.Contains(ce.msg, "[rejected]") &&
+		(strings.Contains(ce.msg, "non-fast-forward") || strings.Contains(ce.msg, "fetch first"))
+}
+
 // Ahead counts the commits on the worktree's branch that origin/<base>
 // does not have. A branch with none is not worth pushing.
 func Ahead(ctx context.Context, h Host, wt Worktree) (int, error) {

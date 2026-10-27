@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -752,6 +753,76 @@ func TestQuestionKeepsDenials(t *testing.T) {
 	}
 	if starts := h.ag.startLog(); !slices.Contains(starts[2].AllowedTools, "Bash(make db)") {
 		t.Errorf("allowed tools = %q", starts[2].AllowedTools)
+	}
+}
+
+// gitIn runs git in the agent's worktree, as the agent would.
+func gitIn(t *fakeTurn, args ...string) {
+	out, stderr, err := workspace.Local().Run(context.Background(), t.s.opts.Dir, append([]string{"git"}, args...), nil)
+	if err != nil {
+		t.Say(fmt.Sprintf("git %v failed: %v: %s%s", args, err, stderr, out))
+	}
+}
+
+// TestRewrittenBranchIsPushedWithLease: after the agent rewrites the
+// branch (a rebase, an amend) the push is refused, and the runner pushes
+// over the commit it pushed last; commits someone else pushed are never
+// overwritten.
+func TestRewrittenBranchIsPushedWithLease(t *testing.T) {
+	for _, theirs := range []bool{false, true} {
+		t.Run(fmt.Sprintf("someone else pushed=%v", theirs), func(t *testing.T) {
+			h := newHarness(t, nil)
+			is := h.yt.addIssue("Rebase me", "Open")
+			h.ag.script(
+				func(t *fakeTurn) agent.Result {
+					writeFile(t, "a.txt", "a\n")
+					t.Say("Added a.")
+					return agent.Result{}
+				},
+				func(t *fakeTurn) agent.Result {
+					writeFile(t, "a.txt", "a, rebased\n")
+					gitIn(t, "add", "a.txt")
+					gitIn(t, "commit", "--amend", "-m", "a, rebased")
+					t.Say("Rebased.")
+					return agent.Result{}
+				},
+			)
+			h.start()
+			run := h.waitReview(1, is.Key)
+			first := git(t, h.origin, "rev-parse", "refs/heads/"+run.Branch)
+			if v, _, _ := h.st.RunState(context.Background(), run.ID, statePushedHead); v != first {
+				t.Fatalf("pushed head = %q, want %q", v, first)
+			}
+			other := ""
+			if theirs {
+				dir := filepath.Join(t.TempDir(), "other")
+				git(t, filepath.Dir(dir), "clone", "-b", run.Branch, h.origin, dir)
+				git(t, dir, "-c", "user.name=O", "-c", "user.email=o@x", "commit", "--allow-empty", "-m", "theirs")
+				git(t, dir, "push", "origin", run.Branch)
+				other = git(t, dir, "rev-parse", "HEAD")
+			}
+			h.yt.addComment(is.Key, "alice", "Please rebase")
+			h.waitInvocations(run.ID, 2)
+			if theirs {
+				run = h.waitStatus(1, store.StatusNeedsInput)
+				if !strings.Contains(run.NeedsInputReason, "Pushing the branch failed") || !strings.Contains(run.NeedsInputReason, "stale info") {
+					t.Errorf("reason = %q", run.NeedsInputReason)
+				}
+				if got := git(t, h.origin, "rev-parse", "refs/heads/"+run.Branch); got != other {
+					t.Errorf("origin = %s, want their commit %s", got, other)
+				}
+				return
+			}
+			run = h.waitReview(1, is.Key)
+			head := git(t, run.Worktree, "rev-parse", "HEAD")
+			if got := git(t, h.origin, "rev-parse", "refs/heads/"+run.Branch); got != head || head == first {
+				t.Errorf("origin = %s, worktree = %s, first push %s", got, head, first)
+			}
+			pushes := h.events(run.ID, "git.push")
+			if len(pushes) != 2 || !strings.Contains(string(pushes[1].Data), "with lease") || len(h.events(run.ID, "git.push_rejected")) != 1 {
+				t.Errorf("events = %+v", h.events(run.ID, ""))
+			}
+		})
 	}
 }
 

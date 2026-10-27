@@ -674,8 +674,63 @@ func TestPushRejected(t *testing.T) {
 	if msg := err.Error(); !strings.Contains(msg, "pushes are closed today") || !strings.Contains(msg, "BE-11") {
 		t.Errorf("error = %v", err)
 	}
+	if NonFastForward(err) {
+		t.Error("a push the hook declined is not a non-fast-forward")
+	}
 	if refs := git(t, f.origin, "for-each-ref", "--format=%(refname)", "refs/heads/BE-11"); refs != "" {
 		t.Errorf("rejected push created %q", refs)
+	}
+}
+
+func TestForcePushWithLease(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := Local()
+	wt, err := Create(ctx, h, f.repo, "", "BE-12", "", testIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, wt.Path, "commit", "--allow-empty", "-m", "BE-12 one")
+	if err := Push(ctx, h, wt); err != nil {
+		t.Fatal(err)
+	}
+	pushed, _ := Head(ctx, h, wt)
+
+	// The agent rewrites the history: a plain push is refused.
+	git(t, wt.Path, "commit", "--amend", "--allow-empty", "-m", "BE-12 one, amended")
+	err = Push(ctx, h, wt)
+	if err == nil || !NonFastForward(err) {
+		t.Fatalf("Push = %v, want a non-fast-forward rejection", err)
+	}
+	if err := ForcePush(ctx, h, wt, pushed); err != nil {
+		t.Fatal(err)
+	}
+	amended, _ := Head(ctx, h, wt)
+	if got := git(t, f.origin, "rev-parse", "refs/heads/BE-12"); got != amended {
+		t.Errorf("origin = %s, want %s", got, amended)
+	}
+
+	// Someone else pushed meanwhile: the lease no longer holds.
+	other := filepath.Join(t.TempDir(), "other")
+	git(t, filepath.Dir(other), "clone", "-b", "BE-12", f.origin, other)
+	git(t, other, "-c", "user.name=O", "-c", "user.email=o@x", "commit", "--allow-empty", "-m", "theirs")
+	git(t, other, "push", "origin", "BE-12")
+	theirs := git(t, other, "rev-parse", "HEAD")
+	git(t, wt.Path, "commit", "--amend", "--allow-empty", "-m", "BE-12 one, amended again")
+	if err := Push(ctx, h, wt); !NonFastForward(err) {
+		t.Fatalf("Push = %v, want a rejection", err)
+	}
+	if err := ForcePush(ctx, h, wt, amended); err == nil {
+		t.Fatal("the lease did not protect the other commit")
+	}
+	if got := git(t, f.origin, "rev-parse", "refs/heads/BE-12"); got != theirs {
+		t.Errorf("origin = %s, want theirs %s", got, theirs)
+	}
+	if err := ForcePush(ctx, h, wt, ""); err == nil {
+		t.Error("an empty lease must fail")
+	}
+	if NonFastForward(errors.New("[rejected] (non-fast-forward)")) {
+		t.Error("only a git error is a rejection")
 	}
 }
 
