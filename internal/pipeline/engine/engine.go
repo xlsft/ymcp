@@ -329,11 +329,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	defer stop(nil)
 	defer r.stopWorkers()
 
+	// Being stopped while still starting is a stop, not a failure.
 	if err := r.bootstrapCursor(runCtx); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 	r.reapOrphans(runCtx)
 	if err := r.resume(runCtx); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 	r.log.Info("pipeline runner started", "version", r.version, "profile", r.profile, "as", r.me, "poll", r.p.Source.PollInterval.Duration)
