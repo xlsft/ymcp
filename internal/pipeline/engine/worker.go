@@ -64,7 +64,8 @@ type worker struct {
 	outsideTicks int
 
 	// Touched only by the worker goroutine.
-	wt workspace.Worktree
+	wt     workspace.Worktree
+	runDir string // ymcp's directory of the run on the host
 
 	mu        sync.Mutex
 	turning   bool

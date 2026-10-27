@@ -19,12 +19,14 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
+	"github.com/xlsft/ymcp/internal/pipeline/workspace/sshtest"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 func TestMain(m *testing.M) {
 	agenttest.Main()
+	sshtest.Main()
 	os.Exit(m.Run())
 }
 
@@ -102,6 +104,8 @@ type harness struct {
 	vcs *fakeVCS
 	// notes records Options.Notify.
 	notes *notes
+	// host, when set, is Options.Host.
+	host workspace.Host
 
 	cancel context.CancelFunc
 	done   chan error
@@ -158,10 +162,13 @@ func (h *harness) options() Options {
 		h.st.SetClock(h.now)
 	}
 	if !h.realAgent {
-		o.NewAgent = func(spec.Agent, *slog.Logger) (agent.Agent, error) { return h.ag, nil }
+		o.NewAgent = func(spec.Agent, workspace.Host, *slog.Logger) (agent.Agent, error) { return h.ag, nil }
 	}
 	if h.vcs != nil {
 		o.NewStrategy = h.vcs.newStrategy
+	}
+	if h.host != nil {
+		o.Host = h.host
 	}
 	o.Notify = h.notes.add
 	return o

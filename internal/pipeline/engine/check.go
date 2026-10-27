@@ -79,9 +79,25 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 	}
 
 	// The repository.
-	if host, err := hostFor(p, opts); err != nil {
+	host, closeHost, err := hostFor(p, opts)
+	if err != nil {
 		add("workspace", false, err.Error())
-	} else if strings.TrimSpace(p.Workspace.Dir) != "" {
+		host = nil
+	} else {
+		defer closeHost()
+	}
+	reachable := true
+	if host != nil && isRemote(host) {
+		reachable = checkSSH(ctx, host, add)
+		if ctx.Err() != nil {
+			return out, ctx.Err()
+		}
+	}
+	switch {
+	case host == nil:
+	case !reachable:
+		add("workspace", false, "not checked: "+host.Name()+" is not reachable over ssh")
+	case strings.TrimSpace(p.Workspace.Dir) != "":
 		checks, err := workspace.Inspect(ctx, host, p.Workspace.Dir)
 		if err != nil {
 			return out, err
@@ -97,7 +113,13 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 	}
 
 	// The agent.
-	ag, err := opts.NewAgent(p.Agent, logger)
+	if host == nil {
+		host = workspace.Local()
+	} else if !reachable {
+		add("agent", false, "not checked: "+host.Name()+" is not reachable over ssh")
+		return out, nil
+	}
+	ag, err := opts.NewAgent(p.Agent, host, logger)
 	if err != nil {
 		add("agent", false, err.Error())
 		return out, nil
@@ -113,6 +135,9 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 	detail := strings.TrimSpace(info.Path + " " + info.Version)
 	if detail == "" {
 		detail = ag.Name()
+	}
+	if isRemote(host) {
+		detail += " on " + host.Name()
 	}
 	add("agent", true, detail)
 	for _, w := range info.Warnings {

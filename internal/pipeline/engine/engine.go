@@ -23,7 +23,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,9 +56,11 @@ type Options struct {
 	// the profile's config (its Name is the MCP path, its Tools the
 	// enabled ymcp tools). Default: config.Load and youtrack.New.
 	Connect func(ctx context.Context, profile string, logger *slog.Logger) (*youtrack.Client, config.Config, error)
-	// NewAgent builds the pipeline's agent. Default: agent.New.
-	NewAgent func(a spec.Agent, logger *slog.Logger) (agent.Agent, error)
-	// Host runs git. Default: workspace.Local (the only host of phase 1).
+	// NewAgent builds the pipeline's agent, which runs on host. Default:
+	// agent.New, with agent.WithHost for an ssh host.
+	NewAgent func(a spec.Agent, host workspace.Host, logger *slog.Logger) (agent.Agent, error)
+	// Host runs git and the agent. Default: workspace.Local, or
+	// workspace.SSH of workspace.host. A host given here is not closed.
 	Host workspace.Host
 	// Now is the clock used for debouncing. Default: time.Now.
 	Now func() time.Time
@@ -92,10 +96,14 @@ type Runner struct {
 	enabled map[string]bool
 	agent   agent.Agent
 	host    workspace.Host
+	closeFn func() // closes a host the runner made
 	now     func() time.Time
 
 	mcp    *mcpserver.Server
 	mcpURL string // http://127.0.0.1:P/<profile>
+	// fwd makes the MCP server reachable on a remote host; the agent's
+	// URL then has the port on that host.
+	fwd *workspace.SSHForward
 
 	// The code host of a strategy with pull or merge requests; vcs is nil
 	// for the branch strategy.
@@ -131,10 +139,16 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	}
 	logger = logger.With("pipeline", p.Name)
 	opts = withDefaults(opts)
-	host, err := hostFor(p, opts)
+	host, closeHost, err := hostFor(p, opts)
 	if err != nil {
 		return nil, err
 	}
+	ok := false
+	defer func() {
+		if !ok {
+			closeHost()
+		}
+	}()
 	if strings.TrimSpace(p.Workspace.Worktrees) == "" {
 		root, err := workspace.DefaultRoot(ctx, host, p.Name)
 		if err != nil {
@@ -164,7 +178,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		}
 		logger.Info("code host", "repo", repoName(rem.Repo), "strategy", p.Strategy.Kind, "as", vcsMe, "token", rem.TokenSource)
 	}
-	ag, err := opts.NewAgent(p.Agent, logger)
+	ag, err := opts.NewAgent(p.Agent, host, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +186,9 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	if profile == "" {
 		profile = p.Profile
 	}
+	ok = true
 	return &Runner{
+		closeFn:    closeHost,
 		vcs:        rem.Strategy,
 		vcsMe:      vcsMe,
 		vcsRepo:    repoName(rem.Repo),
@@ -213,14 +229,29 @@ func withDefaults(o Options) Options {
 	return o
 }
 
-func hostFor(p spec.Pipeline, o Options) (workspace.Host, error) {
+// hostFor returns the host of the pipeline's workspace and a function that
+// closes it (a no-op for Options.Host and this machine).
+func hostFor(p spec.Pipeline, o Options) (workspace.Host, func(), error) {
 	if o.Host != nil {
-		return o.Host, nil
+		return o.Host, func() {}, nil
 	}
 	if h := strings.TrimSpace(p.Workspace.Host); h != "" && h != "local" {
-		return nil, fmt.Errorf("pipeline %s: workspace host %q: ssh hosts are not supported yet", p.Name, h)
+		if strings.HasPrefix(h, "-") {
+			return nil, func() {}, fmt.Errorf("pipeline %s: workspace host %q is not an ssh host alias", p.Name, h)
+		}
+		s := workspace.SSH(h)
+		return s, func() { s.Close() }, nil
 	}
-	return workspace.Local(), nil
+	return workspace.Local(), func() {}, nil
+}
+
+// isRemote reports whether h is another machine.
+func isRemote(h workspace.Host) bool { return h.Name() != "local" }
+
+// remoteHost is a host on another machine, reached with ssh.
+type remoteHost interface {
+	workspace.Host
+	Forward(ctx context.Context, local int) (*workspace.SSHForward, error)
 }
 
 // connect is the real Options.Connect.
@@ -237,8 +268,16 @@ func connect(_ context.Context, profile string, logger *slog.Logger) (*youtrack.
 }
 
 // newAgent is the real Options.NewAgent.
-func newAgent(a spec.Agent, logger *slog.Logger) (agent.Agent, error) {
-	return agent.New(a.Provider, a.Command, a.Args, agent.WithMode(a.Mode), agent.WithModel(a.Model), agent.WithLogger(logger))
+func newAgent(a spec.Agent, host workspace.Host, logger *slog.Logger) (agent.Agent, error) {
+	opts := []agent.Setting{agent.WithMode(a.Mode), agent.WithModel(a.Model), agent.WithLogger(logger)}
+	if host != nil && isRemote(host) {
+		h, ok := host.(agent.Host)
+		if !ok {
+			return nil, fmt.Errorf("the agent can't run on host %s", host.Name())
+		}
+		opts = append(opts, agent.WithHost(h))
+	}
+	return agent.New(a.Provider, a.Command, a.Args, opts...)
 }
 
 // Run runs the pipeline until ctx ends. It takes the pipeline's runner lock
@@ -256,6 +295,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	r.started = true
 	r.mu.Unlock()
+	// Last: stopping workers may still commit and push on the host.
+	defer r.closeFn()
 
 	pid := os.Getpid()
 	hostname, _ := os.Hostname()
@@ -278,6 +319,9 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	r.mcpURL = base + "/" + r.profile
 	defer r.mcp.Close()
+	if err := r.forwardMCP(ctx, base); err != nil {
+		return err
+	}
 
 	runCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
@@ -437,4 +481,42 @@ func (r *Runner) event(ctx context.Context, runID int64, kind string, data any) 
 	if err := r.st.AddEvent(context.WithoutCancel(ctx), runID, kind, data); err != nil {
 		r.log.Warn("recording an event failed", "kind", kind, "err", err)
 	}
+}
+
+// forwardMCP makes the MCP server at base (http://127.0.0.1:P) reachable
+// on a remote host. The forward lives until the host is closed.
+func (r *Runner) forwardMCP(ctx context.Context, base string) error {
+	rh, ok := r.host.(remoteHost)
+	if !ok || !isRemote(r.host) {
+		return nil
+	}
+	u, err := url.Parse(base)
+	if err != nil {
+		return err
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return fmt.Errorf("the MCP server address %s: %w", base, err)
+	}
+	fwd, err := rh.Forward(ctx, port)
+	if err != nil {
+		return fmt.Errorf("making the MCP server reachable on %s: %w", r.host.Name(), err)
+	}
+	remote, _ := fwd.Port(ctx)
+	r.fwd = fwd
+	r.log.Info("MCP server forwarded", "host", r.host.Name(), "local", port, "remote", remote)
+	return nil
+}
+
+// agentMCPURL is the URL of the MCP server as the agent reaches it: on a
+// remote host, through the forward, which is set up again if it was lost.
+func (r *Runner) agentMCPURL(ctx context.Context) (string, error) {
+	if r.fwd == nil {
+		return r.mcpURL, nil
+	}
+	port, err := r.fwd.Port(ctx)
+	if err != nil {
+		return "", fmt.Errorf("the MCP forward to %s: %w", r.host.Name(), err)
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d/%s", port, r.profile), nil
 }

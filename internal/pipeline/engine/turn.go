@@ -230,12 +230,20 @@ func (t *turn) run1(answer string) string {
 		return t.fail("bad template", "A prompt template of the pipeline is invalid: "+err.Error())
 	}
 
+	mcpURL, err := r.agentMCPURL(t.ctx)
+	if err != nil {
+		if t.ctx.Err() != nil {
+			return t.stopped(causeOf(t.ctx))
+		}
+		return t.fail("agent failed", "The agent could not be given the MCP server: "+err.Error())
+	}
 	opts := agent.StartOptions{
 		Dir:          t.w.wt.Path,
+		RunDir:       t.w.runDir,
 		Env:          r.p.Agent.Env,
 		Model:        r.p.Agent.Model,
 		Mode:         r.p.Agent.Mode,
-		MCP:          []agent.MCPServer{{Name: "ymcp", URL: r.mcpURL, Headers: map[string]string{"Authorization": "Bearer " + t.w.token}}},
+		MCP:          []agent.MCPServer{{Name: "ymcp", URL: mcpURL, Headers: map[string]string{"Authorization": "Bearer " + t.w.token}}},
 		SessionID:    run.AgentSession,
 		AllowedTools: append(slices.Clone(pipelineTools), t.w.approvedTools()...),
 		SystemPrompt: system,
@@ -294,10 +302,14 @@ func (t *turn) prepareWorkspace() error {
 		if err == nil {
 			t.run = saved
 		}
-		if _, err := workspace.RunDir(t.ctx, r.host, r.p.Workspace.Dir, run.Number); err != nil {
+		r.event(t.bg, run.ID, "worktree", map[string]string{"path": wt.Path, "branch": wt.Branch, "base": wt.Base})
+	}
+	if w.runDir == "" {
+		dir, err := workspace.RunDir(t.ctx, r.host, r.p.Workspace.Dir, run.Number)
+		if err != nil {
 			r.log.Warn("creating the run directory failed", "run", run.Number, "err", err)
 		}
-		r.event(t.bg, run.ID, "worktree", map[string]string{"path": wt.Path, "branch": wt.Branch, "base": wt.Base})
+		w.runDir = dir
 	}
 	t.vars["branch"] = w.wt.Branch
 	t.vars["base"] = w.wt.Base
