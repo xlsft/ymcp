@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -149,8 +150,9 @@ func crashed(err error) bool {
 	if !errors.As(err, &ee) {
 		return false
 	}
+	// Linux adds " (core dumped)" when a core was written.
 	s := ee.Error()
-	return s == "signal: segmentation fault" || s == "signal: bus error"
+	return strings.HasPrefix(s, "signal: segmentation fault") || strings.HasPrefix(s, "signal: bus error")
 }
 
 // rerunnable reports whether a git command can simply run again after a
