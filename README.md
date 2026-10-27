@@ -191,11 +191,14 @@ alone start from everything, e.g. `-api,-agile`. The start-up log shows what is 
 
 A pipeline watches a YouTrack search and gives each issue it finds to a coding agent. The agent works in its own git
 worktree on a new branch. ymcp pushes the branch, opens a pull or merge request and brings the agent the review
-comments until the change is merged. Pipelines need a local install: they are not in the Docker image, and SSH
-hosts are not supported yet.
+comments until the change is merged. Pipelines need a local install: they are not in the Docker image. The agent works
+on this machine or on an SSH host (`workspace.host`, an alias from `~/.ssh/config`).
 
-Run `ymcp pipeline` to open the TUI: your profiles, their pipelines, a board per pipeline and an inbox of runs that
-wait for you. Press `n` to create a pipeline with the wizard. Or from the command line:
+Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
+runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
+issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
+and the agent's log, with a comment box (`r`) whose `/` completes the commands below. Shortcuts work on Cyrillic
+keyboard layouts too. Or from the command line:
 
 ```sh
 ymcp pipeline new backend --profile youtrack --dir ~/src/backend --query 'project: BE #Unresolved tag: ai'
@@ -218,6 +221,7 @@ The source query uses the same syntax as a saved search. Each issue it finds mov
 | Needs input | The agent asked a question, wants a permission, timed out or failed. ymcp says why in a comment and applies `tag needs-input` |
 | Review | The agent is done and the branch is pushed. Default command `State Fixed` |
 | Done | Off by default. Reached when the change is merged or the issue matches the stage's query |
+| Closed | The change was closed without a merge, or the issue matches the stage's query. Its optional command also runs on a `/cancel` reply |
 
 Each stage has an `enter` command, as typed in YouTrack's command dialog, and a `match` query that recognizes issues
 in it. The working command should take the issue out of the source query: moving it back there cancels the run. A
@@ -243,6 +247,10 @@ its arguments (`agent.args`, e.g. `--allowedTools`). When it asks for a tool it 
 `permissions` decides: `ask` (default) puts the run in needs input, `allow` approves every request, `deny` refuses
 every one and the agent goes on without the tool. New Claude pipelines start with `--dangerously-skip-permissions` in
 `agent.args`, so Claude runs every tool without asking; replace it with a mode or `--allowedTools` to restrict it.
+New Kimi pipelines start in Kimi's `yolo` mode for the same reason; `auto` approves only what Kimi deems safe and
+`default` asks about everything.
+
+Before each turn ymcp fetches `origin`, so the agent can rebase onto the base branch without fetching itself.
 
 ### Strategies
 
@@ -283,8 +291,19 @@ A run waits in needs input when the agent asks a question, wants a permission, s
 comment in YouTrack or on the pull request, the TUI's inbox, or `ymcp pipeline backend answer 17 "…"`. A permission
 request takes `/approve` or `/reject`; without a reply within `timeouts.permission` (30m) it is refused.
 For Claude, `/approve` allows exactly the calls that were denied for the rest of the run (`Bash(<command>)`,
-`Edit(//<path>)`, …), never the whole tool; a call that can't be spelled as such a rule (a wildcard, a subshell) stays
-denied.
+`Edit(//<path>)`, …), never the whole tool; a compound command gets a rule for each of its commands, and a call that
+can't be spelled as such a rule (a wildcard, a subshell) stays denied.
+
+Three more replies are carried out by ymcp itself, the agent never sees them:
+
+| Reply | |
+|---|---|
+| `/clear` | Hides every comment of the run, yours and the agent's, in YouTrack and on the pull or merge request. They stay in the history: YouTrack marks them deleted and can restore them, GitHub folds them as outdated, GitLab resolves their threads |
+| `/compact` | Has the agent sum the run up in the pipeline's `language`, then clears it and leaves the summary, with the links to the change and the branch, as the one comment |
+| `/cancel [why]` | Cancels the run as `ymcp pipeline NAME cancel N` does, and closes the issue with the closed stage's command |
+
+`"autoCompact": true` compacts every run that ends as done or closed. A command runs once: restoring its comment does
+not run it again.
 
 ### Notifications
 
