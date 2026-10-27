@@ -320,6 +320,7 @@ func TestValidate(t *testing.T) {
 		{"zero optional fields are valid", func(p *Pipeline) { p.Workspace.Parallel = 0; p.Language = "" }, nil},
 		{"all providers", func(p *Pipeline) { p.Agent.Provider = "opencode" }, nil},
 		{"disabled stage needs nothing", func(p *Pipeline) { p.Stages.Closed = Stage{Enabled: &no} }, nil},
+		{"closed needs no enter", func(p *Pipeline) { p.Stages.Closed = Stage{} }, nil},
 		{"done enabled without enter", func(p *Pipeline) { yes := true; p.Stages.Done = Stage{Enabled: &yes} }, []string{"stages.done.enter"}},
 		{"reserved name", func(p *Pipeline) { p.Name = "list" }, []string{"reserved"}},
 		{"bad name", func(p *Pipeline) { p.Name = "A B" }, []string{"invalid"}},

@@ -50,16 +50,25 @@ Usage:
 // runnerStale is the heartbeat age after which a runner is shown as gone.
 const runnerStale = time.Minute
 
-// The stage commands a new pipeline starts with; they follow the example of
-// the pipeline guide and are meant to be edited.
+// The stage commands a new pipeline starts with. They are valid in
+// YouTrack's default workflow (the needs-input tag is created on first use)
+// and are meant to be edited. The closed stage starts empty.
 const (
-	defaultWorkingEnter    = "State In Progress Assignee me"
+	defaultWorkingEnter    = "State In Progress"
 	defaultWorkingMatch    = "State: {In Progress}"
-	defaultReviewEnter     = "State Review"
-	defaultReviewMatch     = "State: Review"
+	defaultReviewEnter     = "State Fixed"
+	defaultReviewMatch     = "State: Fixed"
 	defaultNeedsInputEnter = "tag needs-input"
 	defaultNeedsInputExit  = "untag needs-input"
-	defaultClosedEnter     = "State Open"
+	defaultNeedsInputMatch = "tag: needs-input"
+)
+
+// defaultClaudeMode and defaultClaudeArgs let a new claude pipeline edit
+// files and commit (the presets tell the agent to commit) without asking
+// about every git command.
+var (
+	defaultClaudeMode = "acceptEdits"
+	defaultClaudeArgs = []string{"--allowedTools", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git log:*)"}
 )
 
 // pipelineForeground reports whether `ymcp pipeline args…` runs a pipeline
@@ -371,13 +380,16 @@ func pipelineNew(args []string) error {
 		Stages: spec.Stages{
 			Working:    spec.Stage{Enter: defaultWorkingEnter, Match: defaultWorkingMatch},
 			Review:     spec.Stage{Enter: defaultReviewEnter, Match: defaultReviewMatch},
-			NeedsInput: spec.Stage{Enter: defaultNeedsInputEnter, Exit: defaultNeedsInputExit},
-			Closed:     spec.Stage{Enter: defaultClosedEnter},
+			NeedsInput: spec.Stage{Enter: defaultNeedsInputEnter, Exit: defaultNeedsInputExit, Match: defaultNeedsInputMatch},
 		},
 		Workspace: spec.Workspace{Host: *host, Dir: repo},
 		Agent:     spec.Agent{Provider: *agentFlag, Command: *command},
 		Prompts:   spec.Prompts{Preset: *preset},
 	}.WithDefaults()
+	if p.Agent.Provider == "claude" {
+		p.Agent.Mode = defaultClaudeMode
+		p.Agent.Args = slices.Clone(defaultClaudeArgs)
+	}
 	if err := p.Validate(); err != nil {
 		return err
 	}

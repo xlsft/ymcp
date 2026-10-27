@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -158,6 +160,20 @@ func TestPipelineNewShow(t *testing.T) {
 	if err := p.Validate(); err != nil {
 		t.Errorf("new pipeline does not validate: %v", err)
 	}
+	// Stage commands valid in YouTrack's default workflow; closed starts empty.
+	want := spec.Stages{
+		Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
+		Review:     spec.Stage{Enter: "State Fixed", Match: "State: Fixed"},
+		NeedsInput: spec.Stage{Enter: "tag needs-input", Exit: "untag needs-input", Match: "tag: needs-input"},
+	}
+	got := p.Stages
+	got.Done = spec.Stage{}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("stages = %+v, want %+v", got, want)
+	}
+	if p.Agent.Mode != "" || len(p.Agent.Args) != 0 {
+		t.Errorf("kimi got claude's defaults: %+v", p.Agent)
+	}
 
 	var shown spec.Pipeline
 	if err := json.Unmarshal([]byte(mustPipeline(t, "backend", "show")), &shown); err != nil {
@@ -165,6 +181,19 @@ func TestPipelineNewShow(t *testing.T) {
 	}
 	if shown.Name != "backend" || shown.Workspace.Dir != dir || shown.Agent.Provider != "kimi" {
 		t.Errorf("show = %+v", shown)
+	}
+}
+
+func TestPipelineNewClaudeDefaults(t *testing.T) {
+	isolatePipelines(t)
+	mustPipeline(t, "new", "web", "--profile", "work", "--dir", t.TempDir(), "--query", "q")
+	p, err := spec.Load("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := []string{"--allowedTools", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git log:*)"}
+	if p.Agent.Provider != "claude" || p.Agent.Mode != "acceptEdits" || !slices.Equal(p.Agent.Args, wantArgs) {
+		t.Errorf("agent = %+v", p.Agent)
 	}
 }
 

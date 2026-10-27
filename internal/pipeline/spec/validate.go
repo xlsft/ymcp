@@ -74,22 +74,23 @@ func (p Pipeline) Validate() error {
 		add("source.pollInterval must not be negative")
 	}
 
-	stage := func(name string, s Stage, needMatch bool) {
+	stage := func(name string, s Stage, needEnter, needMatch bool) {
 		if !s.On() {
 			return
 		}
-		if strings.TrimSpace(s.Enter) == "" {
+		if needEnter && strings.TrimSpace(s.Enter) == "" {
 			add("stages.%s.enter is required: the YouTrack command that moves an issue into this stage (or set enabled to false)", name)
 		}
 		if needMatch && strings.TrimSpace(s.Match) == "" {
 			add("stages.%s.match is required: the YouTrack search that recognises issues in this stage", name)
 		}
 	}
-	stage("working", p.Stages.Working, true)
-	stage("review", p.Stages.Review, true)
-	stage("needsInput", p.Stages.NeedsInput, false)
-	stage("done", p.Stages.Done, false)
-	stage("closed", p.Stages.Closed, false)
+	stage("working", p.Stages.Working, true, true)
+	stage("review", p.Stages.Review, true, true)
+	stage("needsInput", p.Stages.NeedsInput, true, false)
+	stage("done", p.Stages.Done, true, false)
+	// Humans close issues; ymcp only recognises them by the match.
+	stage("closed", p.Stages.Closed, false, false)
 
 	w := p.Workspace
 	if strings.TrimSpace(w.Dir) == "" {
