@@ -71,7 +71,7 @@ Run `ymcp setup` again at any time to edit a profile, add or remove clients, or 
 ### Several YouTrack instances
 
 Each YouTrack instance is a profile, and each profile is its own MCP server. The profile's display name gives the
-server name: `YouTrack (xlsft)` becomes `youtrack-xlsft`, `youtrack-beget` stays as it is. A repeated `ymcp setup`
+server name: `YouTrack (work)` becomes `youtrack-work`, `youtrack-acme` stays as it is. A repeated `ymcp setup`
 lists your profiles: pick one to edit it, rename it (its client entries move along), or add or remove a profile.
 Clients run `ymcp --profile <key>`, so every instance shows up next to the others with its own tools.
 
@@ -141,7 +141,7 @@ wrong value comes back with the list of valid ones.
 | Escape hatch | `call_api`: any YouTrack or Hub REST endpoint as you, for whatever the other tools don't cover |
 
 Every command takes `--profile <key>` (or `YMCP_PROFILE`) to pick the YouTrack instance, e.g.
-`ymcp --profile youtrack-beget check`. Without it ymcp uses the `youtrack` profile, or the only one there is.
+`ymcp --profile youtrack-acme check`. Without it ymcp uses the `youtrack` profile, or the only one there is.
 
 Tools that delete or bulk-change data are marked with `destructiveHint`, so clients ask before running them.
 
@@ -369,7 +369,7 @@ Environment variables override the stored values of the profile in use. That's h
 YMCP_HTTP_TOKEN=$(openssl rand -hex 32) ymcp serve --transport http --addr 127.0.0.1:8090
 ```
 
-The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-beget`. The default profile
+The start-up log lists each profile with its URL, e.g. `http://127.0.0.1:8090/youtrack-acme`. The default profile
 is also served at `/`. `--profiles a,b` serves only those, and `--profile a` serves just one. A profile that can't sign
 in is skipped with a warning.
 
@@ -391,7 +391,7 @@ Add a profile. `auth` asks for the URL, login and password and checks them befor
 
 ```sh
 docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth
-docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-beget auth   # another instance
+docker run -it --rm -v ymcp:/config xlsoftware/ymcp --profile youtrack-acme auth   # another instance
 ```
 
 Run the server on port 8090 with a token:
