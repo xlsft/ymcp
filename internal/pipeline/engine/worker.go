@@ -198,6 +198,10 @@ func (w *worker) step() {
 			return // the batch is still growing; the next poll looks again
 		}
 		switch {
+		case run.Status == store.StatusReview && isCommand(pending[0].Body) && w.hasRetry():
+			// /approve or /reject of calls denied in a turn that went to
+			// review: an answer, not feedback.
+			kind, items = kindAnswer, pending[:1]
 		case run.Status == store.StatusReview:
 			kind, items = kindFeedback, pending
 		case run.AgentSession == "":
@@ -467,6 +471,20 @@ func (w *worker) setRetry(titles []string) {
 	if err != nil {
 		w.r.log.Warn("saving the pending approval failed", "run", w.number, "err", err)
 	}
+}
+
+// hasRetry reports whether denied tools wait for a /approve or /reject.
+func (w *worker) hasRetry() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	list, err := loadList(w.bg(), w.r.st, w.id, statePending)
+	return err == nil && len(list) > 0
+}
+
+// isCommand reports whether a reply starts with /approve or /reject.
+func isCommand(body string) bool {
+	cmd, _ := command(body)
+	return cmd != ""
 }
 
 // takeRetry returns the tools recorded by setRetry and forgets them.

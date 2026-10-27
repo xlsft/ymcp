@@ -915,6 +915,49 @@ func TestRewrittenBranchIsPushedWithLease(t *testing.T) {
 	}
 }
 
+// TestDeniedAfterProgressGoesToReview: a turn that committed work but had
+// calls denied goes to review with the denied calls in its answer; a
+// /approve there retries them.
+func TestDeniedAfterProgressGoesToReview(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Agent = spec.Agent{Provider: "claude", Name: "Claude"} })
+	is := h.yt.addIssue("Hide done tasks", "Open")
+	h.ag.script(
+		func(t *fakeTurn) agent.Result {
+			writeFile(t, "list.go", "package list\n")
+			t.Say("Done tasks are hidden now.")
+			return agent.Result{Denied: []agent.ToolCall{{Title: "Bash", Status: "denied", Input: json.RawMessage(`{"command":"make lint"}`)}}}
+		},
+		func(t *fakeTurn) agent.Result {
+			t.Say("Lint is clean.")
+			return agent.Result{}
+		},
+	)
+	h.start()
+	run := h.waitReview(1, is.Key)
+	if len(h.events(run.ID, "run.needs_input")) != 0 {
+		t.Error("the run waited for a human")
+	}
+	h.waitFor("the answer", func() bool {
+		return contains(h.yt.agentComments(is.Key), "Done tasks are hidden now.") &&
+			contains(h.yt.agentComments(is.Key), "- Bash: `make lint`") &&
+			contains(h.yt.agentComments(is.Key), "Reply `/approve` to let the agent retry them.")
+	})
+	if err := Answer(context.Background(), h.st, h.p.Name, 1, "/approve"); err != nil {
+		t.Fatal(err)
+	}
+	invs := h.waitInvocations(run.ID, 2)
+	h.waitReview(1, is.Key)
+	if invs[1].Kind != kindAnswer {
+		t.Errorf("the /approve ran a %s turn", invs[1].Kind)
+	}
+	if p := h.ag.promptLog()[1]; !strings.Contains(p, "Approved: Bash(make lint). Retry what was denied.") {
+		t.Errorf("prompt = %q", p)
+	}
+	if starts := h.ag.startLog(); !slices.Contains(starts[1].AllowedTools, "Bash(make lint)") {
+		t.Errorf("allowed tools = %q", starts[1].AllowedTools)
+	}
+}
+
 // TestApprovalSurvivesRestart: the denied tools a reply is about and the
 // approved ones are kept in the store, so a restarted runner still knows
 // what /approve means.

@@ -63,6 +63,7 @@ type turn struct {
 	buf     strings.Builder // coalesced text chunks not yet recorded
 	bufKind agent.Kind
 
+	startHead   string             // the worktree's commit when the agent started
 	perms       []agent.Permission // open permission requests, oldest first
 	permTimer   *time.Timer
 	rejected    []string // tools refused during the turn
@@ -224,6 +225,8 @@ func (t *turn) run1(answer string) string {
 		}
 		return t.fail("workspace failed", "Preparing the git worktree failed: "+err.Error())
 	}
+
+	t.startHead, _ = workspace.Head(t.ctx, r.host, t.w.wt)
 
 	prompt, system, err := t.prompts(answer)
 	if err != nil {
@@ -964,6 +967,15 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 			t.end("denied, retrying")
 			return "Approved: " + strings.Join(d.rules, ", ") + ". Retry what was denied."
 		}
+		if gitErr == nil && t.madeCommits() {
+			// The turn achieved something: it goes to review as usual, and
+			// the denied calls wait for a /approve there.
+			t.w.setRetry(d.rules)
+			t.publishAnswer(answer+"\n\n---\n\n"+d.reviewText(), nil)
+			t.end(agent.StopEndTurn + ", denied")
+			t.toReview()
+			return ""
+		}
 		t.w.setRetry(d.rules)
 		reason := d.text()
 		body := reason
@@ -1312,6 +1324,35 @@ func (t *turn) keepDenials(d denials) string {
 	}
 	t.w.setRetry(d.rules)
 	return d.text()
+}
+
+// madeCommits reports whether the branch got commits during the turn: by
+// the agent, or by the runner from what the agent left uncommitted.
+func (t *turn) madeCommits() bool {
+	if t.startHead == "" || t.w.wt.Path == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(t.bg, gitTimeout)
+	defer cancel()
+	head, err := workspace.Head(ctx, t.r.host, t.w.wt)
+	return err == nil && head != "" && head != t.startHead
+}
+
+// reviewText tells about the denied calls of a turn that went to review
+// all the same.
+func (d denials) reviewText() string {
+	s := "The agent was not allowed to use: " + strings.Join(d.tools, ", ") + "." + deniedCalls(d.calls)
+	if len(d.rules) == 0 {
+		return s + "\n\n" + inexactNote(d.inexact)
+	}
+	s += "\n\nReply `/approve` to let the agent retry them."
+	if !slices.Equal(d.rules, d.tools) {
+		s += " `/approve` allows exactly " + codeList(d.rules) + "."
+	}
+	if len(d.inexact) > 0 {
+		s += " " + inexactNote(d.inexact)
+	}
+	return s
 }
 
 // text says what was denied and what /approve and /reject do about it.
