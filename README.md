@@ -10,6 +10,7 @@
   <a href="https://hub.docker.com/r/xlsoftware/ymcp"><img src="https://img.shields.io/docker/pulls/xlsoftware/ymcp?label=docker%20pulls&color=0E0E0E" alt="Docker pulls"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/xlsft/ymcp?color=0E0E0E" alt="Go">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/xlsft/ymcp?color=0E0E0E" alt="MIT"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/xlsft/ymcp"><img src="https://api.scorecard.dev/projects/github.com/xlsft/ymcp/badge" alt="OpenSSF Scorecard"></a>
 [![M8ven Score](https://m8ven.ai/badge/mcp/xlsft-ymcp-fbkn16?v=2e1db4e584becf064c6d5bf20227fcc6)](https://m8ven.ai/mcp/xlsft-ymcp-fbkn16?s=readme)
 
 </div>
