@@ -434,18 +434,20 @@ func (r *Runner) resume(ctx context.Context) error {
 		w := r.startWorker(run)
 		w.leftSource = run.Status == store.StatusReview
 	}
-	// Issues whose last run was canceled are not captured again until they
-	// leave the source (a human moved them back to the backlog to stop).
+	// Issues whose last run was canceled by moving them back to the
+	// backlog are not captured again until they leave the source. A run
+	// canceled otherwise (/cancel, the CLI) doesn't hold its issue: a
+	// human who puts it in the source again wants a new run.
 	all, err := r.st.Runs(ctx, r.p.Name, false)
 	if err != nil {
 		return err
 	}
-	last := map[string]store.RunStatus{}
+	last := map[string]store.Run{}
 	for _, run := range all {
-		last[run.IssueID] = run.Status
+		last[run.IssueID] = run
 	}
-	for id, status := range last {
-		if status == store.StatusCanceled {
+	for id, run := range last {
+		if backlogCanceled(run) {
 			r.suppressed[id] = true
 		}
 	}

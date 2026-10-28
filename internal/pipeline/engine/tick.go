@@ -223,7 +223,7 @@ func (r *Runner) checkMembership(ctx context.Context, source map[string]ytwatch.
 			}
 			if w.backlogTicks++; w.backlogTicks >= confirmTicks {
 				r.suppressed[run.IssueID] = true
-				r.cancelRun(ctx, w, "The issue was moved back to the backlog.", "Canceled: the issue was moved back to the backlog.")
+				r.cancelRun(ctx, w, reasonBacklog, "Canceled: the issue was moved back to the backlog.")
 			}
 			continue
 		}

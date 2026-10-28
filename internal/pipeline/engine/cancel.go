@@ -16,8 +16,19 @@ import (
 // starts.
 const stateCanceled = "cancel_cleanup"
 
-// reasonDeleted is the reason of a run canceled because its issue is gone.
-const reasonDeleted = "The issue was deleted."
+// Reasons of the runs the runner cancels because of where their issue is.
+const (
+	reasonDeleted = "The issue was deleted."
+	// reasonBacklog: a human moved the issue back to the source to stop
+	// the run, so the issue is not captured again while it stays there.
+	reasonBacklog = "The issue was moved back to the backlog."
+)
+
+// backlogCanceled reports whether a run was canceled because its issue was
+// moved back to the backlog.
+func backlogCanceled(run store.Run) bool {
+	return run.Status == store.StatusCanceled && run.NeedsInputReason == reasonBacklog
+}
 
 // cancelRecord is what the cleanup of a canceled run needs.
 type cancelRecord struct {

@@ -1189,6 +1189,43 @@ func TestMovedBackToBacklogCancels(t *testing.T) {
 	}
 }
 
+// TestBacklogCancelHoldsAcrossRestart: an issue moved back to the backlog
+// to cancel its run is not captured again by the next runner either.
+func TestBacklogCancelHoldsAcrossRestart(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Do it", "Open")
+	h.start()
+	h.waitReview(1, is.Key)
+	h.yt.setState(is.Key, "Open")
+	h.waitStatus(1, store.StatusCanceled)
+	h.stop()
+	h.start()
+	time.Sleep(200 * time.Millisecond)
+	if runs, _ := h.st.Runs(context.Background(), h.p.Name, false); len(runs) != 1 {
+		t.Fatalf("captured again after a restart: %d runs", len(runs))
+	}
+}
+
+// TestCanceledIssuePutBackIsCaptured: an issue whose run was canceled
+// otherwise than by the backlog, then put in the source again, gets a new
+// run, also from a runner started after the cancel.
+func TestCanceledIssuePutBackIsCaptured(t *testing.T) {
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Do it", "Open")
+	h.start()
+	run := h.waitReview(1, is.Key)
+	h.stop()
+	if err := Cancel(context.Background(), h.st, h.p.Name, 1); err != nil {
+		t.Fatal(err)
+	}
+	h.yt.setState(is.Key, "Open")
+	h.start()
+	run2 := h.waitReview(2, is.Key)
+	if run2.Branch == run.Branch {
+		t.Errorf("run 2 took over the branch %q of run 1", run.Branch)
+	}
+}
+
 // TestCanceledRunKeepsWorktree: with workspace.keepWorktree the worktree
 // of a canceled run stays.
 func TestCanceledRunKeepsWorktree(t *testing.T) {
