@@ -42,6 +42,7 @@ type ghUser struct {
 
 type ghPull struct {
 	Number   int     `json:"number"`
+	Title    string  `json:"title"`
 	HTMLURL  string  `json:"html_url"`
 	State    string  `json:"state"`
 	Merged   bool    `json:"merged"`
@@ -242,7 +243,10 @@ func (g *github) remember(pr, issue int) {
 
 // change converts a pull request, learning its mirror issue on the way.
 func (g *github) change(pr ghPull) Change {
-	ch := Change{Number: pr.Number, URL: pr.HTMLURL, State: StateOpen, Draft: pr.Draft}
+	ch := Change{Number: pr.Number, URL: pr.HTMLURL, State: StateOpen, Draft: pr.Draft, Title: pr.Title}
+	if pr.Body != nil {
+		ch.Body = *pr.Body
+	}
 	switch {
 	case pr.Merged || (pr.MergedAt != nil && !pr.MergedAt.IsZero()):
 		ch.State, ch.Merged = StateMerged, true
@@ -309,6 +313,26 @@ func (g *github) Close(ctx context.Context, number int) error {
 		}
 	}
 	return nil
+}
+
+// Update replaces a pull request's title and body; github-issue-pr keeps
+// the line that closes its issue.
+func (g *github) Update(ctx context.Context, number int, title, body string) (Change, error) {
+	if g.kind == KindGitHubIssuePR {
+		issue, err := g.issueFor(ctx, number, nil)
+		if err != nil {
+			return Change{}, err
+		}
+		if issue > 0 {
+			body = strings.TrimRight(body, "\r\n \t") + "\n\nCloses #" + strconv.Itoa(issue)
+		}
+	}
+	in := map[string]any{"title": title, "body": clip(body, githubMaxBody)}
+	var pr ghPull
+	if err := g.write(ctx, http.MethodPatch, g.path("/pulls/"+strconv.Itoa(number)), in, &pr); err != nil {
+		return Change{}, fmt.Errorf("vcs: updating the pull request: %w", err)
+	}
+	return g.change(pr), nil
 }
 
 // issueFor finds the mirror issue of a PR: from the cursor, the cache, or

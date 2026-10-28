@@ -22,6 +22,7 @@ type fakeVCS struct {
 
 	mu       sync.Mutex
 	opens    []vcs.OpenOptions
+	updates  []vcs.OpenOptions // the titles and bodies Update was called with
 	change   vcs.Change
 	comments []*fakeVCSComment
 	rev      int
@@ -80,11 +81,22 @@ func (f *fakeVCS) Open(_ context.Context, o vcs.OpenOptions) (vcs.Change, error)
 	f.opens = append(f.opens, o)
 	if f.change.Number == 0 || f.change.State != vcs.StateOpen {
 		n := max(f.change.Number+1, 42) // the first change is #42
-		f.change = vcs.Change{Number: n, URL: "https://github.test/acme/api/pull/" + strconv.Itoa(n), State: vcs.StateOpen, Draft: o.Draft}
+		f.change = vcs.Change{Number: n, URL: "https://github.test/acme/api/pull/" + strconv.Itoa(n), State: vcs.StateOpen, Draft: o.Draft, Title: o.Title, Body: o.Body}
 		if f.kind == vcs.KindGitHubIssuePR {
 			f.change.Issue, f.change.IssueURL = 7, "https://github.test/acme/api/issues/7"
 		}
 	}
+	return f.change, nil
+}
+
+func (f *fakeVCS) Update(_ context.Context, number int, title, body string) (vcs.Change, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if number != f.change.Number {
+		return vcs.Change{}, fmt.Errorf("no change #%d", number)
+	}
+	f.updates = append(f.updates, vcs.OpenOptions{Title: title, Body: body})
+	f.change.Title, f.change.Body = title, body
 	return f.change, nil
 }
 

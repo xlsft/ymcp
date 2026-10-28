@@ -64,6 +64,9 @@ type Change struct {
 	State  string // open | closed | merged
 	Merged bool
 	Draft  bool
+	// Title and Body are the change's as the host keeps them.
+	Title string
+	Body  string
 	// Issue and IssueURL are the mirror issue of a github-issue-pr change.
 	Issue    int
 	IssueURL string
@@ -118,6 +121,9 @@ type Strategy interface {
 	Open(ctx context.Context, o OpenOptions) (Change, error)
 	// Change reads the state of a change.
 	Change(ctx context.Context, number int) (Change, error)
+	// Update replaces the title and the body of a change; a draft stays a
+	// draft, and github-issue-pr keeps the line that closes its issue.
+	Update(ctx context.Context, number int, title, body string) (Change, error)
 	// Comments returns the feedback on a change that is new or changed since
 	// the cursor, oldest first, and the cursor for the next call. Pages that
 	// did not change are skipped; deduplicating by (ID, Updated) is the
@@ -202,6 +208,9 @@ func (branch) Kind() Kind                                        { return KindBr
 func (branch) Me(context.Context) (string, error)                { return "", nil }
 func (branch) Open(context.Context, OpenOptions) (Change, error) { return Change{}, nil }
 func (branch) Change(context.Context, int) (Change, error)       { return Change{}, nil }
+func (branch) Update(context.Context, int, string, string) (Change, error) {
+	return Change{}, ErrNoChange
+}
 func (branch) Comments(_ context.Context, _ int, since Cursor) ([]Comment, Cursor, error) {
 	return nil, since, nil
 }
