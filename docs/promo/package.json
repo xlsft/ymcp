@@ -1,0 +1,8 @@
+{
+  "name": "ymcp-promo",
+  "private": true,
+  "description": "Renders the ymcp promo video; see README.md",
+  "dependencies": {
+    "puppeteer-core": "24.43.1"
+  }
+}

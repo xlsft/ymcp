@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ymcp promo</title>
+<!-- The promo video, drawn frame by frame by render.js: see README.md. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;800&display=block">
+<style>
+@font-face { font-family: 'ymcp mono'; src: url(JetBrainsMonoNerdFontMono-Regular.ttf); font-weight: 400; }
+@font-face { font-family: 'ymcp mono'; src: url(JetBrainsMonoNerdFontMono-Bold.ttf); font-weight: 700; }
+@font-face { font-family: 'ymcp mono'; src: url(JetBrainsMonoNerdFontMono-Italic.ttf); font-weight: 400; font-style: italic; }
+:root { --red: #C62A22; --ink: #0E0E0E; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; }
+body { background: var(--term-bg); }
+#stage { position: absolute; inset: 0; transform-origin: 960px 540px; }
+#term { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform;
+  margin: 0; padding: 0; color: var(--term-fg); white-space: pre; font-variant-ligatures: none;
+  font: 26px/1.2 'ymcp mono', 'DejaVu Sans', 'Apple Symbols', monospace; }
+#term2 { position: absolute; left: 0; top: 0; transform-origin: 0 0; margin: 0; padding: 0; color: var(--term-fg); white-space: pre; font-variant-ligatures: none;
+  font: 26px/1.2 'ymcp mono', 'DejaVu Sans', 'Apple Symbols', monospace; background: var(--term-bg); display: none; }
+#term i.c, #term2 i.c { display: inline-block; width: 1ch; font-style: inherit; text-align: center; vertical-align: top; }
+#cap { position: absolute; left: 112px; bottom: 104px; background: var(--red); color: #fff;
+  font: 800 40px/1 'JetBrains Mono', monospace; padding: 22px 34px 24px; display: none; }
+/* The outro: the Open Graph card of the site, at 1.6 times its size. */
+#end { position: absolute; inset: 0; background: var(--red); color: #fff; opacity: 0; display: none;
+  font-family: "Archivo", "Arial Black", Arial, sans-serif; }
+#end .in { position: absolute; left: 115px; right: 115px; top: 138px; bottom: 138px; display: grid; grid-template-rows: auto 1fr auto; }
+#end .lockup { display: flex; align-items: center; gap: 58px; }
+#end .ysq { position: relative; width: 288px; height: 288px; flex: none; }
+#end .ysq svg { display: block; width: 288px; height: 288px; }
+#end .mcp { font: 900 371px/.8 "Archivo", sans-serif; font-stretch: 112%; letter-spacing: -.02em; }
+#end .lead { align-self: end; max-width: 1568px; font: 700 74px/1.15 "Archivo", sans-serif; }
+#end .foot { display: flex; justify-content: space-between; margin-top: 54px; font: 400 42px/1 'JetBrains Mono', monospace; opacity: .92; }
+</style>
+<div id="stage"><pre id="term"></pre><pre id="term2"></pre></div>
+<div id="cap"></div>
+<div id="end"><div class="in">
+  <div class="lockup" id="lockup"><div class="ysq"><svg viewBox="2 2 44 44"><rect x="2" y="2" width="44" height="44" fill="#0E0E0E"/><path id="ly" fill="#fff"/><rect id="lb" fill="#fff"/></svg></div><p class="mcp">MCP</p></div>
+  <p class="lead" id="lead">YouTrack for any AI client, with easy setup. And pipelines that hand issues to coding agents.</p>
+  <div class="foot" id="foot"><span>58 tools · 15 clients</span><span>ymcp.su</span></div>
+</div></div>
+<script src="frames.js"></script>
+<script>
+document.documentElement.style.setProperty('--term-bg', TERM.bg);
+document.documentElement.style.setProperty('--term-fg', TERM.fg);
+// The loader, redrawn: where the Y and the bar of docs/loader-black.gif are in
+// each of its 50 frames (25 fps), drawn with the banner's Y and smoothed
+// between frames.
+const LOADER = __LOADER__, PATHS = __PATHS__;
+document.getElementById('ly').setAttribute('d', PATHS.y);
+const YB = { x: 491.15, y: 137.81, w: 36.93, h: 47.29 };
+function loaderAt(sec) {
+  const f = ((sec * 25) % 50 + 50) % 50, i = Math.floor(f), j = (i + 1) % 50, k = f - i;
+  const mix = (a, b) => ({ cx: a.cx + (b.cx - a.cx) * k, cy: a.cy + (b.cy - a.cy) * k, w: a.w + (b.w - a.w) * k, h: a.h + (b.h - a.h) * k });
+  const y = mix(LOADER[i].y, LOADER[j].y), b = mix(LOADER[i].bar, LOADER[j].bar);
+  const sx = (y.w - 0.6) / YB.w, sy = (y.h - 0.6) / YB.h;
+  document.getElementById('ly').setAttribute('transform',
+    `translate(${y.cx - (YB.x + YB.w / 2) * sx} ${y.cy - (YB.y + YB.h / 2) * sy}) scale(${sx} ${sy})`);
+  const bw = b.w - 1, bh = 2.2, lb = document.getElementById('lb');
+  lb.setAttribute('x', b.cx - bw / 2); lb.setAttribute('y', b.cy - bh / 2);
+  lb.setAttribute('width', bw); lb.setAttribute('height', bh);
+}
+
+// The track's grid: 118 BPM from 0.238 s; bar(n) is where bar n starts.
+const BEAT = 60 / 118, BAR = BEAT * 4, bar = n => 0.238 + n * BAR;
+const F = 26, CW = F * 0.6, LH = F * 1.2;   // a terminal cell
+const DURATION = bar(12);                    // 24.65 s
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const out = x => 1 - Math.pow(1 - x, 3);
+
+// Shots: the frames they show (offset into them, time scale) and the camera
+// keys of each: [time, zoom, column, row] the screen centre looks at.
+const SHOTS = [
+  { a: 0, b: bar(1), frames: 'board', off: 0, k: 1,
+    cam: [[0, 2.35, 24, 8.55], [bar(1), 2.6, 22, 7.9]] },
+  { a: bar(1), b: bar(2), frames: 'setup', off: bar(1), k: 0.94,
+    cam: [[bar(1), 1.7, 36, 10.5], [bar(1) + 1.0, 1.7, 36, 11], [bar(1) + 1.12, 1.6, 40, 6], [bar(1) + 1.22, 1.5, 38, 13], [bar(2), 1.5, 36, 14.5]] },
+  { a: bar(2), b: bar(3), frames: 'wizard', off: bar(2), k: 1,
+    cam: [[bar(2), 1.65, 64, 23], [bar(2) + 0.95, 1.65, 64, 23], [bar(2) + 1.1, 1.95, 52, 10], [bar(3), 2.0, 52, 10]] },
+  // An agent at work through the YouTrack tools: the prompt typed, then its calls.
+  { a: bar(3), b: bar(5), frames: 'agent', off: bar(3), k: 1,
+    cam: [[bar(3), 1.8, 33.5, 29], [bar(3) + 0.85, 1.8, 33.5, 29], [bar(3) + 1.1, 1.3, 46.5, 8], [bar(3) + 3.1, 1.3, 46.5, 18.5], [bar(5), 1.25, 48, 20]] },
+  // The board gets going.
+  { a: bar(5), b: bar(6), frames: 'board', off: 0, k: 1,
+    cam: [[bar(5), 1.7, 36, 12], [bar(5) + BAR * .45, 1.0, 60, 16.5], [bar(5) + BAR * .7, 1.0, 60, 16.5], [bar(6), 1.6, 58, 10]] },
+  // A run asks: its card on the board, the card open, /approve.
+  { a: bar(6), b: bar(8), frames: 'board', off: 0, k: 1,
+    cam: [[bar(6), 2.0, 58, 9], [bar(6) + BEAT, 2.0, 58, 9], [bar(6) + BEAT + .25, 1.5, 40, 15],
+          [bar(6) + BEAT * 4, 1.7, 38, 21], [bar(7) + BEAT * 2, 1.7, 38, 21], [bar(7) + BEAT * 2 + .3, 1.3, 60, 14], [bar(8), 1.3, 70, 14]] },
+  // The backlog drains.
+  { a: bar(8), b: bar(10) + BEAT, frames: 'board', off: 0, k: 1,
+    cam: [[bar(8), 1.3, 70, 14], [bar(8) + BAR * .5, 1.0, 60, 16.5], [bar(10) + BEAT, 1.0, 60, 16.5]] },
+];
+const CAPS = [
+  [0.4, bar(1), 'Save your backlog from overgrowing'],
+  [bar(1) + 0.1, bar(2), 'Easy connection'],
+  [bar(2) + 0.1, bar(3), 'Anywhere'],
+  [bar(3) + 0.1, bar(5), 'Directly'],
+  [bar(5) + 0.1, bar(6), 'Or via pipelines'],
+  [bar(6) + 0.1, bar(8), 'Don’t miss anything'],
+  [bar(8) + 0.55, bar(10), 'Issues in, solutions out'],
+];
+// The run card opens and closes on these eighths: cross-fade instead of a cut.
+const EIGHTH = BEAT / 2, CARD = [0.238 + 50 * EIGHTH, 0.238 + 58 * EIGHTH], XFADE = 0.32;
+// The outro comes in over the last board frames, from bar 10 for a beat.
+const FADE_A = bar(10), FADE_B = bar(10) + BEAT;
+
+function frameAt(list, t) {
+  let pick = list[0][1];
+  for (const [sec, html] of list) { if (sec <= t + 1e-6) pick = html; else break; }
+  return pick;
+}
+
+function camAt(keys, t) {
+  if (t <= keys[0][0]) return keys[0];
+  for (let i = 1; i < keys.length; i++) {
+    const [ta, za, ca, ra] = keys[i - 1], [tb, zb, cb, rb] = keys[i];
+    if (t <= tb) {
+      const k = ease(clamp((t - ta) / (tb - ta)));
+      return [t, za + (zb - za) * k, ca + (cb - ca) * k, ra + (rb - ra) * k];
+    }
+  }
+  return keys[keys.length - 1];
+}
+
+const stage = document.getElementById('stage'), term = document.getElementById('term');
+const cap = document.getElementById('cap'), end = document.getElementById('end');
+let shownHTML = null, shownPrev = null;
+window.render = (t, tc = t) => {
+  // tc: the time of the output frame, for what the terminal shows; t moves the camera.
+  const shot = SHOTS.find(s => t >= s.a && t < s.b) || SHOTS[SHOTS.length - 1];
+  const html = frameAt(FRAMES[shot.frames], (tc - shot.off) * shot.k);
+  if (html !== shownHTML) { term.innerHTML = html; shownHTML = html; }
+  const [, z, col, row] = camAt(shot.cam, Math.min(t, shot.b));
+  const px = (col + 0.5) * CW, py = (row + 0.5) * LH;
+  const cam = `translate(${960 - z * px}px, ${540 - z * py}px) scale(${z})`;
+  term.style.transform = cam;
+  // The card pops open over the board, and closes back, like a modal: the
+  // card's own cells (columns 5–114, rows 2–31) as a solid panel that grows
+  // from 97% and fades in, over the board before it.
+  const term2 = document.getElementById('term2');
+  const edge = shot.frames === 'board' && CARD.find(T => tc >= T && tc < T + XFADE);
+  if (edge) {
+    const opening = edge === CARD[0];
+    const before = frameAt(FRAMES.board, edge - 0.001);
+    const board = opening ? before : html, card = opening ? html : before;
+    if (term.innerHTML !== board) { term.innerHTML = board; shownHTML = board; }
+    if (card !== shownPrev) { term2.innerHTML = card; shownPrev = card; }
+    const k = clamp((t - edge) / XFADE), v = opening ? k : 1 - k;
+    const x0 = 5 * CW, y0 = 2 * LH, x1 = 115 * CW, y1 = 32 * LH, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, sc = 0.94 + 0.06 * out(v);
+    term2.style.display = 'block';
+    term2.style.clipPath = `inset(${y0}px ${120 * CW - x1}px ${34 * LH - y1}px ${x0}px)`;
+    term2.style.transform = `${cam} translate(${cx}px, ${cy}px) scale(${sc}) translate(${-cx}px, ${-cy}px)`;
+    term2.style.opacity = out(clamp(v / 0.35)); // opaque early: little of the two screens mixed
+  } else term2.style.display = 'none';
+
+  // The outro: the board steps back as the card fades in, then its parts rise.
+  const fading = t >= FADE_A;
+  const k = ease(clamp((t - FADE_A) / (FADE_B - FADE_A)));
+  stage.style.transform = fading ? `scale(${1 - 0.06 * k})` : '';
+  stage.style.opacity = fading ? 1 - k : 1;
+  end.style.display = fading ? 'block' : 'none';
+  if (fading) {
+    end.style.opacity = k;
+    const part = (id, delay) => {
+      const p = out(clamp((t - FADE_A - delay) / 0.6));
+      const el = document.getElementById(id);
+      el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * 36}px)`;
+    };
+    part('lockup', 0.1); part('lead', 0.35); part('foot', 0.6);
+    loaderAt(Math.max(t - FADE_A, 0));
+  }
+
+  const c = CAPS.find(([a, b]) => t >= a && t < b);
+  if (c) {
+    cap.style.display = 'block';
+    if (cap.textContent !== c[2]) cap.textContent = c[2];
+    cap.style.clipPath = `inset(0 ${(1 - clamp((t - c[0]) / 0.12)) * 100}% 0 0)`;
+  } else cap.style.display = 'none';
+};
+window.DURATION = DURATION;
+const q = new URLSearchParams(location.search);
+render(q.has('t') ? parseFloat(q.get('t')) : 0);
+</script>
