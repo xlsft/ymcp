@@ -13,8 +13,8 @@ func TestQueryTags(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{"project: K8S tag: ai #Unresolved", []string{"ai"}},
-		{"tag: {Требуется внимание}", []string{"Требуется внимание"}},
+		{"project: ABC tag: ai #Unresolved", []string{"ai"}},
+		{"tag: {Needs attention}", []string{"Needs attention"}},
 		{"(tag: -done) and Tag: x, {y z} , w", []string{"done", "x", "y z", "w"}},
 		{"tag: ai or tag: AI", []string{"ai"}},
 		{"hashtag: x #ai State: Open", nil},
@@ -36,17 +36,17 @@ func TestSearchNewTag(t *testing.T) {
 	w, _ := newWatcher(t, api)
 	ctx := context.Background()
 
-	_, err := w.Search(ctx, "project: K8S tag: {Требуется внимание} tag: ai")
+	_, err := w.Search(ctx, "project: ABC tag: {Needs attention} tag: ai")
 	var nt *NewTagError
-	if !errors.As(err, &nt) || !reflect.DeepEqual(nt.Tags, []string{"Требуется внимание"}) {
+	if !errors.As(err, &nt) || !reflect.DeepEqual(nt.Tags, []string{"Needs attention"}) {
 		t.Fatalf("Search = %v", err)
 	}
-	if err.Error() != "tag Требуется внимание doesn't exist yet; nothing matches until YouTrack creates it" {
+	if err.Error() != "tag Needs attention doesn't exist yet; nothing matches until YouTrack creates it" {
 		t.Errorf("message = %q", err)
 	}
 
-	got, err := w.Members(ctx, "tag: needs-input", []string{"3-1", "K8S-2"})
-	if err != nil || !reflect.DeepEqual(got, map[string]bool{"3-1": false, "K8S-2": false}) {
+	got, err := w.Members(ctx, "tag: needs-input", []string{"3-1", "ABC-2"})
+	if err != nil || !reflect.DeepEqual(got, map[string]bool{"3-1": false, "ABC-2": false}) {
 		t.Errorf("Members = %v, %v", got, err)
 	}
 

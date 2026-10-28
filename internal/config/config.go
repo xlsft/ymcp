@@ -29,7 +29,7 @@ const DefaultProfile = "youtrack"
 
 // Config is a YouTrack connection profile.
 type Config struct {
-	Name        string `json:"-"` // the profile key, e.g. youtrack-beget
+	Name        string `json:"-"` // the profile key, e.g. youtrack-work
 	DisplayName string `json:"displayName,omitempty"`
 	URL         string `json:"url"`
 	Login       string `json:"login"`

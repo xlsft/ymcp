@@ -187,18 +187,18 @@ func TestNoPrefixAndTitleFromCommit(t *testing.T) {
 		p.Workspace.CommitPrefix = &none
 		p.Strategy.Title = "{{commit.subject}}"
 	})
-	is := h.yt.addIssue("Мелкие баги модуля", "Open")
-	h.ag.script(fixTurn("fix(registry): build the pull command from the image prefix. Then more."))
+	is := h.yt.addIssue("Small bugs in the module", "Open")
+	h.ag.script(fixTurn("fix(cache): build the key from the request path. Then more."))
 	h.start()
 	run := h.waitReview(1, is.Key)
 	if sys := h.ag.startLog()[0].SystemPrompt; !strings.Contains(sys, "commitlint") || strings.Contains(sys, "every commit message starts with") {
 		t.Errorf("system prompt commit rule:\n%s", sys)
 	}
-	if subject := git(t, run.Worktree, "log", "-1", "--format=%s"); subject != "fix(registry): build the pull command from the image prefix" { // no full stop
+	if subject := git(t, run.Worktree, "log", "-1", "--format=%s"); subject != "fix(cache): build the key from the request path" { // no full stop
 		t.Errorf("ymcp's commit = %q", subject)
 	}
 	opens := h.vcs.openLog()
-	if len(opens) != 1 || opens[0].Title != "fix(registry): build the pull command from the image prefix" {
+	if len(opens) != 1 || opens[0].Title != "fix(cache): build the key from the request path" {
 		t.Errorf("opens = %+v", opens)
 	}
 }

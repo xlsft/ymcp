@@ -192,9 +192,9 @@ func TestUsersForbidden(t *testing.T) {
 // TestNewTagSearchWarns: a search by a tag nobody has created yet is a
 // warning, in the source and in a stage, never an error.
 func TestNewTagSearchWarns(t *testing.T) {
-	err := &ytwatch.NewTagError{Tags: []string{"Требуется внимание"}}
-	view := matchView(matchState{done: true, err: err}, "tag: {Требуется внимание}", 120)
-	if !strings.HasPrefix(view, markWarn) || !strings.Contains(view, "Требуется внимание doesn't exist yet") {
+	err := &ytwatch.NewTagError{Tags: []string{"Needs attention"}}
+	view := matchView(matchState{done: true, err: err}, "tag: {Needs attention}", 120)
+	if !strings.HasPrefix(view, markWarn) || !strings.Contains(view, "Needs attention doesn't exist yet") {
 		t.Errorf("matchView = %q", view)
 	}
 	if view := matchView(matchState{done: true, err: errors.New("400 invalid_query")}, "bogus:", 120); !strings.HasPrefix(view, markErr) {

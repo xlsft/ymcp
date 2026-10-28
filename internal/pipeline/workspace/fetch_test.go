@@ -38,7 +38,7 @@ func (h *racyHost) Run(ctx context.Context, dir string, argv []string, stdin io.
 	h.now--
 	h.mu.Unlock()
 	if fail {
-		return nil, []byte("error: cannot lock ref 'refs/remotes/origin/BH-1': is at 018a but expected d375\n ! d375..018a  BH-1  -> origin/BH-1  (unable to update local ref)"), errors.New("exit status 1")
+		return nil, []byte("error: cannot lock ref 'refs/remotes/origin/ABC-1': is at 018a but expected d375\n ! d375..018a  ABC-1  -> origin/ABC-1  (unable to update local ref)"), errors.New("exit status 1")
 	}
 	return h.Host.Run(ctx, dir, argv, stdin)
 }
