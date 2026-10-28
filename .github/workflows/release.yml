@@ -57,10 +57,10 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
-      id-token: write # keyless Sigstore signing of checksums.txt
+      id-token: write # keyless Sigstore signing of checksums.txt and the provenance
+      attestations: write # the build provenance GitHub keeps
     outputs:
       version: ${{ steps.version.outputs.version }}
-      hashes: ${{ steps.hashes.outputs.hashes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -108,28 +108,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Pushes to xlsft/homebrew-tap and xlsft/scoop-bucket.
           YMCP_PACKAGES_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
-      # The subjects of the provenance: every released file with its
-      # SHA-256, as checksums.txt lists them.
-      - name: Provenance subjects
-        id: hashes
+      # SLSA build provenance of every file checksums.txt lists: GitHub keeps
+      # it as an attestation, and the release carries its Sigstore bundle
+      # as ymcp.intoto.jsonl.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: attest
         if: steps.version.outputs.version != ''
-        run: echo "hashes=$(base64 -w0 dist/checksums.txt)" >> "$GITHUB_OUTPUT"
-
-  # SLSA build provenance of the release's files, uploaded to the release
-  # as ymcp.intoto.jsonl. The generator is referenced by tag, as it requires.
-  provenance:
-    needs: release
-    if: needs.release.outputs.version != ''
-    permissions:
-      actions: read # the workflow run the provenance describes
-      id-token: write # signing the provenance
-      contents: write # uploading it to the release
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: ${{ needs.release.outputs.hashes }}
-      provenance-name: ymcp.intoto.jsonl
-      upload-assets: true
-      upload-tag-name: ${{ needs.release.outputs.version }}
+        with:
+          subject-checksums: dist/checksums.txt
+      - name: Attach the provenance
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" ymcp.intoto.jsonl
+          gh release upload "$VERSION" ymcp.intoto.jsonl
 
   docker:
     needs: release
