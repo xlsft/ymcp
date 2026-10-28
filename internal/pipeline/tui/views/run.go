@@ -57,7 +57,8 @@ type Run struct {
 	pipeline string
 	number   int
 	home     string
-	backlog  bool // an issue the runner has not taken yet: no run
+	backlog  bool   // an issue the runner has not taken yet: no run
+	source   string // the pipeline's source query, for a backlog issue
 
 	loaded   bool
 	loading  bool
@@ -109,6 +110,8 @@ type Run struct {
 	people      map[string][]Person // who YouTrack found, by mention query
 	peopleLast  []Person            // the last answer shown
 	peopleAsked map[string]bool     // the queries looked up
+
+	fe fieldEditor // the Fields menu, from Deps.Fields
 }
 
 // pendingComment is a comment posted from the card that YouTrack has not
@@ -126,6 +129,7 @@ type runLoaded struct {
 	runner   runnerInfo
 	profiles []config.Config
 	events   []store.Event
+	source   string
 	err      error
 }
 
@@ -179,9 +183,9 @@ func (m *Run) Init() tea.Cmd {
 	return m.reload()
 }
 
-// Answering reports whether the reply box has the focus, so the root app
-// keeps its own keys out of it.
-func (m *Run) Answering() bool { return m.reply.focused }
+// Answering reports whether the reply box or the Fields menu has the
+// focus, so the root app keeps its own keys out of them.
+func (m *Run) Answering() bool { return m.reply.focused || m.fe.open }
 
 func (m *Run) reload() tea.Cmd {
 	if m.loading {
@@ -196,9 +200,14 @@ func (m *Run) load(info runInfo) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
 	defer cancel()
 	msg := runLoaded{to: m.id}
-	if m.backlog { // no run: only the runner and the profiles
+	if m.backlog { // no run: the runner, the profiles and the source
 		msg.runner, msg.err = m.d.runner(ctx, m.pipeline)
 		msg.profiles, _ = m.d.Profiles()
+		if list, err := m.d.Pipelines(); err == nil {
+			if p, ok := pipelineByName(list, m.pipeline); ok {
+				msg.source = p.Source.Query
+			}
+		}
 		return msg
 	}
 	r, err := m.d.Store.RunByNumber(ctx, m.pipeline, m.number)
@@ -297,6 +306,8 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pics.base = strings.TrimRight(profileURL(m.profiles, cmp.Or(msg.run.Profile, m.run.Profile)), "/")
 		if !m.backlog { // a backlog card keeps the run it was made with
 			m.run, m.info = msg.run, msg.info
+		} else if msg.source != "" {
+			m.source = msg.source
 		}
 		if len(msg.events) > 0 {
 			m.events = append(m.events, msg.events...)
@@ -380,6 +391,16 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadChange())
 		}
 		return m, tea.Batch(cmds...)
+	case fieldsLoaded:
+		if msg.to == m.id {
+			m.fieldsRead(msg)
+		}
+		return m, nil
+	case fieldApplied:
+		if msg.to != m.id {
+			return m, nil
+		}
+		return m, m.applied(msg)
 	case picturesLoaded:
 		if msg.to == m.id {
 			m.pics.loaded(msg)
@@ -394,6 +415,9 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.fe.open {
+			return m, m.fieldKey(msg)
+		}
 		if m.reply.focused {
 			if m.suggestKey(msg.String()) {
 				return m, nil
@@ -408,6 +432,11 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.key(keys.Of(msg))
 	default:
+		if m.fe.typing {
+			var cmd tea.Cmd
+			m.fe.input, cmd = m.fe.input.Update(msg)
+			return m, cmd
+		}
 		return m, m.reply.update(msg)
 	}
 	return m, nil
@@ -530,8 +559,10 @@ func (m *Run) key(k string) tea.Cmd {
 		*scroll = 1 << 30
 	case "end", "G":
 		*scroll = 0
-	case "r", "enter":
+	case "enter":
 		return m.focusReply()
+	case "r":
+		return m.refresh()
 	case "a":
 		if m.waitsOnPermission() {
 			return m.quick("/approve")
@@ -573,6 +604,8 @@ func (m *Run) key(k string) tea.Cmd {
 			return nil
 		}
 		return openURL(&m.base, m.run.PRURL, "the pull request")
+	case "e":
+		return m.openFields()
 	case "i":
 		return navigate(OpenInbox{})
 	}
@@ -736,6 +769,9 @@ func (m *Run) box(bw, bh int) []string {
 			inner[i] = pad(inner[i], lw) + gutter()
 		}
 	}
+	if m.fe.open { // the Fields menu, over the thread under the top bar
+		inner = m.fieldsOver(inner, cw, lw, beside, max(ruleAt+1, 0))
+	}
 	if !border {
 		for i, l := range inner {
 			inner[i] = pad(l, bw)
@@ -774,6 +810,27 @@ func (m *Run) box(bw, bh int) []string {
 	return out
 }
 
+// fieldsOver lays the Fields menu over the lines of the card from line
+// y, in the middle of the issue's side (lw cells beside the log, else cw),
+// moved up or cut when the card is too short for it.
+func (m *Run) fieldsOver(lines []string, cw, lw int, beside bool, y int) []string {
+	h := len(lines)
+	if h == 0 {
+		return lines
+	}
+	y = min(y, h-1)
+	pop := m.fieldsBox(cw, h-y)
+	if len(pop) > h {
+		pop = pop[:h]
+	}
+	y = min(y, h-len(pop))
+	area := cw
+	if beside {
+		area = lw
+	}
+	return popOver(lines, pop, max((area-ansi.StringWidth(pop[0]))/2, 0), y)
+}
+
 // heading is the title of the card: the pipeline and the run number, the
 // pipeline alone for a backlog issue.
 func (m *Run) heading() string {
@@ -785,8 +842,10 @@ func (m *Run) heading() string {
 
 // topBar is the head of the card across its width: the pipeline and run,
 // the issue key and summary on the left, the issue's fields and the run's
-// state as chips on the right (on a second line when they need it), then
-// the agent line and, with a pull request, the tabs of the thread.
+// state as a grid of chips on the right (under the title when they need
+// more room), then the agent line and, with a pull request, the tabs of
+// the thread. The grid takes no more rows than leave the top bar within
+// half of rows.
 func (m *Run) topBar(w int, border bool, rows int) []string {
 	summary := m.issue.Summary
 	if summary == "" {
@@ -796,43 +855,47 @@ func (m *Run) topBar(w int, border bool, rows int) []string {
 	if border {
 		head = title(m.heading()) + "  " + head
 	}
-	chips := m.chips()
-	var out []string
-	if w >= wideFrom {
-		out = sideBySide(head, chips, w)
-	} else {
-		out = wrapLines(head, w, 2)
-		rows, _ := chipRows(chips, w, 2)
-		out = append(out, rows...)
-	}
+	var tail []string
 	if !m.backlog { // no agent yet; the note sits where the log would be
-		out = append(out, cut(m.agentLine(), w))
+		tail = append(tail, cut(m.agentLine(), w))
 	}
 	if m.hasChange() {
 		if rows >= 20 {
-			out = append(out, "")
+			tail = append(tail, "")
 		}
-		out = append(out, m.tabsLine(w))
+		tail = append(tail, m.tabsLine(w))
 	}
 	if rows >= 24 { // air above the rule
-		out = append(out, "")
+		tail = append(tail, "")
 	}
-	return out
+	groups := m.chipGroups()
+	var out []string
+	if w >= wideFrom {
+		out = sideBySide(head, groups, w)
+	}
+	if out == nil { // the title, then the grid under it
+		out = wrapLines(head, w, 2)
+		grid, _ := chipGrid(groups, w, max(rows/2-len(out)-len(tail), 1))
+		out = append(out, grid...)
+	}
+	return append(out, tail...)
 }
 
-// sideBySide lays a title out on the left and chips on the right of w
-// cells: the chips take up to two right-aligned lines, the title its
-// whole width when the chips still fit beside it, else it wraps into what
-// they leave.
-func sideBySide(head string, chips []string, w int) []string {
+// sideBySide lays a title out on the left and the grid of chips on the
+// right of w cells, when the grid fits there in two rows: the title takes
+// its whole width when the grid still fits beside it, else it wraps into
+// what the grid leaves. It returns nil when the grid does not fit.
+func sideBySide(head string, groups [][]string, w int) []string {
 	headW := ansi.StringWidth(head)
 	var rows []string
-	for _, leftW := range []int{headW, max(w*2/5, 24), max(w/4, 20)} {
-		var all bool
-		rows, all = chipRows(chips, max(w-leftW-3, 1), 2)
-		if all {
+	fit := false
+	for _, leftW := range []int{headW, max(w*2/5, 24)} {
+		if rows, fit = chipGrid(groups, w-leftW-3, 2); fit {
 			break
 		}
+	}
+	if !fit {
+		return nil
 	}
 	widest := 0
 	for _, r := range rows {
@@ -862,40 +925,6 @@ func wrapLines(s string, w, n int) []string {
 		lines = append(lines[:n-1], cut(lines[n-1]+" …", w))
 	}
 	return lines
-}
-
-// chipRows fills lines of w cells with chips two spaces apart, at most n
-// lines; all reports whether every chip fit, else the last line ends with
-// "…".
-func chipRows(chips []string, w, n int) (lines []string, all bool) {
-	const sep = "  "
-	line := ""
-	for _, c := range chips {
-		next := c
-		if line != "" {
-			next = line + sep + c
-		}
-		if line != "" && ansi.StringWidth(next) > w {
-			lines = append(lines, line)
-			line = c
-			continue
-		}
-		line = next
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	all = len(lines) <= n
-	if !all {
-		lines = append(lines[:n-1], lines[n-1]+" …")
-	}
-	for i, l := range lines {
-		if ansi.StringWidth(l) > w {
-			all = false
-		}
-		lines[i] = cut(l, w)
-	}
-	return lines, all
 }
 
 // panes lays out the issue and the log under a rule that marks the
@@ -1020,33 +1049,27 @@ func (m *Run) issuePane(w, rows int, wide bool) []string {
 	return out
 }
 
-// keyFields are the YouTrack fields shown as chips, in this order.
-var keyFields = []string{"State", "Type", "Priority"}
-
-// chips are the issue's key fields and the run's stage, status, branch
-// and pull request, as chips; a backlog issue's fields and "backlog".
-func (m *Run) chips() []string {
+// chipGroups are the chips of the top bar's grid: every field of the
+// issue that has a value, then on their own rows the run's stage, status,
+// branch and pull request, or "backlog" for a backlog issue.
+func (m *Run) chipGroups() [][]string {
 	r := m.run
-	var chips []string
-	for _, f := range keyFields {
-		if v := strings.TrimSpace(m.issue.Fields[f]); v != "" {
-			chips = append(chips, chipStyle.Render(f+": "+v))
-		}
-	}
+	fields := fieldChips(m.issue.Fields)
 	if m.backlog {
-		return append(chips, chipStyle.Render("backlog"))
+		return [][]string{fields, {chipStyle.Render("backlog")}}
 	}
+	var run []string
 	if r.Stage != "" {
-		chips = append(chips, chipStyle.Render("stage "+r.Stage))
+		run = append(run, chipStyle.Render("stage "+r.Stage))
 	}
-	chips = append(chips, statusChip(r.Status))
+	run = append(run, statusChip(r.Status))
 	if r.Branch != "" {
-		chips = append(chips, chipStyle.Render("⎇ "+r.Branch))
+		run = append(run, chipStyle.Render(cut("⎇ "+r.Branch, chipMax-2)))
 	}
 	if r.PRURL != "" {
-		chips = append(chips, chipStyle.Render(fmt.Sprintf("PR #%d", r.PRNumber)))
+		run = append(run, chipStyle.Render(fmt.Sprintf("PR #%d", r.PRNumber)))
 	}
-	return chips
+	return [][]string{fields, run}
 }
 
 // statusChip is the run status as a chip; needs input stands out.
@@ -1215,6 +1238,12 @@ func (m *Run) askPeople() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	return m.lookUpPeople(q)
+}
+
+// lookUpPeople asks YouTrack for the people matching q, once per query;
+// the answer lands in m.people.
+func (m *Run) lookUpPeople(q string) tea.Cmd {
 	if m.peopleAsked[q] {
 		return nil
 	}
@@ -1470,10 +1499,17 @@ func (m *Run) help() []binding {
 	if m.reply.focused {
 		return []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
 	}
-	if m.backlog {
-		return []binding{{"enter/r", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"q", "quit"}}
+	if m.fe.open {
+		return m.fieldsHelp()
 	}
-	h := []binding{{"enter/r", "reply"}}
+	if m.backlog {
+		h := []binding{{"enter", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}, {"r", "reload"}}
+		if m.d.Fields != nil {
+			h = append(h, binding{"e", "fields"})
+		}
+		return append(h, binding{"o", "issue"}, binding{"i", "inbox"}, binding{"q", "quit"})
+	}
+	h := []binding{{"enter", "reply"}}
 	if m.waitsOnPermission() {
 		h = append(h, binding{"a", "approve"}, binding{"x", "reject"})
 	}
@@ -1482,9 +1518,12 @@ func (m *Run) help() []binding {
 	if m.focus == paneLog {
 		other = "issue"
 	}
-	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"})
+	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"}, binding{"r", "reload"})
 	if m.hasChange() {
 		h = append(h, binding{"t", "PR thread"})
+	}
+	if m.d.Fields != nil {
+		h = append(h, binding{"e", "fields"})
 	}
 	h = append(h, binding{"o", "issue"})
 	if m.run.PRURL != "" {
@@ -1606,6 +1645,16 @@ func feedText(e store.Event) string {
 		return ""
 	}
 	return oneLine(string(e.Data))
+}
+
+// refresh reads the run, the issue and the pull request again now.
+func (m *Run) refresh() tea.Cmd {
+	m.say("Reloading…")
+	cmds := []tea.Cmd{m.reload(), m.loadIssue(true)}
+	if m.hasChange() {
+		cmds = append(cmds, m.loadChange())
+	}
+	return tea.Batch(cmds...)
 }
 
 // drawPicture draws a picture of the description, or of a comment with

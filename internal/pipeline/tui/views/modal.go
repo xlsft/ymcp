@@ -197,7 +197,7 @@ func (r *replyBox) update(msg tea.Msg) tea.Cmd {
 
 // lines is the box, w cells wide with its frame: the text area, height
 // lines tall, while focused; else one line with the draft or hint and the
-// key that opens it.
+// keys that open it.
 func (r *replyBox) lines(w, height int, hint string) []string {
 	iw := max(w-4, 1)
 	if r.focused {
@@ -214,5 +214,5 @@ func (r *replyBox) lines(w, height int, hint string) []string {
 		}
 		line = first + theme.Dim.Render("  (draft)")
 	}
-	return box([]string{spread(line, theme.Dim.Render("r"), iw)}, w, solidEdges, theme.Dim, "", "")
+	return box([]string{spread(line, theme.Dim.Render("enter"), iw)}, w, solidEdges, theme.Dim, "", "")
 }

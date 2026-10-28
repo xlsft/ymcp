@@ -2,7 +2,8 @@
 // pipelines of a profile, a pipeline's board, a run card and the inbox of
 // runs that wait for input. Every screen reads the state database; YouTrack
 // is read through Backlog (the board's backlog count) and Issues (the run
-// card's issue and comments), the code host through Changes.
+// card's issue and comments) and written through Fields (the card's
+// fields), the code host read through Changes.
 //
 // The run card is a modal (see Overlay): the root app draws it over the
 // screen it was opened from. A backlog issue opens the same card without a
@@ -91,6 +92,33 @@ type People interface {
 // Person is a YouTrack user a comment can mention.
 type Person struct{ Login, FullName, Email string }
 
+// FieldEditor changes the custom fields of a card's issue, as the
+// profile's user.
+type FieldEditor interface {
+	// Fields lists the custom fields of a project (its short name, e.g.
+	// BE) with what they accept.
+	Fields(ctx context.Context, profile, project string) ([]Field, error)
+	// Apply runs a command on an issue, as typed in YouTrack's command
+	// dialog: "Priority Major", "add flow frontend".
+	Apply(ctx context.Context, profile, issue, command string) error
+	// Matches reports whether query finds issue (a readable id).
+	Matches(ctx context.Context, profile, issue, query string) (bool, error)
+}
+
+// Field is a custom field of a project.
+type Field struct {
+	Name string
+	// Type is what the field holds: "enum", "state", "version", "build",
+	// "owned" and "user" pick from a list; "integer", "float", "string",
+	// "period" and "date" are typed in.
+	Type string
+	// Multi is set when the field holds several values at once.
+	Multi bool
+	// Values are the allowed values of a bundle field, archived ones left
+	// out; none for users and typed fields.
+	Values []string
+}
+
 // Changes reads the conversation of a run's pull or merge request.
 type Changes interface {
 	Comments(ctx context.Context, run store.Run) ([]vcs.Comment, error)
@@ -136,8 +164,12 @@ type Deps struct {
 	// Changes reads the pull request conversation of a run card; nil
 	// leaves the card without the pull request tab.
 	Changes Changes
-	// People completes @mentions in the comment box; nil turns that off.
+	// People completes @mentions in the comment box and lists the users
+	// a user field can take; nil turns that off.
 	People People
+	// Fields edits the custom fields of a card's issue; nil turns that
+	// off.
+	Fields FieldEditor
 	// Pictures fetches the pictures of a run card; nil shows them as
 	// links.
 	Pictures Pictures
@@ -193,6 +225,14 @@ type Tick struct{ Now time.Time }
 type Notice struct {
 	Text string
 	Err  bool
+}
+
+// BacklogLeft tells the board of Pipeline that its source query no longer
+// finds Issue (a readable id) after a change made on the issue's card, so
+// it leaves the backlog at once. The root app passes it to every screen.
+type BacklogLeft struct {
+	Pipeline string
+	Issue    string
 }
 
 // Navigation messages, handled by the root app.

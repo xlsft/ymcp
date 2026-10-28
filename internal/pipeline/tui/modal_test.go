@@ -38,6 +38,13 @@ func (f *fakeIssues) AddComment(_ context.Context, _, _, text string) (views.Iss
 // for input.
 func modalFixture(t *testing.T) (*fixture, *fakeIssues, store.Run) {
 	t.Helper()
+	return modalFixtureWith(t, nil)
+}
+
+// modalFixtureWith is modalFixture with more set up by with, before the
+// app starts.
+func modalFixtureWith(t *testing.T, with func(*fixture, *views.Deps)) (*fixture, *fakeIssues, store.Run) {
+	t.Helper()
 	f := newFixture(t, "a", "b")
 	ctx := context.Background()
 	r, err := f.st.CreateRun(ctx, "backend", "a", "2-1", "BE-1")
@@ -51,6 +58,9 @@ func modalFixture(t *testing.T) (*fixture, *fakeIssues, store.Run) {
 	yt := &fakeIssues{}
 	deps := f.app.opts.Deps
 	deps.Issues = yt
+	if with != nil {
+		with(f, &deps)
+	}
 	f.app = New(ctx, Options{Deps: deps, Pipeline: "backend", TickEvery: -1})
 	f.send(tea.WindowSizeMsg{Width: 120, Height: 40})
 	f.run(f.app.Init(), 0)
@@ -80,7 +90,7 @@ func TestRunModalOverBoard(t *testing.T) {
 	}
 
 	// A reply goes to YouTrack.
-	f.keys("r")
+	f.keys("enter")
 	f.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("The session one.")})
 	f.keys("enter")
 	if len(yt.added) != 1 || yt.added[0] != "The session one." {
@@ -102,7 +112,7 @@ func TestIssueModalOverBoard(t *testing.T) {
 	f.send(views.OpenIssue{Pipeline: "backend", Profile: "a", Issue: ytwatch.Issue{ID: "2-1", Key: "BE-1", Summary: "Fix the login cookie"}})
 	topIs[*views.Run](t, f)
 	f.has(t, "BE-1", "Fix the login cookie", "Which cookie?", "Not taken yet")
-	f.keys("r")
+	f.keys("enter")
 	f.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Any cookie.")})
 	f.keys("enter")
 	if len(yt.added) != 1 || yt.added[0] != "Any cookie." {
@@ -132,5 +142,75 @@ func TestRunModalOverInbox(t *testing.T) {
 	f.keys("esc")
 	if topIs[*views.Inbox](t, f) != inbox {
 		t.Error("esc did not go back to the inbox")
+	}
+}
+
+type fakeBacklog struct {
+	mu     sync.Mutex
+	issues []ytwatch.Issue
+}
+
+func (b *fakeBacklog) Search(context.Context, string, string) ([]ytwatch.Issue, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.issues, nil
+}
+
+// fakeFields has one field, AI; setting it to false takes the issue out of
+// the backlog.
+type fakeFields struct {
+	mu       sync.Mutex
+	backlog  *fakeBacklog
+	commands []string
+}
+
+func (f *fakeFields) Fields(context.Context, string, string) ([]views.Field, error) {
+	return []views.Field{{Name: "AI", Type: "enum", Values: []string{"true", "false"}}}, nil
+}
+
+func (f *fakeFields) Apply(_ context.Context, _, issue, command string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, issue+": "+command)
+	if command == "AI false" {
+		f.backlog.mu.Lock()
+		f.backlog.issues = nil
+		f.backlog.mu.Unlock()
+	}
+	return nil
+}
+
+func (f *fakeFields) Matches(context.Context, string, string, string) (bool, error) {
+	f.backlog.mu.Lock()
+	defer f.backlog.mu.Unlock()
+	return len(f.backlog.issues) > 0, nil
+}
+
+// TestIssueLeavesBacklog: a field change after which the source query no
+// longer finds a backlog issue closes its card, and the board under it
+// drops the issue at once.
+func TestIssueLeavesBacklog(t *testing.T) {
+	bl := &fakeBacklog{issues: []ytwatch.Issue{{ID: "2-2", Key: "BE-2", Summary: "Rate limit the login"}}}
+	ff := &fakeFields{backlog: bl}
+	f, _, _ := modalFixtureWith(t, func(f *fixture, d *views.Deps) {
+		f.list[0].Source.Query = "project: BE tag: ai"
+		d.Backlog, d.Fields = bl, ff
+	})
+	board := topIs[*views.Board](t, f)
+	f.has(t, "BACKLOG 1", "BE-2")
+	f.send(views.OpenIssue{Pipeline: "backend", Profile: "a", Issue: bl.issues[0]})
+	topIs[*views.Run](t, f)
+	f.keys("e")
+	f.has(t, "Fields · BE", "AI")
+	f.keys("enter", "down", "enter")
+	if len(ff.commands) != 1 || ff.commands[0] != "2-2: AI false" {
+		t.Fatalf("applied %q", ff.commands)
+	}
+	if topIs[*views.Board](t, f) != board {
+		t.Fatal("the card did not close")
+	}
+	f.has(t, "BACKLOG 0", "BE-2 left the backlog")
+	if strings.Contains(f.view(), "Rate limit the login") {
+		t.Errorf("the issue is still on the board:\n%s", f.view())
 	}
 }
