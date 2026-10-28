@@ -88,8 +88,8 @@ func (p *promoForm) send(msg tea.Msg) {
 }
 
 func (p *promoForm) key(k tea.KeyType) { p.send(tea.KeyMsg{Type: k}) }
-func (p *promoForm) char(r rune)      { p.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}) }
-func (p *promoForm) view() string     { return p.m.View() }
+func (p *promoForm) char(r rune)       { p.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}) }
+func (p *promoForm) view() string      { return p.m.View() }
 
 // TestPromo writes the ymcp setup frames of the promo video to
 // $YMCP_PROMO/setup, with setup.txt listing "seconds file": the command
