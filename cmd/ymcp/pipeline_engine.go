@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/huh"
+
 	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
@@ -160,5 +162,49 @@ func pipelineCancel(ctx context.Context, name string, args []string) error {
 	}
 	fmt.Println(styleOK.Render("✓") + fmt.Sprintf(" Canceled run #%d", run.Number))
 	runnerNote(ctx, st, name)
+	return nil
+}
+
+func pipelineDelete(ctx context.Context, name string, args []string) error {
+	const usage = "ymcp pipeline NAME delete RUN [-y]"
+	fs := pipelineFlags("pipeline delete")
+	yes := fs.Bool("y", false, "do not ask")
+	fs.BoolVar(yes, "yes", false, "do not ask")
+	pos, err := parseInterspersed(fs, args, usage)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("usage: %s", usage)
+	}
+	st, err := openStore()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	run, err := findRun(ctx, st, name, pos[0])
+	if err != nil {
+		return err
+	}
+	if !*yes {
+		if !interactive() {
+			return fmt.Errorf("run #%d is not deleted: pass -y to delete it without asking", run.Number)
+		}
+		ok := false
+		if err := huh.NewConfirm().Title(fmt.Sprintf("Delete run #%d (%s) from the local store?", run.Number, run.IssueKey)).
+			Description("Its log goes; the issue, branch and pull request stay.").
+			Affirmative("Delete").Negative("Keep").
+			Value(&ok).WithTheme(huh.ThemeBase16()).Run(); err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Println(styleDim.Render("Nothing deleted"))
+			return nil
+		}
+	}
+	if err := engine.Delete(ctx, st, name, run.Number); err != nil {
+		return err
+	}
+	fmt.Println(styleOK.Render("✓") + fmt.Sprintf(" Deleted run #%d", run.Number))
 	return nil
 }

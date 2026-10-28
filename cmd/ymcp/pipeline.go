@@ -51,6 +51,7 @@ Usage:
   ymcp pipeline NAME logs [RUN] [-f] [-n N] The event feed of a run, or the log of the runner without RUN
   ymcp pipeline NAME answer RUN TEXT        Answer a run that waits for input, or give it feedback
   ymcp pipeline NAME cancel RUN             Cancel a run
+  ymcp pipeline NAME delete RUN [-y]        Delete a run that has ended from the local store
   ymcp pipeline NAME show                   Print the pipeline JSON
   ymcp pipeline NAME edit                   Edit the JSON in $VISUAL or $EDITOR
   ymcp pipeline NAME rm [-y]                Delete the pipeline
@@ -138,6 +139,8 @@ func pipelineCmd(ctx context.Context, args []string, logger *slog.Logger) error 
 		return pipelineAnswer(ctx, name, rest)
 	case "cancel":
 		return pipelineCancel(ctx, name, rest)
+	case "delete":
+		return pipelineDelete(ctx, name, rest)
 	case "show":
 		return pipelineShow(name, rest)
 	case "edit":
