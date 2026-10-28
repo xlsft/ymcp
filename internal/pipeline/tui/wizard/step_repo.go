@@ -208,10 +208,11 @@ func (s *repoStep) items() []*item { return s.all }
 func (s *repoStep) where() string { return s.sh.p.Workspace.Host + "|" + s.sh.p.Workspace.Dir }
 
 func (s *repoStep) enter() tea.Cmd {
+	load := s.sh.loadIssue() // the previews may use the issue's fields
 	if s.where() != s.checked && !s.pending {
-		return s.inspect()
+		return tea.Batch(load, s.inspect())
 	}
-	return nil
+	return load
 }
 
 func (s *repoStep) leave() {}
@@ -569,11 +570,23 @@ func (s *repoStep) preview(tmpl string) string {
 	if len(is) == 0 || strings.TrimSpace(tmpl) == "" {
 		return ""
 	}
-	out, err := text.Render(tmpl, text.Vars{"issue.id": is[0].Key, "issue.key": is[0].Key, "issue.summary": is[0].Summary, "issue.dbid": is[0].ID})
+	sample := is[0]
+	if full := s.sh.full.issue; full != nil && full.Key == sample.Key {
+		sample = *full
+	}
+	v := text.Vars{"issue.id": sample.Key, "issue.key": sample.Key, "issue.summary": sample.Summary, "issue.dbid": sample.ID}
+	for k, f := range sample.Fields {
+		v["issue.fields."+k] = f
+	}
+	out, err := text.Render(tmpl, v)
 	if err != nil {
 		return ""
 	}
-	return styleDim.Render("preview: ") + styleCode.Render(out) + styleDim.Render("  (for "+is[0].Key+")")
+	note := "  (for " + sample.Key + ")"
+	if s.sh.full.pending && strings.Contains(tmpl, "issue.fields.") {
+		note = "  (for " + sample.Key + ", loading its fields…)"
+	}
+	return styleDim.Render("preview: ") + styleCode.Render(out) + styleDim.Render(note)
 }
 
 func (s *repoStep) blockers() []problem {

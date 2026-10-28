@@ -58,6 +58,7 @@ type shared struct {
 
 	conn   connection
 	sample sample
+	full   fullIssue
 	width  int
 	height int
 }
@@ -83,6 +84,37 @@ type sample struct {
 	err     error
 	pending bool
 	done    bool
+}
+
+// fullIssue is the sample issue with its description and custom fields,
+// for previews of templates that use them.
+type fullIssue struct {
+	key     string
+	issue   *ytwatch.Issue
+	err     error
+	pending bool
+}
+
+type issueMsg struct {
+	key   string
+	issue ytwatch.Issue
+	err   error
+}
+
+// loadIssue reads the sample issue in full, once per issue.
+func (sh *shared) loadIssue() tea.Cmd {
+	key, yt := sh.sample.key(), sh.conn.yt
+	if key == "" || yt == nil || key == sh.full.key {
+		return nil
+	}
+	sh.full = fullIssue{key: key, pending: true}
+	ctx := sh.ctx
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		is, err := yt.Issue(ctx, key)
+		return issueMsg{key: key, issue: is, err: err}
+	}
 }
 
 // key is the issue the wizard validates commands and renders prompts on.
@@ -309,9 +341,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connMsg:
 		if msg.profile == m.sh.p.Profile {
 			m.sh.conn = connection{profile: msg.profile, yt: msg.yt, login: msg.login, err: msg.err}
-			m.sh.sample = sample{}
+			m.sh.sample, m.sh.full = sample{}, fullIssue{}
 		}
 		return m, m.broadcast(msg)
+	case issueMsg:
+		if msg.key == m.sh.full.key {
+			m.sh.full.pending, m.sh.full.err = false, msg.err
+			if msg.err == nil {
+				is := msg.issue
+				m.sh.full.issue = &is
+			}
+		}
+		return m, nil
 	}
 	return m, m.broadcast(msg)
 }
