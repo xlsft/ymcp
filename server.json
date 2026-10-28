@@ -1,0 +1,59 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.xlsft/ymcp",
+  "title": "YouTrack (ymcp)",
+  "description": "YouTrack with your login and password: the built-in tools plus deletes, sprints, history and reports",
+  "repository": {
+    "url": "https://github.com/xlsft/ymcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/xlsft/ymcp",
+  "version": "0.0.0",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/xlsoftware/ymcp:0.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve",
+          "description": "Serve over stdio"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "YOUTRACK_URL",
+          "description": "Instance root, e.g. https://youtrack.example.com (no /api)",
+          "format": "string",
+          "isRequired": true
+        },
+        {
+          "name": "YOUTRACK_LOGIN",
+          "description": "YouTrack or Hub account, LDAP included",
+          "format": "string",
+          "isRequired": true
+        },
+        {
+          "name": "YOUTRACK_PASSWORD",
+          "description": "Password of that account",
+          "format": "string",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "YOUTRACK_PROXY",
+          "description": "Empty for HTTP(S)_PROXY, none to connect directly, or a proxy URL",
+          "format": "string"
+        },
+        {
+          "name": "YMCP_TOOLS",
+          "description": "Tool groups to serve, e.g. issues,articles or -api,-agile",
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
