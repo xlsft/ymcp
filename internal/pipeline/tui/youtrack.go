@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,9 +21,11 @@ import (
 )
 
 // YouTrack is the TUI's YouTrack, one signed-in client per profile: the
-// board's backlog search (views.Backlog) and the run card's issue and
-// comments (views.Issues). Comments are posted as the profile's user, so a
-// runner of that profile reads them like any comment of its user.
+// board's backlog search (views.Backlog), the run card's issue and
+// comments (views.Issues), the people it mentions (views.People) and its
+// field changes (views.FieldEditor). Comments and changes are made as the
+// profile's user, so a runner of that profile reads them like any of its
+// user's.
 type YouTrack struct {
 	// Load reads a profile; nil uses config.Load.
 	Load func(profile string) (config.Config, error)
@@ -242,4 +246,146 @@ func (y *YouTrack) Users(ctx context.Context, profile, query string) ([]views.Pe
 		}
 	}
 	return out, nil
+}
+
+// apiProjectField is a field of a project as the settings and the issues
+// describe it.
+type apiProjectField struct {
+	Type  string `json:"$type"`
+	Field struct {
+		Name      string `json:"name"`
+		FieldType *struct {
+			ID string `json:"id"` // "enum[*]", "user[1]", "integer", "period"…
+		} `json:"fieldType"`
+	} `json:"field"`
+	Bundle *struct {
+		Values []struct {
+			Name     string `json:"name"`
+			Archived bool   `json:"archived"`
+		} `json:"values"`
+	} `json:"bundle"`
+}
+
+const projectFieldFields = "$type,field(name,fieldType(id)),bundle(values(name,archived))"
+
+// fieldTypes maps the project field classes to views.Field.Type; simple
+// fields take the id of their field type ("integer", "string", "date").
+var fieldTypes = map[string]string{
+	"StateProjectCustomField":   "state",
+	"EnumProjectCustomField":    "enum",
+	"UserProjectCustomField":    "user",
+	"VersionProjectCustomField": "version",
+	"BuildProjectCustomField":   "build",
+	"OwnedProjectCustomField":   "owned",
+	"PeriodProjectCustomField":  "period",
+	"TextProjectCustomField":    "text",
+	"GroupProjectCustomField":   "group",
+}
+
+// field is the views form of a project field.
+func (f apiProjectField) field() views.Field {
+	id := ""
+	if f.Field.FieldType != nil {
+		id = f.Field.FieldType.ID
+	}
+	typ, ok := fieldTypes[f.Type]
+	if !ok { // SimpleProjectCustomField and anything newer
+		typ = strings.TrimSuffix(strings.TrimSuffix(id, "[1]"), "[*]")
+	}
+	out := views.Field{Name: f.Field.Name, Type: typ, Multi: strings.HasSuffix(id, "[*]")}
+	if f.Bundle != nil && typ != "user" { // user bundles hold groups and teams
+		for _, v := range f.Bundle.Values {
+			if !v.Archived && v.Name != "" {
+				out.Values = append(out.Values, v.Name)
+			}
+		}
+	}
+	return out
+}
+
+// Fields lists the custom fields of a project with their types and
+// allowed values. Like the wizard, it reads the project's settings and,
+// without the admin rights they need, the fields of its recent issues.
+func (y *YouTrack) Fields(ctx context.Context, profile, project string) ([]views.Field, error) {
+	if project == "" {
+		return nil, errors.New("no project to read fields from")
+	}
+	c, err := y.client(profile)
+	if err != nil {
+		return nil, err
+	}
+	var fields []apiProjectField
+	q := url.Values{"fields": {projectFieldFields}, "$top": {"-1"}}
+	err = c.Get(ctx, "admin/projects/"+url.PathEscape(project)+"/customFields", q, &fields)
+	var ye *youtrack.Error
+	if err != nil && !(errors.As(err, &ye) && (ye.Status == http.StatusForbidden || ye.Status == http.StatusNotFound)) {
+		return nil, fmt.Errorf("fields of %s: %w", project, err)
+	}
+	if len(fields) == 0 {
+		// Without admin rights the settings endpoint answers an empty
+		// list; the schema of recent issues tells the same.
+		var issues []struct {
+			CustomFields []struct {
+				ProjectCustomField *apiProjectField `json:"projectCustomField"`
+			} `json:"customFields"`
+		}
+		q = url.Values{
+			"query":  {"project: {" + project + "} sort by: updated desc"},
+			"fields": {"customFields(projectCustomField(" + projectFieldFields + "))"},
+			"$top":   {"20"},
+		}
+		if err := c.Get(ctx, "issues", q, &issues); err != nil {
+			return nil, fmt.Errorf("fields of %s: %w", project, err)
+		}
+		for _, is := range issues {
+			for _, cf := range is.CustomFields {
+				if f := cf.ProjectCustomField; f != nil {
+					fields = append(fields, *f)
+				}
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var out []views.Field
+	for _, f := range fields {
+		if f.Field.Name == "" || seen[f.Field.Name] {
+			continue
+		}
+		seen[f.Field.Name] = true
+		out = append(out, f.field())
+	}
+	return out, nil
+}
+
+// Apply runs a command on an issue as the profile's user.
+func (y *YouTrack) Apply(ctx context.Context, profile, issue, command string) error {
+	c, err := y.client(profile)
+	if err != nil {
+		return err
+	}
+	return ytwatch.New(c).Apply(ctx, command, issue)
+}
+
+// Matches reports whether query finds issue (a readable id): it searches
+// for the query narrowed to the issue. A query by a tag nobody created
+// finds nothing.
+func (y *YouTrack) Matches(ctx context.Context, profile, issue, query string) (bool, error) {
+	c, err := y.client(profile)
+	if err != nil {
+		return false, err
+	}
+	found, err := ytwatch.New(c).Search(ctx, "("+query+") and issue id: "+issue)
+	var nt *ytwatch.NewTagError
+	if errors.As(err, &nt) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, is := range found {
+		if is.Key == issue || is.ID == issue {
+			return true, nil
+		}
+	}
+	return false, nil
 }

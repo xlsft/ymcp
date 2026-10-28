@@ -15,7 +15,7 @@ import (
 
 // Defaults are the real services of the screens on top of the store:
 // runners started and stopped through this binary's CLI, the backlog and
-// the run card's issue and comments from YouTrack (one client per
+// the run card's issue, comments and fields from YouTrack (one client per
 // profile), pull request threads from the code host and links opened in
 // the system browser.
 func Defaults(st *store.Store) views.Deps {
@@ -27,6 +27,7 @@ func Defaults(st *store.Store) views.Deps {
 		Backlog:   yt,
 		Issues:    yt,
 		People:    yt,
+		Fields:    yt,
 		Changes:   &CodeHost{},
 		OpenURL:   OpenURL,
 	}

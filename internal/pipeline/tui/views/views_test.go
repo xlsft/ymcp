@@ -206,7 +206,8 @@ func (f *fixture) seed() {
 }
 
 // driver sends messages to a screen and runs the commands it returns,
-// feeding their messages back. Navigation messages are collected instead.
+// feeding their messages back. Navigation messages, and BacklogLeft for
+// the board, are collected instead.
 type driver struct {
 	t   *testing.T
 	m   tea.Model
@@ -301,7 +302,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 		for _, c := range msg {
 			d.run(c, depth+1)
 		}
-	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenIssue, OpenInbox, OpenWizard, OpenLogs:
+	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenIssue, OpenInbox, OpenWizard, OpenLogs, BacklogLeft:
 		d.nav = append(d.nav, msg)
 	default:
 		var next tea.Cmd
@@ -642,5 +643,28 @@ func TestElapsed(t *testing.T) {
 		if got := elapsed(c.d); got != c.want {
 			t.Errorf("elapsed(%s) = %s, want %s", c.d, got, c.want)
 		}
+	}
+}
+
+// TestBoardReloadAndRunner: r reads the board and its backlog again; s
+// starts a stopped runner and stops a running one.
+func TestBoardReloadAndRunner(t *testing.T) {
+	f := newFixture(t)
+	d := drive(t, NewBoard(&f.d, "backend"), 120, 34)
+	d.has("r reload", "s stop")
+	searches := f.backlog.calls
+	d.keys("r")
+	if f.backlog.calls != searches+1 {
+		t.Errorf("backlog searches = %d, want %d", f.backlog.calls, searches+1)
+	}
+	d.keys("s")
+	d.has("Stopped backend.")
+
+	fe := drive(t, NewBoard(&f.d, "frontend"), 120, 34)
+	fe.has("s start")
+	fe.keys("s")
+	fe.has("Started frontend in the background")
+	if want := []string{"stop backend", "start frontend"}; !slices.Equal(f.daemon.calls, want) {
+		t.Errorf("daemon calls %v, want %v", f.daemon.calls, want)
 	}
 }

@@ -150,9 +150,9 @@ func TestRunRussianLayout(t *testing.T) {
 	q := f.runs["BE-127"]
 	d := drive(t, NewRun(&f.d, "backend", q.Number, false), 160, 45)
 
-	// к (r) opens the box; what is typed there stays as typed, shortcut
+	// enter opens the box; what is typed there stays as typed, shortcut
 	// letters and "," included.
-	d.keys("к")
+	d.keys("enter")
 	d.has("enter send")
 	const answer = "Да, конечно? Ёж й ш"
 	d.typeRunes(answer)
