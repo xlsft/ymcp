@@ -1,6 +1,6 @@
 module github.com/xlsft/ymcp
 
-go 1.26.3
+go 1.26.10
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2
