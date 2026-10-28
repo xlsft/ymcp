@@ -150,9 +150,11 @@ type Deps struct {
 	// RunnerLog reads the tail of a pipeline's runner log; nil disables
 	// the logs screen. The TUI's default runs `ymcp pipeline NAME logs`.
 	RunnerLog func(ctx context.Context, pipeline string) (string, error)
-	// Answer and Cancel act on a run. Defaults: engine.Answer, engine.Cancel.
+	// Answer, Cancel and Delete act on a run. Defaults: engine.Answer,
+	// engine.Cancel, engine.Delete.
 	Answer func(ctx context.Context, st *store.Store, pipeline string, run int, text string) error
 	Cancel func(ctx context.Context, st *store.Store, pipeline string, run int) error
+	Delete func(ctx context.Context, st *store.Store, pipeline string, run int) error
 	// Daemon starts and stops runners; nil disables r and s.
 	Daemon Daemon
 	// Backlog counts the source issues; nil leaves the backlog column
@@ -208,6 +210,9 @@ func (d Deps) WithDefaults() Deps {
 	if d.Cancel == nil {
 		d.Cancel = engine.Cancel
 	}
+	if d.Delete == nil {
+		d.Delete = engine.Delete
+	}
 	if d.Now == nil {
 		d.Now = time.Now
 	}
@@ -237,8 +242,9 @@ type BacklogLeft struct {
 
 // Navigation messages, handled by the root app.
 type (
-	// Back closes the screen on top.
-	Back struct{}
+	// Back closes the screen on top; the screen under it shows Note, if
+	// any.
+	Back struct{ Note string }
 	// OpenPipelines shows the pipelines of a profile.
 	OpenPipelines struct{ Profile string }
 	// OpenBoard shows a pipeline's board.

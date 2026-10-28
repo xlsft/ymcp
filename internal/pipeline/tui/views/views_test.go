@@ -490,6 +490,34 @@ func TestBoard(t *testing.T) {
 	}
 }
 
+// TestBoardDelete: d deletes a run that has ended, after asking; an
+// active run is not deleted, and n keeps the run.
+func TestBoardDelete(t *testing.T) {
+	f := newFixture(t)
+	d := drive(t, NewBoard(&f.d, "backend"), 100, 30)
+	d.has("DONE 2", "d delete")
+	d.keys("d")
+	d.has("only a run that has ended can be deleted")
+
+	d.keys("right", "right", "right", "d")
+	d.has("from the local store? Its log goes; the issue, branch and PR stay.")
+	d.keys("n")
+	d.has("DONE 2", "BE-110", "BE-111")
+	d.keys("d", "y")
+	d.has("DONE 1")
+	gone := ""
+	for _, k := range []string{"BE-110", "BE-111"} {
+		if _, err := f.st.Run(context.Background(), f.runs[k].ID); errors.Is(err, store.ErrNotFound) {
+			gone = k
+		}
+	}
+	if gone == "" {
+		t.Fatal("no run was deleted")
+	}
+	d.has(fmt.Sprintf("Deleted run #%d.", f.runs[gone].Number))
+	d.hasNot(gone)
+}
+
 func TestBoardBacklogError(t *testing.T) {
 	f := newFixture(t)
 	f.backlog.err = errors.New("401 Unauthorized")

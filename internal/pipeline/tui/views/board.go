@@ -389,6 +389,12 @@ func (m *Board) key(k string) tea.Cmd {
 			return nil
 		}
 		return cancelRun(&m.base, m.name, *c.run, m.reload)
+	case "d":
+		if c.run == nil || !c.run.Status.Final() {
+			m.fail(fmt.Errorf("only a run that has ended can be deleted"))
+			return nil
+		}
+		return deleteRun(&m.base, m.name, *c.run, m.reload)
 	case "o":
 		return m.openIssue(c)
 	case "p":
@@ -445,12 +451,28 @@ func cancelRun(b *base, pipeline string, r store.Run, after func() tea.Cmd) tea.
 	return nil
 }
 
+// deleteRun asks, then deletes a run that has ended from the local store;
+// after runs once it is gone.
+func deleteRun(b *base, pipeline string, r store.Run, after func() tea.Cmd) tea.Cmd {
+	b.confirm(fmt.Sprintf("Delete run #%d (%s) from the local store? Its log goes; the issue, branch and PR stay.", r.Number, r.IssueKey), func() tea.Cmd {
+		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+		defer cancel()
+		if err := b.d.Delete(ctx, b.d.Store, pipeline, r.Number); err != nil {
+			b.fail(err)
+			return nil
+		}
+		b.say(fmt.Sprintf("Deleted run #%d.", r.Number))
+		return after()
+	})
+	return nil
+}
+
 // View renders the board.
 func (m *Board) View() string {
 	w := m.width
 	header := []string{m.headerLine(w), ""}
 	help := []binding{
-		{"←→↑↓", "move"}, {"enter", "open"}, {"a", "answer"}, {"c", "cancel"}, {"o", "issue"}, {"p", "PR"},
+		{"←→↑↓", "move"}, {"enter", "open"}, {"a", "answer"}, {"c", "cancel"}, {"d", "delete"}, {"o", "issue"}, {"p", "PR"},
 		{"r", "reload"}, {"s", m.runnerAction()}, {"e", "edit"}, {"i", "inbox"}, {"esc", "back"}, {"q", "quit"},
 	}
 	if !m.loaded {
