@@ -139,7 +139,8 @@ func TestRunModal(t *testing.T) {
 	d.fits(160, 45)
 	d.has("backend #6",
 		"BE-127", "CSV export of the reports",
-		"State: In Progress", "Priority: Major", "stage working", "⚑ needs input", "⎇ be-127-csv-export",
+		"State: In Progress", "Priority: Major", "Assignee: xlsft", "Estimation: 2d", // every field with a value
+		"stage working", "⚑ needs input", "⎇ be-127-csv-export",
 		"Users want to export reports as CSV.", "Acceptance", "• a button on the report page", "[image]", "GET /reports/42.csv",
 		"Comments · 2",
 		"Anna Petrova @anna · 50m ago", "Please also cover the admin reports.",
@@ -147,7 +148,7 @@ func TestRunModal(t *testing.T) {
 		"Log", "captured", "question",
 		"waiting 12m", "Write a comment, /command",
 		"enter/r reply", "esc close", "tab log")
-	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**", "(/approve",
+	d.hasNot("ymcp:agent", "<!--", "**export**", "(/approve",
 		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
 	lines := strings.Split(d.view(), "\n")
 	// The top bar runs across the card: the title on the left, the chips
@@ -602,7 +603,7 @@ func TestDump(t *testing.T) {
 		t.Skip("YMCP_DUMP not set")
 	}
 	f := newFixture(t)
-	withIssues(f)
+	withFields(f, withIssues(f))
 	write := func(name, view string) {
 		t.Helper()
 		if err := os.WriteFile(dir+"/"+name, []byte(ansi.Strip(view)+"\n"), 0o644); err != nil {
@@ -621,6 +622,12 @@ func TestDump(t *testing.T) {
 		perm := drive(t, NewRun(&f.d, "frontend", f.runs["FE-9"].Number, true), w, h)
 		perm.typeText("/")
 		write(fmt.Sprintf("run-slash-%dx%d.txt", w, h), perm.m.(*Run).Overlay(board.m.View()))
+		card := issueCard(t, f, w, h)
+		write(fmt.Sprintf("issue-%dx%d.txt", w, h), card.m.(*Run).Overlay(board.m.View()))
+		card.keys("e")
+		write(fmt.Sprintf("issue-fields-%dx%d.txt", w, h), card.m.(*Run).Overlay(board.m.View()))
+		card.keys("down", "down", "down", "down", "down", "down", "enter")
+		write(fmt.Sprintf("issue-values-%dx%d.txt", w, h), card.m.(*Run).Overlay(board.m.View()))
 	}
 }
 

@@ -65,6 +65,8 @@ type Board struct {
 	backlogKnown   bool
 	backlogLoading bool
 	backlogAt      time.Time
+	searches       int            // backlog searches started
+	gone           map[string]int // issues that left the backlog, by the last search started before
 
 	col int
 	sel [columns]int
@@ -82,6 +84,7 @@ type boardLoaded struct {
 
 type backlogLoaded struct {
 	to     int64
+	n      int // which search it answers
 	issues []ytwatch.Issue
 	err    error
 }
@@ -178,13 +181,31 @@ func (m *Board) backlogDue(now time.Time) bool {
 func (m *Board) searchBacklog() tea.Cmd {
 	m.backlogLoading = true
 	m.backlogAt = m.d.Now()
-	profile, query := m.p.Profile, m.p.Source.Query
+	m.searches++
+	profile, query, n := m.p.Profile, m.p.Source.Query, m.searches
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), backlogWait)
 		defer cancel()
 		issues, err := m.d.Backlog.Search(ctx, profile, query)
-		return backlogLoaded{to: m.id, issues: issues, err: err}
+		return backlogLoaded{to: m.id, n: n, issues: issues, err: err}
 	}
+}
+
+// dropGone leaves out of a search's issues those that left the backlog
+// after the search started; a later search tells for itself.
+func (m *Board) dropGone(n int, issues []ytwatch.Issue) []ytwatch.Issue {
+	for key, before := range m.gone {
+		if n > before {
+			delete(m.gone, key)
+		}
+	}
+	if len(m.gone) == 0 {
+		return issues
+	}
+	return slices.DeleteFunc(slices.Clone(issues), func(is ytwatch.Issue) bool {
+		_, gone := m.gone[is.Key]
+		return gone
+	})
 }
 
 // Update handles keys, ticks and reloads.
@@ -216,9 +237,23 @@ func (m *Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.backlogLoading, m.backlogKnown = false, true
 		m.backlogErr = msg.err
 		if msg.err == nil {
-			m.backlog = msg.issues
+			m.backlog = m.dropGone(msg.n, msg.issues)
 		}
 		m.clampSel()
+	case BacklogLeft:
+		if msg.Pipeline != m.name {
+			return m, nil
+		}
+		// The card changed the issue: it leaves the backlog now, and a
+		// search already on its way does not bring it back.
+		if m.gone == nil {
+			m.gone = map[string]int{}
+		}
+		m.gone[msg.Issue] = m.searches
+		m.backlog = m.dropGone(m.searches, m.backlog)
+		m.clampSel()
+		m.say(fmt.Sprintf("%s left the backlog: the source query no longer finds it.", msg.Issue))
+		m.backlogAt = time.Time{} // search again at the next tick
 	case Tick:
 		m.frameN++
 		cmds := []tea.Cmd{m.reload()}

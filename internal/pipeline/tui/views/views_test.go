@@ -206,7 +206,8 @@ func (f *fixture) seed() {
 }
 
 // driver sends messages to a screen and runs the commands it returns,
-// feeding their messages back. Navigation messages are collected instead.
+// feeding their messages back. Navigation messages, and BacklogLeft for
+// the board, are collected instead.
 type driver struct {
 	t   *testing.T
 	m   tea.Model
@@ -301,7 +302,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 		for _, c := range msg {
 			d.run(c, depth+1)
 		}
-	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenIssue, OpenInbox, OpenWizard, OpenLogs:
+	case tea.QuitMsg, Back, OpenPipelines, OpenBoard, OpenRun, OpenIssue, OpenInbox, OpenWizard, OpenLogs, BacklogLeft:
 		d.nav = append(d.nav, msg)
 	default:
 		var next tea.Cmd
