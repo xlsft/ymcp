@@ -109,7 +109,26 @@ func withIssues(f *fixture) *fakeIssues {
 	yt.add("2-123", IssueComment{ID: "4-3", Author: "xlsft", Text: "Go ahead.", Created: t0.Add(-5 * time.Minute)})
 	yt.add("2-123", agentComment("4-4", 5, text.Working, t0.Add(-4*time.Minute)))
 	f.d.Issues = yt
+	f.d.People = fakePeople{
+		{Login: "anna", FullName: "Anna Petrova", Email: "anna@example.com"},
+		{Login: "boris", FullName: "Boris Ivanov", Email: "boris@example.com"},
+		{Login: "xlsft", FullName: "", Email: "dev@example.com"},
+	}
 	return yt
+}
+
+// fakePeople finds the people whose login, name or email contain the
+// query.
+type fakePeople []Person
+
+func (f fakePeople) Users(_ context.Context, _, query string) ([]Person, error) {
+	var out []Person
+	for _, p := range f {
+		if strings.Contains(strings.ToLower(p.Login+" "+p.FullName+" "+p.Email), strings.ToLower(query)) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func TestRunModal(t *testing.T) {
@@ -126,7 +145,7 @@ func TestRunModal(t *testing.T) {
 		"Anna Petrova @anna · 50m ago", "Please also cover the admin reports.",
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",
 		"Log", "captured", "question",
-		"waiting 12m", "Write a comment…",
+		"waiting 12m", "Write a comment, /command",
 		"enter/r reply", "esc close", "tab log")
 	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**", "(/approve",
 		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
@@ -217,7 +236,7 @@ func TestRunModalPermission(t *testing.T) {
 	fe := f.runs["FE-9"]
 	yt.issues["2-9"] = ytwatch.Issue{ID: "2-9", Key: "FE-9", Summary: "Dark mode"}
 	d := drive(t, NewRun(&f.d, "frontend", fe.Number, false), 120, 40)
-	d.has("a approve", "x reject", "Write a comment…")
+	d.has("a approve", "x reject", "Write a comment, /command")
 	d.hasNot("Permission", "posts the comment", "/approve  allow")
 	d.keys("a")
 	d.has("Post /approve on FE-9?")
@@ -236,7 +255,7 @@ func TestRunModalPermission(t *testing.T) {
 	// second enter sends.
 	d.keys("r")
 	d.typeText("/")
-	d.has("› /approve  allow what the agent asked for", "/reject   refuse it", "tab complete")
+	d.has("Commands", "› /approve", "allow what the agent asked for", "/reject", "refuse it", "tab complete")
 	d.keys("down")
 	d.has("› /reject")
 	d.keys("tab")
@@ -278,9 +297,9 @@ func TestRunModalCommands(t *testing.T) {
 	withIssues(f)
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 120, 40)
 	d.typeText("/")
-	d.has("› /compact  hide the run's comments and leave a short summary",
-		"/clear    hide the run's comments; they stay in the history",
-		"/cancel   cancel the run and close the issue", "tab complete")
+	d.has("Commands", "› /compact", "hide the run's comments and leave a short summary",
+		"/clear", "hide the run's comments; they stay in the history",
+		"/cancel", "cancel the run and close the issue", "tab complete")
 	d.hasNot("/approve", "/reject")
 	d.typeText("c")
 	d.has("/compact", "/clear", "/cancel")
@@ -333,8 +352,8 @@ func TestIssueCard(t *testing.T) {
 	d.has("backend", "BE-131", "Rate limit the login endpoint", "State: Open", "Priority: Critical", "backlog",
 		"Too many login attempts get through.", "Comments · 1", "Anna Petrova @anna · 20m ago", "Ten a minute is enough.",
 		"Not taken yet — the runner picks it up from", "● running",
-		"Write a comment…", "enter/r comment", "esc close")
-	d.hasNot("#0", "Log", "No events yet.", "stage", "a approve", "x reject", "c cancel", "tab log", "p PR", "needs input")
+		"Write a comment, @mention people", "enter/r comment", "esc close")
+	d.hasNot("/command", "#0", "Log", "No events yet.", "stage", "a approve", "x reject", "c cancel", "tab log", "p PR", "needs input")
 
 	// No run keys.
 	d.keys("c")
@@ -667,4 +686,23 @@ func TestModalOverHidesTheScreensHelp(t *testing.T) {
 			t.Errorf("line %d under the card is %q", i, got[i])
 		}
 	}
+}
+
+// TestRunModalMentions: "@" offers the people YouTrack finds, narrowed by
+// what is typed after it; tab puts the login in the comment.
+func TestRunModalMentions(t *testing.T) {
+	f := newFixture(t)
+	withIssues(f)
+	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 120, 40)
+	d.has("Write a comment, /command, @mention people")
+	d.typeText("Thanks @")
+	d.has("People", "› Anna Petrova", "anna", "anna@example.com", "Boris Ivanov", "dev@example.com")
+	d.typeText("bo")
+	d.has("› Boris Ivanov", "boris@example.com")
+	d.hasNot("Anna Petrova  ", "anna@example.com")
+	d.keys("tab")
+	if got := d.m.(*Run).reply.ta.Value(); got != "Thanks @boris " {
+		t.Errorf("comment = %q", got)
+	}
+	d.hasNot("People")
 }
