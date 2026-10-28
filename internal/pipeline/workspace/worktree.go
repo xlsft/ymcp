@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Worktree is a git worktree made for one run.
@@ -69,13 +71,46 @@ func listWorktrees(ctx context.Context, h Host, dir string) ([]listedWorktree, e
 	return list, nil
 }
 
+// fetchLocks holds one mutex per repository (host and directory): its
+// worktrees share the remote-tracking refs, and two fetches updating them
+// at once fail with "cannot lock ref".
+var fetchLocks sync.Map
+
+// fetchTries is how many times a fetch that raced another one is made.
+const fetchTries = 3
+
 // Fetch updates the origin branches of the repository at repoDir, which
-// all its worktrees share.
+// all its worktrees share. Fetches of one repository in this process go
+// one at a time; one that raced another process's is made again.
 func Fetch(ctx context.Context, h Host, repoDir string) error {
-	if _, err := run(ctx, h, repoDir, "fetch", "origin"); err != nil {
-		return fmt.Errorf("fetching origin: %w", err)
+	mu, _ := fetchLocks.LoadOrStore(h.Name()+"\x00"+repoDir, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
+	for try := 1; ; try++ {
+		_, err := run(ctx, h, repoDir, "fetch", "origin")
+		if err == nil {
+			return nil
+		}
+		if try == fetchTries || !refRace(err) || ctx.Err() != nil {
+			return fmt.Errorf("fetching origin: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("fetching origin: %w", err)
+		case <-time.After(time.Duration(try) * fetchRetryAfter):
+		}
 	}
-	return nil
+}
+
+// fetchRetryAfter is the wait before the second fetch; the third waits
+// twice as long.
+var fetchRetryAfter = 500 * time.Millisecond
+
+// refRace reports whether git failed because something else moved a ref
+// while it updated it.
+func refRace(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "cannot lock ref") || strings.Contains(s, "unable to update local ref")
 }
 
 func refExists(ctx context.Context, h Host, dir, ref string) (bool, error) {
