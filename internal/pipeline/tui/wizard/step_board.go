@@ -2,6 +2,7 @@ package wizard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -429,6 +430,8 @@ func (s *boardStep) stageMark(i int) string {
 		marks = append(marks, cmdMark(f.exitChk, f.exit.value()))
 	}
 	switch {
+	case newTagErr(f.matches.err):
+		marks = append(marks, markWarn)
 	case f.matches.err != nil:
 		marks = append(marks, markErr)
 	case f.matches.pending:
@@ -586,6 +589,9 @@ func (s *boardStep) searchStage(f *stageForm) tea.Cmd {
 			// An issue in work that still matches the source would be
 			// taken again.
 			m.both, m.bothErr = yt.Search(ctx, "("+src+") and ("+q+")")
+			if newTagErr(m.bothErr) {
+				m.bothErr = nil // nothing has the tag yet
+			}
 			m.bothRan = true
 		}
 		return m
@@ -640,6 +646,8 @@ func matchView(st matchState, query string, width int) string {
 		return styleDim.Render("no search")
 	case st.pending:
 		return markPending + styleDim.Render(" searching…")
+	case newTagErr(st.err):
+		return markWarn + " " + oneLine(st.err.Error(), width-2)
 	case st.err != nil:
 		return markErr + " " + oneLine(st.err.Error(), width-2)
 	case !st.done:
@@ -670,6 +678,14 @@ func leavesView(st matchState, width int) string {
 	}
 	return markWarn + " " + oneLine(fmt.Sprintf("%d also match the source (%s)", len(st.both), strings.Join(keys, ", ")), width-2) +
 		"\n  " + styleWarn.Render(oneLine("ymcp would take them again", width-2))
+}
+
+// newTagErr reports whether err is a search by a tag nobody has created
+// yet: a warning, since nothing can match it before the first `tag`
+// command.
+func newTagErr(err error) bool {
+	var nt *ytwatch.NewTagError
+	return errors.As(err, &nt)
 }
 
 // newTag returns the tag of a `tag X` or `untag X` command that YouTrack

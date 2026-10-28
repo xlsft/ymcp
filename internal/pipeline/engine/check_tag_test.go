@@ -1,24 +1,22 @@
 package engine
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/store"
 )
 
-func TestMaybeNewTag(t *testing.T) {
-	parse := errors.New("youtrack: GET /api/issues: 400 Bad Request: invalid_query: Can't parse search query")
-	for _, tc := range []struct {
-		err   error
-		query string
-		want  bool
-	}{
-		{parse, "project: YPC tag: ymcp-live2 #Unresolved", true},
-		{parse, "project: YPC #new-tag", true},
-		{parse, "project: YPC State: Bogus", false},
-		{errors.New("youtrack: 500 Internal Server Error"), "tag: x", false},
-	} {
-		if got := maybeNewTag(tc.err, tc.query); got != tc.want {
-			t.Errorf("maybeNewTag(%q, %q) = %v, want %v", tc.err, tc.query, got, tc.want)
-		}
-	}
+// TestStageSearchByNewTag: a stage searched by a tag nobody has created yet
+// matches nothing, and the other stages are still tracked: YouTrack refuses
+// such a query, and that used to stop every stage check of the tick.
+func TestStageSearchByNewTag(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) {
+		p.Stages.NeedsInput = spec.Stage{Enter: "tag needs-input", Exit: "untag needs-input", Match: "tag: needs-input"}
+	})
+	is := h.yt.addIssue("Wander", "Open")
+	h.start()
+	h.waitReview(1, is.Key)
+	h.yt.setState(is.Key, "Closed")
+	h.waitStatus(1, store.StatusClosed)
 }

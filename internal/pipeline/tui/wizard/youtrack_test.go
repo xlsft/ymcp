@@ -2,12 +2,15 @@ package wizard
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/xlsft/ymcp/internal/pipeline/spec"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 	"github.com/xlsft/ymcp/internal/youtrack"
 	"github.com/xlsft/ymcp/internal/youtrack/youtracktest"
 )
@@ -183,5 +186,23 @@ func TestUsersForbidden(t *testing.T) {
 	})
 	if _, err := newClient(t, mux).Users(t.Context(), "iv"); err == nil {
 		t.Fatal("want an error")
+	}
+}
+
+// TestNewTagSearchWarns: a search by a tag nobody has created yet is a
+// warning, in the source and in a stage, never an error.
+func TestNewTagSearchWarns(t *testing.T) {
+	err := &ytwatch.NewTagError{Tags: []string{"Требуется внимание"}}
+	view := matchView(matchState{done: true, err: err}, "tag: {Требуется внимание}", 120)
+	if !strings.HasPrefix(view, markWarn) || !strings.Contains(view, "Требуется внимание doesn't exist yet") {
+		t.Errorf("matchView = %q", view)
+	}
+	if view := matchView(matchState{done: true, err: errors.New("400 invalid_query")}, "bogus:", 120); !strings.HasPrefix(view, markErr) {
+		t.Errorf("another refusal: matchView = %q", view)
+	}
+	sh := &shared{p: &spec.Pipeline{Source: spec.Source{Query: "tag: ai"}}, conn: connection{yt: &fakeYT{}}}
+	sh.sample = sample{query: "tag: ai", done: true, err: err}
+	if view := sampleView(sh, 120); !strings.HasPrefix(view, markWarn) {
+		t.Errorf("sampleView = %q", view)
 	}
 }

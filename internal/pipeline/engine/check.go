@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -169,10 +170,10 @@ func checkWorktrees(ctx context.Context, p spec.Pipeline, host workspace.Host, a
 func checkYouTrack(ctx context.Context, p spec.Pipeline, watch *ytwatch.Watcher, add func(string, bool, string), warn func(string, string)) {
 	issues, err := watch.Search(ctx, p.Source.Query)
 	var sample string
+	var nt *ytwatch.NewTagError
 	switch {
-	case err != nil && maybeNewTag(err, p.Source.Query):
-		warn("source query", "YouTrack can't parse it yet; if it names a tag nobody has used, that tag doesn't exist: "+
-			"create it or tag an issue with it ("+err.Error()+")")
+	case errors.As(err, &nt):
+		warn("source query", err.Error())
 	case err != nil:
 		add("source query", false, err.Error())
 	case len(issues) == 0:
@@ -245,6 +246,9 @@ func checkYouTrack(ctx context.Context, p spec.Pipeline, watch *ytwatch.Watcher,
 		warn(name, "can't tell: stages.working.match is not set")
 	default:
 		both, err := watch.Search(ctx, "("+p.Source.Query+") and ("+p.Stages.Working.Match+")")
+		if errors.As(err, &nt) {
+			both, err = nil, nil // nothing has the tag yet
+		}
 		switch {
 		case err != nil:
 			warn(name, "can't tell: "+err.Error())
@@ -275,14 +279,4 @@ func newTag(command string, check ytwatch.CommandCheck) string {
 		}
 	}
 	return strings.Trim(tag, "{}")
-}
-
-// maybeNewTag reports whether err is YouTrack failing to parse a query that
-// names a tag: an unknown tag is a parse error, not an empty result.
-func maybeNewTag(err error, query string) bool {
-	if !strings.Contains(err.Error(), "parse search query") {
-		return false
-	}
-	q := strings.ToLower(query)
-	return strings.Contains(q, "tag:") || strings.Contains(q, "#")
 }
