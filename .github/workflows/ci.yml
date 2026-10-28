@@ -21,7 +21,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether the pull request touches anything but documentation (see
+  # .github/scripts/code-changed.sh). Without code the jobs below skip,
+  # which counts as passing for the checks the main ruleset requires.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            .github/scripts/code-changed.sh "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,6 +66,9 @@ jobs:
       - run: go tool govulncheck ./...
 
   test:
+    # Gated per step, not per job: a matrix job skipped whole reports one
+    # "test" check instead of the two the ruleset requires.
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
@@ -48,17 +76,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.code == 'true'
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.code == 'true'
         with:
           go-version-file: go.mod
       - name: go test
+        if: needs.changes.outputs.code == 'true'
         # pipefail: the default shell would let tee hide a failing go test.
         shell: bash
         run: |
           set -o pipefail
           go test -race -count=1 -coverprofile=coverage.out ./... | tee test.out
       - name: Coverage summary
-        if: matrix.os == 'ubuntu-latest'
+        if: needs.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
         run: |
           {
             echo '### Unit test coverage'
@@ -69,6 +100,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,6 +111,8 @@ jobs:
       - run: go build ./...
 
   goreleaser-check:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,6 +122,8 @@ jobs:
           args: check
 
   docker:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

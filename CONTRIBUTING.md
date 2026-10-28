@@ -122,6 +122,10 @@ first, then [`.github/scripts/next-version.sh`](.github/scripts/next-version.sh)
 | `type!:` or `BREAKING CHANGE` | major (minor while on 0.x) |
 | only `docs`, `test`, `ci`, `build`, `chore`, `refactor` | none |
 
+A change that touches only documentation (Markdown, `docs/`, `site/`, `LICENSE`, the issue and pull request templates)
+runs neither CI nor E2E, on a pull request or on `main`, and releases nothing: their jobs skip, which the required
+checks count as passing. [`.github/scripts/code-changed.sh`](.github/scripts/code-changed.sh) decides.
+
 The workflow then tags the version and uses GoReleaser to build macOS, Linux and Windows binaries for amd64 and
 arm64. It publishes them with checksums and a changelog. `install.sh`, `install.ps1` and `ymcp update`
 pick up the new release automatically.

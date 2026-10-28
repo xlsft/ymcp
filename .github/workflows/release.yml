@@ -14,10 +14,35 @@ permissions:
   contents: read
 
 jobs:
+  # Whether anything but documentation changed since the last release (see
+  # .github/scripts/code-changed.sh). Without code, CI and E2E don't run,
+  # and nothing is released.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            .github/scripts/code-changed.sh >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/ci.yml
 
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/e2e.yml
     secrets: inherit
 
@@ -35,6 +60,7 @@ jobs:
       id-token: write # keyless Sigstore signing of checksums.txt
     outputs:
       version: ${{ steps.version.outputs.version }}
+      hashes: ${{ steps.hashes.outputs.hashes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -82,6 +108,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Pushes to xlsft/homebrew-tap and xlsft/scoop-bucket.
           YMCP_PACKAGES_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
+      # The subjects of the provenance: every released file with its
+      # SHA-256, as checksums.txt lists them.
+      - name: Provenance subjects
+        id: hashes
+        if: steps.version.outputs.version != ''
+        run: echo "hashes=$(base64 -w0 dist/checksums.txt)" >> "$GITHUB_OUTPUT"
+
+  # SLSA build provenance of the release's files, uploaded to the release
+  # as ymcp.intoto.jsonl. The generator is referenced by tag, as it requires.
+  provenance:
+    needs: release
+    if: needs.release.outputs.version != ''
+    permissions:
+      actions: read # the workflow run the provenance describes
+      id-token: write # signing the provenance
+      contents: write # uploading it to the release
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.release.outputs.hashes }}
+      provenance-name: ymcp.intoto.jsonl
+      upload-assets: true
+      upload-tag-name: ${{ needs.release.outputs.version }}
 
   docker:
     needs: release
