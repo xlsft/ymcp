@@ -22,8 +22,8 @@ jobs:
     env:
       IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/ymcp', secrets.YOUTRACK_DOCKERHUB_LOGIN) }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: peter-evans/dockerhub-description@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ${{ secrets.YOUTRACK_DOCKERHUB_LOGIN }}
           password: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
