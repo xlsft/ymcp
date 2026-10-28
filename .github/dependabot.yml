@@ -10,6 +10,17 @@ updates:
       go:
         patterns: ["*"]
 
+  # The base images are pinned by digest; this keeps the digests current.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+    groups:
+      docker:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
