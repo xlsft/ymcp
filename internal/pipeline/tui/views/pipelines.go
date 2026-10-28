@@ -792,8 +792,8 @@ func strategyLabel(s spec.Strategy) string {
 	if label == "" {
 		label = s.Kind
 	}
-	if s.Draft && s.Kind != "branch" {
-		label += " (draft)"
+	if opts := s.Options(); len(opts) > 0 {
+		label += " (" + strings.Join(opts, ", ") + ")"
 	}
 	return label
 }

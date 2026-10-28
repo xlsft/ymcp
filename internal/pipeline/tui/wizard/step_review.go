@@ -148,8 +148,8 @@ func (s *reviewStep) summary(width int) string {
 	}
 	row("Repository", where+rest)
 	st := p.Strategy.Kind
-	if p.Strategy.Draft {
-		st += " (draft)"
+	if opts := p.Strategy.Options(); len(opts) > 0 {
+		st += " (" + strings.Join(opts, ", ") + ")"
 	}
 	row("Publishing", st)
 	ag := p.Agent.Provider

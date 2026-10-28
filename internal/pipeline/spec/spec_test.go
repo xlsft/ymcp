@@ -494,3 +494,19 @@ func TestServiceInstruction(t *testing.T) {
 		t.Error("LanguageRule is not the language line of the service instruction")
 	}
 }
+
+func TestStrategyOptions(t *testing.T) {
+	for _, tt := range []struct {
+		s    Strategy
+		want string
+	}{
+		{Strategy{Kind: "branch", Draft: true, Squash: true}, ""},
+		{Strategy{Kind: "github-pr", Draft: true, Squash: true, DeleteBranch: true}, "draft"},
+		{Strategy{Kind: "gitlab-mr", Draft: true, Squash: true, DeleteBranch: true}, "draft, squash, delete branch"},
+		{Strategy{Kind: "gitlab-mr", DeleteBranch: true}, "delete branch"},
+	} {
+		if got := strings.Join(tt.s.Options(), ", "); got != tt.want {
+			t.Errorf("%+v: options = %q, want %q", tt.s, got, tt.want)
+		}
+	}
+}
