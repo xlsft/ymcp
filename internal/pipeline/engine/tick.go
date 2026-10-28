@@ -104,7 +104,7 @@ func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issu
 		if busy >= r.p.Workspace.Parallel || ctx.Err() != nil {
 			break
 		}
-		if taken[is.ID] || r.suppressed[is.ID] {
+		if taken[is.ID] || r.suppressed[is.ID] && r.stillHeld(ctx, is.ID) {
 			continue
 		}
 		run, err := r.st.CreateRun(ctx, r.p.Name, r.profile, is.ID, is.Key)
@@ -129,6 +129,21 @@ func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issu
 		r.capture(ctx, run, is.Summary)
 	}
 	return source, captured, true
+}
+
+// stillHeld reports whether a suppressed issue is still held by its run
+// canceled from the backlog; it is let go once that run is deleted.
+func (r *Runner) stillHeld(ctx context.Context, issueID string) bool {
+	run, err := r.st.LastRun(ctx, r.p.Name, issueID)
+	switch {
+	case err == nil && backlogCanceled(run):
+		return true
+	case err != nil && !errors.Is(err, store.ErrNotFound):
+		r.log.Warn("reading the last run of an issue failed", "issue", issueID, "err", err)
+		return true
+	}
+	delete(r.suppressed, issueID)
+	return false
 }
 
 // capture moves a new run into the working stage and starts its worker.
