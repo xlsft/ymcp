@@ -248,21 +248,16 @@ func dropIdentity(ctx context.Context, h Host, path string) error {
 	return nil
 }
 
-// CheckedOut returns the path of the worktree of the repository at repoDir
-// that has branch checked out, or "" when none has. Create reuses such a
-// worktree wherever it is, so a new run must not pick the branch of a
-// worktree that belongs to someone else.
-func CheckedOut(ctx context.Context, h Host, repoDir, branch string) (string, error) {
-	list, err := listWorktrees(ctx, h, repoDir)
-	if err != nil {
-		return "", fmt.Errorf("listing worktrees: %w", err)
-	}
-	for _, w := range list {
-		if w.branch == branch && !w.prunable {
-			return w.path, nil
+// BranchExists reports whether the repository at repoDir has branch, as a
+// local branch or on origin. Create continues such a branch, so a new run
+// must not pick one that a run left behind or someone else made.
+func BranchExists(ctx context.Context, h Host, repoDir, branch string) (bool, error) {
+	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
+		if ok, err := refExists(ctx, h, repoDir, ref); err != nil || ok {
+			return ok, err
 		}
 	}
-	return "", nil
+	return false, nil
 }
 
 // Exists reports whether the worktree is still usable: its directory is
