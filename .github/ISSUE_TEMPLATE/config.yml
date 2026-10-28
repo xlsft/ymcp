@@ -1,1 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/xlsft/ymcp/discussions
+    about: How to set something up, what a tool can do, or an idea you'd like to talk over first
+  - name: Security vulnerability
+    url: https://github.com/xlsft/ymcp/security/advisories/new
+    about: Report it privately, not in a public issue

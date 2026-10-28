@@ -1,6 +1,6 @@
-name: Bug report
-description: Something in ymcp doesn't work as expected
-labels: [bug]
+name: Server bug
+description: A tool, sign-in or `ymcp serve` doesn't work as expected
+labels: [bug, area/server]
 body:
   - type: textarea
     id: what
