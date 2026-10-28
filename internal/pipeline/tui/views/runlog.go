@@ -14,6 +14,7 @@ type logEntry struct {
 	at   time.Time
 	kind string
 	text string
+	raw  string // the text as it came, for the next piece of a streamed one
 	n    int
 }
 
@@ -27,6 +28,9 @@ var logNoisy = map[string]bool{
 	"feedback.skipped": true,
 }
 
+// logStreamed are event kinds recorded in pieces while the agent streams.
+var logStreamed = map[string]bool{"agent.text": true, "agent.thought": true}
+
 // logEntries turns events into log entries: hidden kinds left out, a row
 // of the same noisy kind, or of the same kind and text, folded into one.
 func logEntries(events []store.Event) []logEntry {
@@ -35,16 +39,27 @@ func logEntries(events []store.Event) []logEntry {
 		if feedHidden[e.Kind] && !failedTool(e) {
 			continue
 		}
-		t := oneLine(feedText(e))
+		raw := feedText(e)
+		if logStreamed[e.Kind] {
+			raw = fields(e.Data)["text"] // untrimmed: a piece may end in a space
+		}
+		t := oneLine(raw)
 		if n := len(out); n > 0 {
 			last := &out[n-1]
+			if last.kind == e.Kind && logStreamed[e.Kind] {
+				// The pieces of one answer or thought, recorded as it
+				// streamed: one entry.
+				last.raw += raw
+				last.at, last.text = e.At, oneLine(last.raw)
+				continue
+			}
 			if last.kind == e.Kind && (logNoisy[e.Kind] || last.text == t) {
 				last.n++
 				last.at, last.text = e.At, t
 				continue
 			}
 		}
-		out = append(out, logEntry{at: e.At, kind: e.Kind, text: t, n: 1})
+		out = append(out, logEntry{at: e.At, kind: e.Kind, text: t, raw: raw, n: 1})
 	}
 	return out
 }

@@ -548,6 +548,8 @@ func (t *turn) drive(sess agent.Session, prompt string) (res agent.Result, cause
 	}
 	events := sess.Events()
 	ctxDone := t.ctx.Done()
+	textTick := time.NewTicker(textEvery)
+	defer textTick.Stop()
 	for {
 		var permC <-chan time.Time
 		if t.permTimer != nil {
@@ -565,6 +567,8 @@ func (t *turn) drive(sess agent.Session, prompt string) (res agent.Result, cause
 			}
 		case pr := <-done:
 			return pr.res, cause, pr.err
+		case <-textTick.C:
+			t.flush()
 		case <-silence.C:
 			if len(t.perms) > 0 {
 				silence.Reset(silenceAfter) // waiting for a human, not stuck
@@ -673,7 +677,11 @@ func (t *turn) record(ev agent.Event) {
 		data["text"] = trimText(ev.Text, 2000)
 	}
 	if tc := ev.Tool; tc != nil {
-		data["tool"] = map[string]string{"id": tc.ID, "title": tc.Title, "kind": tc.Kind, "status": tc.Status}
+		tool := map[string]any{"id": tc.ID, "title": tc.Title, "kind": tc.Kind, "status": tc.Status}
+		if in := shortInput(tc.Input); in != nil {
+			tool["input"] = in
+		}
+		data["tool"] = tool
 		if ev.Kind == agent.EventToolCall && tc.Title != "" {
 			t.lastTool = tc.Title
 		}
@@ -682,6 +690,62 @@ func (t *turn) record(ev agent.Event) {
 		data["session"] = ev.SessionID
 	}
 	t.r.event(t.bg, t.run.ID, "agent."+ev.Kind.String(), data)
+}
+
+// textEvery is how often the text chunks of a running turn are recorded,
+// so a transcript follows a long answer or thought as it streams.
+var textEvery = time.Second
+
+// Bounds of the tool input kept with a tool event.
+const (
+	inputBytes  = 1500 // input up to this size is kept as it is
+	inputString = 300  // longer input keeps this much of each string
+	inputItems  = 20   // and this many items of each list
+)
+
+// shortInput is a tool's input as an event keeps it: as it is when it is
+// small, else with long strings and lists cut; nil when there is none.
+func shortInput(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" || !json.Valid(raw) {
+		return nil
+	}
+	if len(raw) <= inputBytes {
+		return raw
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	b, err := json.Marshal(shorten(v))
+	if err != nil {
+		return nil
+	}
+	if len(b) > 4*inputBytes {
+		b, _ = json.Marshal(trimText(string(b), inputBytes))
+	}
+	return b
+}
+
+// shorten cuts the strings and lists of a decoded JSON value.
+func shorten(v any) any {
+	switch v := v.(type) {
+	case string:
+		return trimText(v, inputString)
+	case []any:
+		if len(v) > inputItems {
+			v = append(v[:inputItems:inputItems], "…")
+		}
+		for i := range v {
+			v[i] = shorten(v[i])
+		}
+		return v
+	case map[string]any:
+		for k := range v {
+			v[k] = shorten(v[k])
+		}
+		return v
+	}
+	return v
 }
 
 func (t *turn) flush() {
