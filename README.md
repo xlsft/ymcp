@@ -229,6 +229,12 @@ canceled run (also `ymcp pipeline NAME cancel N`) closes its pull or merge reque
 removes its worktree unless `workspace.keepWorktree` is set; a later run of the issue starts on a new branch. A
 change closed without a merge ends the run as closed. `workspace.parallel` sets how many issues run at once (1).
 
+The agent commits as the repository's `user.name` and `user.email`. With `workspace.identity.enabled` it gets an author
+of its own in each worktree instead, written to the worktree's config only. `workspace.identity.name` is a template of
+the name (`{{agent.name}} · {{pipeline.name}} #{{run.number}}`) and `workspace.identity.tag` of what goes after `+` in
+your address (`agent_{{pipeline.name}}_{{run.number}}`, so `dev@example.com` becomes
+`dev+agent_backend_3@example.com`). Both take the issue's keys too; the tag keeps lowercase letters, digits and `_`.
+
 ### Agents
 
 | `agent.provider` | |

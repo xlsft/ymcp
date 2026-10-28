@@ -393,9 +393,9 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	if all := h.yt.issueComments(is.Key); !contains(all, "@alice's agent #1 (backend)") {
 		t.Errorf("comments lack the prefix: %q", all)
 	}
-	// The branch was committed by the agent identity and pushed.
+	// The branch was committed as the repository's user and pushed.
 	log := git(t, h.origin, "log", "-1", "--format=%an <%ae>|%s", run.Branch)
-	if log != "Fake · backend #1 <dev+agent_backend_1@xlsft.ru>|"+is.Key+" Fixed the login page." {
+	if log != "Dev <dev@xlsft.ru>|"+is.Key+" Fixed the login page." {
 		t.Errorf("origin log = %q", log)
 	}
 	if len(h.events(run.ID, "git.push")) != 1 || len(h.events(run.ID, "agent.text")) == 0 {

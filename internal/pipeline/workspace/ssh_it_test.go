@@ -224,7 +224,7 @@ func TestSSHIntegration(t *testing.T) {
 	if err != nil || root != "/home/dev/.cache/ymcp/worktrees/backend" {
 		t.Fatalf("DefaultRoot = %q, %v", root, err)
 	}
-	wt, err := workspace.Create(ctx, h, repo, root, "IT-1-fix", "", workspace.AgentIdentity("dev@example.com", "backend", 1, "Fake"))
+	wt, err := workspace.Create(ctx, h, repo, root, "IT-1-fix", "", workspace.AgentIdentity("dev@example.com", "Fake · backend #1", "agent_backend_1"))
 	if err != nil {
 		t.Fatal(err)
 	}

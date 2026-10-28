@@ -391,7 +391,7 @@ func TestSSHWorkspace(t *testing.T) {
 		}
 	}
 	root := filepath.Join(t.TempDir(), "work trees")
-	wt, err := Create(ctx, h, f.repo, root, "BE-1-fix", "", AgentIdentity("dev@xlsft.ru", "backend", 3, "Claude"))
+	wt, err := Create(ctx, h, f.repo, root, "BE-1-fix", "", AgentIdentity("dev@xlsft.ru", "Claude · backend #3", "agent_backend_3"))
 	if err != nil {
 		t.Fatal(err)
 	}

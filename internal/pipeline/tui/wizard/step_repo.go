@@ -2,6 +2,7 @@ package wizard
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -30,6 +31,7 @@ var strategyKinds = []option{
 type repoStep struct {
 	base
 	host, dir, baseBr, branch, prefix, parallel *assistField
+	idName, idTag                               *assistField
 	all                                         []*item
 	advanced                                    bool
 
@@ -80,8 +82,12 @@ func newRepoStep(sh *shared) *repoStep {
 	s.prefix.set(w.CommitPrefix)
 	s.parallel = newAssist(sh, "1", staticSuggest([]string{"1", "2", "3", "4"}))
 	s.parallel.set(strconv.Itoa(max(w.Parallel, 1)))
+	s.idName = newAssist(sh, spec.DefaultIdentityName, nil)
+	s.idName.set(w.Identity.Name)
+	s.idTag = newAssist(sh, spec.DefaultIdentityTag, nil)
+	s.idTag.set(w.Identity.Tag)
 	s.advanced = w.Branch != spec.DefaultBranch || w.CommitPrefix != spec.DefaultCommitPrefix ||
-		w.Host != "" || w.Base != "" || w.Parallel > 1
+		w.Host != "" || w.Base != "" || w.Parallel > 1 || w.Identity.Enabled
 
 	store := func() tea.Cmd {
 		before := s.where()
@@ -185,8 +191,72 @@ func newRepoStep(sh *shared) *repoStep {
 			problem: func() string { return s.tmplErr(sh.p.Workspace.CommitPrefix) },
 			below:   func(int) string { return s.preview(sh.p.Workspace.CommitPrefix) },
 		},
+		{
+			id: "identity", inline: true, hidden: adv,
+			desc: "Off: the agent commits as the repository's user.name and user.email.",
+			ctl: &toggleCtl{
+				label: "Give the agent its own commit author",
+				get:   func() bool { return sh.p.Workspace.Identity.Enabled },
+				set:   func(v bool) tea.Cmd { sh.p.Workspace.Identity.Enabled = v; return nil },
+			},
+		},
+		{
+			id: "idName", label: "Author name template", hidden: func() bool { return adv() || !sh.p.Workspace.Identity.Enabled },
+			desc:    "The agent's user.name; {{agent.name}}, {{pipeline.name}}, {{run.number}} and the issue's keys work.",
+			ctl:     newText(s.idName, func() tea.Cmd { s.store(); return nil }),
+			problem: func() string { return s.tmplErr(sh.p.Workspace.Identity.Name) },
+			below:   func(int) string { return s.identityPreview(false) },
+		},
+		{
+			id: "idTag", label: "Email tag template", hidden: func() bool { return adv() || !sh.p.Workspace.Identity.Enabled },
+			desc:    "Goes after + in your user.email: you+<tag>@example.com. Lowercase letters, digits and _ are kept.",
+			ctl:     newText(s.idTag, func() tea.Cmd { s.store(); return nil }),
+			problem: func() string { return s.tmplErr(sh.p.Workspace.Identity.Tag) },
+			below:   func(int) string { return s.identityPreview(true) },
+		},
 	}
 	return s
+}
+
+// identityPreview renders the agent's author name, or its address, for run
+// #1 on the sample issue.
+func (s *repoStep) identityPreview(email bool) string {
+	is := s.sh.sample.issues
+	if len(is) == 0 {
+		return ""
+	}
+	sample := is[0]
+	if full := s.sh.full.issue; full != nil && full.Key == sample.Key {
+		sample = *full
+	}
+	p := s.sh.p
+	v := text.Vars{
+		"issue.id": sample.Key, "issue.key": sample.Key, "issue.summary": sample.Summary, "issue.dbid": sample.ID,
+		"agent.name": cmp.Or(p.Agent.Name, "Claude"), "pipeline.name": cmp.Or(p.Name, "pipeline"), "run.number": "1",
+	}
+	for k, f := range sample.Fields {
+		v["issue.fields."+k] = f
+	}
+	name, err := text.Render(cmp.Or(p.Workspace.Identity.Name, spec.DefaultIdentityName), v)
+	if err != nil {
+		return ""
+	}
+	tag, err := text.Render(cmp.Or(p.Workspace.Identity.Tag, spec.DefaultIdentityTag), v)
+	if err != nil {
+		return ""
+	}
+	user := "you@example.com"
+	for _, c := range s.checks {
+		if c.Name == workspace.CheckUserEmail && c.OK {
+			user = c.Detail
+		}
+	}
+	id := workspace.AgentIdentity(user, name, tag)
+	out := id.Name
+	if email {
+		out = id.Email
+	}
+	return styleDim.Render("preview: ") + styleCode.Render(out) + styleDim.Render("  (run #1 on "+sample.Key+")")
 }
 
 func (s *repoStep) title() string { return "Repository" }
@@ -194,7 +264,8 @@ func (s *repoStep) title() string { return "Repository" }
 // advErr reports whether a field under Advanced is wrong.
 func (s *repoStep) advErr() bool {
 	w := s.sh.p.Workspace
-	return strings.ContainsAny(w.Host, " \t") || w.Parallel < 1 || s.tmplErr(w.Branch) != "" || s.tmplErr(w.CommitPrefix) != ""
+	return strings.ContainsAny(w.Host, " \t") || w.Parallel < 1 || s.tmplErr(w.Branch) != "" || s.tmplErr(w.CommitPrefix) != "" ||
+		s.tmplErr(w.Identity.Name) != "" || s.tmplErr(w.Identity.Tag) != ""
 }
 
 // advOpen reports whether the Advanced fields show.
@@ -399,6 +470,7 @@ func (s *repoStep) store() {
 	w.Base = s.baseBr.value()
 	w.Branch = s.branch.value()
 	w.CommitPrefix = s.prefix.value()
+	w.Identity.Name, w.Identity.Tag = s.idName.value(), s.idTag.value()
 	if n, err := strconv.Atoi(s.parallel.value()); err == nil {
 		w.Parallel = n
 	} else {

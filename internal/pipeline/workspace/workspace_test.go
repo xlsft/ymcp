@@ -178,27 +178,54 @@ func TestLocalHost(t *testing.T) {
 
 func TestAgentIdentity(t *testing.T) {
 	tests := []struct {
-		email, pipeline string
-		run             int
-		agent           string
-		wantEmail       string
-		wantName        string
+		email, name, tag    string
+		wantName, wantEmail string
 	}{
-		{"dev@xlsft.ru", "backend", 17, "Claude", "dev+agent_backend_17@xlsft.ru", "Claude · backend #17"},
-		{"dev+old@xlsft.ru", "backend", 1, "Kimi", "dev+agent_backend_1@xlsft.ru", "Kimi · backend #1"},
-		{"dev+a+b@xlsft.ru", "Front-End API", 2, "", "dev+agent_front_end_api_2@xlsft.ru", "Agent · Front-End API #2"},
-		{"  dev@xlsft.ru ", "__x__", 3, "A", "dev+agent_x_3@xlsft.ru", "A · __x__ #3"},
-		{"dev@xlsft.ru", "Бэкенд", 4, "A", "dev+agent_pipeline_4@xlsft.ru", "A · Бэкенд #4"},
-		{"not-an-email", "p", 5, "A", "", "A · p #5"},
-		{"@xlsft.ru", "p", 5, "A", "", "A · p #5"},
-		{"+tag@xlsft.ru", "p", 5, "A", "", "A · p #5"},
-		{"", "p", 5, "A", "", "A · p #5"},
+		{"dev@xlsft.ru", "Claude · backend #17", "agent_backend_17", "Claude · backend #17", "dev+agent_backend_17@xlsft.ru"},
+		{"dev+old@xlsft.ru", "Kimi", "agent_backend_1", "Kimi", "dev+agent_backend_1@xlsft.ru"},
+		{"dev+a+b@xlsft.ru", "", "agent_Front-End API_2", "Agent", "dev+agent_front_end_api_2@xlsft.ru"},
+		{"  dev@xlsft.ru ", " A <x>\n", "__K8S-1434__", "A x", "dev+k8s_1434@xlsft.ru"},
+		{"dev@xlsft.ru", "A", "Бэкенд", "A", "dev@xlsft.ru"},
+		{"dev+old@xlsft.ru", "A", "", "A", "dev@xlsft.ru"},
+		{"not-an-email", "A", "t", "A", ""},
+		{"@xlsft.ru", "A", "t", "A", ""},
+		{"+tag@xlsft.ru", "A", "t", "A", ""},
+		{"", "A", "t", "A", ""},
 	}
 	for _, tt := range tests {
-		got := AgentIdentity(tt.email, tt.pipeline, tt.run, tt.agent)
+		got := AgentIdentity(tt.email, tt.name, tt.tag)
 		if got.Email != tt.wantEmail || got.Name != tt.wantName {
-			t.Errorf("AgentIdentity(%q, %q, %d, %q) = %+v, want {%q %q}", tt.email, tt.pipeline, tt.run, tt.agent, got, tt.wantName, tt.wantEmail)
+			t.Errorf("AgentIdentity(%q, %q, %q) = %+v, want {%q %q}", tt.email, tt.name, tt.tag, got, tt.wantName, tt.wantEmail)
 		}
+	}
+}
+
+// TestCreateWithoutIdentity: a zero identity leaves the repository's own,
+// and drops one an earlier Create gave the worktree.
+func TestCreateWithoutIdentity(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := Local()
+	own := git(t, f.repo, "config", "user.email")
+	wt, err := Create(ctx, h, f.repo, "", "BE-20", "", Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := git(t, wt.Path, "config", "user.email"); got != own {
+		t.Errorf("user.email = %q, want the repository's %q", got, own)
+	}
+	if _, err := Create(ctx, h, f.repo, "", "BE-21", "", testIdentity); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Create(ctx, h, f.repo, "", "BE-21", "", Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := git(t, again.Path, "config", "user.email"); got != own {
+		t.Errorf("user.email after dropping the identity = %q, want %q", got, own)
+	}
+	if got := git(t, f.repo, "config", "user.email"); got != own {
+		t.Errorf("the repository's user.email changed to %q", got)
 	}
 }
 
@@ -548,7 +575,7 @@ func TestCreateErrors(t *testing.T) {
 		{"empty branch", "", "", testIdentity, "branch is empty"},
 		{"bad branch", "a..b", "", testIdentity, "invalid branch"},
 		{"dash branch", "-x", "", testIdentity, "invalid branch"},
-		{"no identity", "BE-7", "", Identity{Name: "x"}, "no email"},
+		{"identity without email", "BE-7", "", Identity{Name: "x"}, "no email"},
 		{"unknown base", "BE-7", "nope", testIdentity, "origin/nope does not exist"},
 		{"main checkout branch", "main", "", testIdentity, "main working tree"},
 	}
