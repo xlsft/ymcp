@@ -116,8 +116,8 @@ jobs:
       MCP_PUBLISHER_VERSION: v1.8.6
       VERSION: ${{ needs.release.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
       - name: Install mcp-publisher
         run: |
           archive=mcp-publisher_linux_amd64.tar.gz
