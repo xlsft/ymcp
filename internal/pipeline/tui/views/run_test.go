@@ -140,7 +140,7 @@ func TestRunModal(t *testing.T) {
 	d.has("backend #6",
 		"BE-127", "CSV export of the reports",
 		"State: In Progress", "Priority: Major", "stage working", "⚑ needs input", "⎇ be-127-csv-export",
-		"Users want to export reports as CSV.", "Acceptance", "• a button on the report page", "[image]", "GET /reports/42.csv",
+		"Users want to export reports as CSV.", "Acceptance", "• a button on the report page", "image y.png https://x/y.png", "GET /reports/42.csv",
 		"Comments · 2",
 		"Anna Petrova @anna · 50m ago", "Please also cover the admin reports.",
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",

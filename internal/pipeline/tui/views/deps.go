@@ -22,6 +22,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/termimg"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
@@ -58,7 +59,25 @@ type IssueComment struct {
 	AuthorName string // full name, "" when YouTrack has none
 	Text       string // raw, with any agent marker
 	Created    time.Time
-	Updated    time.Time // zero when never edited
+	Updated    time.Time    // zero when never edited
+	Files      []Attachment // attached to the comment, a pasted screenshot say
+}
+
+// Attachment is a file attached to an issue or a comment.
+type Attachment struct {
+	Name     string
+	URL      string // as YouTrack gives it: signed, relative to its address
+	MimeType string
+}
+
+// Pictures fetches the pictures a card shows, as the profile's user.
+type Pictures interface {
+	// Attachments lists the files attached to the issue itself, not to
+	// its comments.
+	Attachments(ctx context.Context, profile, issue string) ([]Attachment, error)
+	// Fetch downloads a picture: an attachment's URL, or any other
+	// address.
+	Fetch(ctx context.Context, profile, url string) ([]byte, error)
 }
 
 // People finds the YouTrack users a comment can mention, as the profile's
@@ -119,6 +138,12 @@ type Deps struct {
 	Changes Changes
 	// People completes @mentions in the comment box; nil turns that off.
 	People People
+	// Pictures fetches the pictures of a run card; nil shows them as
+	// links.
+	Pictures Pictures
+	// PictureMode is how the terminal shows pictures. Default: links; the
+	// TUI detects it (termimg.Detect).
+	PictureMode termimg.Mode
 	// OpenURL opens a link in the browser; nil disables o and p.
 	OpenURL func(url string) error
 	// Now is the clock of the elapsed times. Default: time.Now.

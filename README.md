@@ -198,7 +198,9 @@ Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a 
 runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
 issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
 and the agent's log, with a comment box (`r`) whose `/` completes the commands below. Shortcuts work on Cyrillic
-keyboard layouts too. Or from the command line:
+keyboard layouts too. In kitty and Ghostty the card shows pictures in place, pasted screenshots and attachments
+included, and the agent's working loader plays; other terminals, and tmux, get links to them. `YMCP_IMAGES=kitty` or
+`YMCP_IMAGES=off` overrides the choice. Or from the command line:
 
 ```sh
 ymcp pipeline new backend --profile youtrack --dir ~/src/backend --query 'project: BE #Unresolved tag: ai'

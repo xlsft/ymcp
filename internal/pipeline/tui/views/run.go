@@ -98,6 +98,9 @@ type Run struct {
 	logDirty  bool
 	frameN    int
 
+	pics  *pictures
+	files []Attachment // the issue's own attachments
+
 	reply     replyBox
 	wantReply bool
 	acSel     int    // the suggestion under the cursor
@@ -132,6 +135,7 @@ type issueLoaded struct {
 	issueErr  error
 	comments  []IssueComment
 	threadErr error
+	files     []Attachment // the issue's own
 }
 
 type changeLoaded struct {
@@ -152,7 +156,8 @@ type commentSent struct {
 // at once.
 func NewRun(d *Deps, pipeline string, number int, reply bool) *Run {
 	home, _ := os.UserHomeDir()
-	return &Run{base: newBase(d), pipeline: pipeline, number: number, home: home, reply: newReplyBox(), wantReply: reply}
+	return &Run{base: newBase(d), pipeline: pipeline, number: number, home: home, reply: newReplyBox(), wantReply: reply,
+		pics: newPictures(d.PictureMode, "")}
 }
 
 // NewIssueCard makes the card of a backlog issue of a pipeline: the run
@@ -235,13 +240,16 @@ func (m *Run) loadIssue(force bool) tea.Cmd {
 		return nil
 	}
 	m.ytLoading, m.ytAt = true, m.d.Now()
-	iss, profile, ref, to := m.d.Issues, m.run.Profile, issueRef(m.run), m.id
+	iss, pics, profile, ref, to := m.d.Issues, m.d.Pictures, m.run.Profile, issueRef(m.run), m.id
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
 		defer cancel()
 		msg := issueLoaded{to: to}
 		msg.issue, msg.issueErr = iss.Issue(ctx, profile, ref)
 		msg.comments, msg.threadErr = iss.Comments(ctx, profile, ref)
+		if pics != nil {
+			msg.files, _ = pics.Attachments(ctx, profile, ref) // without them, names stay names
+		}
 		return msg
 	}
 }
@@ -286,6 +294,7 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		first := !m.loaded
 		m.loaded = true
 		m.runner, m.profiles = msg.runner, msg.profiles
+		m.pics.base = strings.TrimRight(profileURL(m.profiles, cmp.Or(msg.run.Profile, m.run.Profile)), "/")
 		if !m.backlog { // a backlog card keeps the run it was made with
 			m.run, m.info = msg.run, msg.info
 		}
@@ -316,10 +325,15 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.threadErr == nil {
 			m.comments = msg.comments
 		}
+		if msg.issueErr == nil {
+			m.files, m.pics.files = msg.files, msg.files
+		}
+		fetch := m.pics.fetch(m.d, m.run.Profile, m.id, m.issuePictures())
 		if m.ytAgain {
 			m.ytAgain = false
-			return m, m.loadIssue(false)
+			return m, tea.Batch(fetch, m.loadIssue(false))
 		}
+		return m, fetch
 	case changeLoaded:
 		if msg.to != m.id {
 			return m, nil
@@ -327,6 +341,11 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prLoading, m.prLoaded, m.prErr = false, true, msg.err
 		if msg.err == nil {
 			m.prComments = msg.comments
+			var urls []string
+			for _, c := range m.prComments {
+				urls = append(urls, pictureRefs(c.Body)...)
+			}
+			return m, m.pics.fetch(m.d, m.run.Profile, m.id, urls)
 		}
 	case commentSent:
 		if msg.to != m.id {
@@ -361,6 +380,11 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadChange())
 		}
 		return m, tea.Batch(cmds...)
+	case picturesLoaded:
+		if msg.to == m.id {
+			m.pics.loaded(msg)
+		}
+		return m, nil
 	case peopleFound:
 		if msg.to == m.id {
 			if m.people == nil {
@@ -1343,10 +1367,16 @@ func (m *Run) docLines(w int) []string {
 	var out []string
 	if m.issueErr != nil {
 		out = append(out, wrap(theme.Err.Render("✗ ")+"Could not read the issue: "+oneLine(m.issueErr.Error()), w)...)
-	} else if desc := mdLines(m.issue.Description, w); len(desc) > 0 {
+	} else if desc := mdLinesWith(m.issue.Description, w, m.drawPicture(nil)); len(desc) > 0 {
 		out = append(out, desc...)
 	} else {
 		out = append(out, theme.Dim.Render("No description."))
+	}
+	if files := m.looseFiles(); len(files) > 0 {
+		for _, f := range files {
+			out = append(out, "")
+			out = append(out, m.pics.file(f, w)...)
+		}
 	}
 	out = append(out, "")
 	n := len(m.comments)
@@ -1363,11 +1393,11 @@ func (m *Run) docLines(w int) []string {
 	}
 	for _, c := range m.comments {
 		out = append(out, "")
-		out = append(out, issueItem(c).lines(w, now, m.frameN)...)
+		out = append(out, issueItem(c).lines(w, now, m.frameN, m.pics)...)
 	}
 	for _, p := range m.pending {
 		out = append(out, "")
-		out = append(out, threadItem{author: "you", body: p.text, at: p.at, pending: true}.lines(w, now, m.frameN)...)
+		out = append(out, threadItem{author: "you", body: p.text, at: p.at, pending: true}.lines(w, now, m.frameN, m.pics)...)
 	}
 	return out
 }
@@ -1386,7 +1416,7 @@ func (m *Run) changeLines(w int) []string {
 	}
 	for _, c := range m.prComments {
 		out = append(out, "")
-		out = append(out, changeItem(c).lines(w, now, m.frameN)...)
+		out = append(out, changeItem(c).lines(w, now, m.frameN, m.pics)...)
 	}
 	return out
 }
@@ -1576,4 +1606,48 @@ func feedText(e store.Event) string {
 		return ""
 	}
 	return oneLine(string(e.Data))
+}
+
+// drawPicture draws a picture of the description, or of a comment with
+// files, at its place in the text; names are looked up among the files and
+// the issue's attachments.
+func (m *Run) drawPicture(files []Attachment) pictureLines {
+	return func(alt, src string, w int) []string {
+		return m.pics.lines(cmp.Or(alt, pictureName("", src)), resolve(src, files, m.files), w, pictureRows)
+	}
+}
+
+// looseFiles are the issue's attachments its description doesn't show.
+func (m *Run) looseFiles() []Attachment {
+	shown := map[string]bool{}
+	for _, src := range pictureRefs(m.issue.Description, m.files) {
+		shown[src] = true
+	}
+	var out []Attachment
+	for _, f := range m.files {
+		if !shown[f.URL] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// issuePictures are the addresses of every picture of the issue and its
+// comments, to download.
+func (m *Run) issuePictures() []string {
+	urls := pictureRefs(m.issue.Description, m.files)
+	for _, f := range m.files {
+		if isPicture(f) {
+			urls = append(urls, f.URL)
+		}
+	}
+	for _, c := range m.comments {
+		urls = append(urls, pictureRefs(c.Text, c.Files, m.files)...)
+		for _, f := range c.Files {
+			if isPicture(f) {
+				urls = append(urls, f.URL)
+			}
+		}
+	}
+	return urls
 }

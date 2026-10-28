@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/termimg"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/views"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
@@ -76,7 +80,7 @@ func (y *YouTrack) Issue(ctx context.Context, profile, issue string) (ytwatch.Is
 	return ytwatch.New(c).Issue(ctx, issue)
 }
 
-const commentFields = "id,text,created,updated,deleted,author(login,fullName)"
+const commentFields = "id,text,created,updated,deleted,author(login,fullName),attachments(name,url,mimeType,removed)"
 
 // commentPage is how many comments one request reads; commentPages caps
 // the pages.
@@ -95,6 +99,28 @@ type apiComment struct {
 		Login    string `json:"login"`
 		FullName string `json:"fullName"`
 	} `json:"author"`
+	Attachments []apiAttachment `json:"attachments"`
+}
+
+type apiAttachment struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	MimeType string `json:"mimeType"`
+	Removed  bool   `json:"removed"`
+	Comment  *struct {
+		ID string `json:"id"`
+	} `json:"comment"`
+}
+
+// files are the attachments still there.
+func files(list []apiAttachment) []views.Attachment {
+	var out []views.Attachment
+	for _, a := range list {
+		if !a.Removed && a.URL != "" {
+			out = append(out, views.Attachment{Name: a.Name, URL: a.URL, MimeType: a.MimeType})
+		}
+	}
+	return out
 }
 
 func (a apiComment) comment() views.IssueComment {
@@ -105,6 +131,7 @@ func (a apiComment) comment() views.IssueComment {
 	if a.Author != nil {
 		c.Author, c.AuthorName = a.Author.Login, a.Author.FullName
 	}
+	c.Files = files(a.Attachments)
 	return c
 }
 
@@ -242,4 +269,61 @@ func (y *YouTrack) Users(ctx context.Context, profile, query string) ([]views.Pe
 		}
 	}
 	return out, nil
+}
+
+// Attachments lists the files attached to the issue itself; those of its
+// comments come with the comments.
+func (y *YouTrack) Attachments(ctx context.Context, profile, issue string) ([]views.Attachment, error) {
+	c, err := y.client(profile)
+	if err != nil {
+		return nil, err
+	}
+	var raw []apiAttachment
+	q := youtrack.Fields("name,url,mimeType,removed,comment(id)")
+	q.Set("$top", "-1")
+	if err := c.Get(ctx, "issues/"+url.PathEscape(issue)+"/attachments", q, &raw); err != nil {
+		return nil, fmt.Errorf("attachments of %s: %w", issue, err)
+	}
+	own := raw[:0]
+	for _, a := range raw {
+		if a.Comment == nil {
+			own = append(own, a)
+		}
+	}
+	return files(own), nil
+}
+
+// Fetch downloads a picture: YouTrack's own files as the profile's user,
+// anything else as it is.
+func (y *YouTrack) Fetch(ctx context.Context, profile, fileURL string) ([]byte, error) {
+	c, err := y.client(profile)
+	if err != nil {
+		return nil, err
+	}
+	base := strings.TrimRight(c.BaseURL(), "/")
+	switch {
+	case strings.HasPrefix(fileURL, "/"):
+		data, _, err := c.Download(ctx, fileURL)
+		return data, err
+	case base != "" && strings.HasPrefix(fileURL, base+"/"):
+		data, _, err := c.Download(ctx, strings.TrimPrefix(fileURL, base))
+		return data, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", fileURL, resp.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, termimg.MaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
