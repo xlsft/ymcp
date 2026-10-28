@@ -1,0 +1,1478 @@
+<!doctype html>
+<!--
+  The ymcp landing page. .github/scripts/site.py fills in its placeholders
+  (the site's data, the TUI screens as text and the nav's loader) and the
+  Site workflow publishes the result as index.html on the site branch.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<style>
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>ymcp</title>
+<script>
+// Dark unless the viewer picked light here before.
+(function () {
+  var root = document.documentElement, saved = null;
+  try { saved = localStorage.getItem('ymcp-theme'); } catch (e) {}
+  root.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+})();
+</script>
+<meta name="description" content="YouTrack MCP server and coding-agent pipelines. Signs in with your login and password.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: the README banner as the hero (studio red, black Y square, MCP), then a paper page
+   in two columns (server / pipelines) with the pipeline's stage track as the one diagram. */
+:root {
+  --red: #C62A22;
+  --red-hi: #D5372D;
+  --red-lo: #A11C17;
+  --ink: #0E0E0E;
+  --on-red: #FFFFFF;
+  --bg: #F6F2F1;
+  --fg: #171313;
+  --muted: #6B5F5E;
+  --line: #E2D8D6;
+  --panel: #FFFFFF;
+  --code-bg: #0E0E0E;
+  --code-fg: #F1ECEB;
+  --accent: #B3241D;
+  --term-bg: #141111;
+  --term-fg: #E9E2E1;
+  --term-line: #2C2523;
+  --display: "Archivo", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --panel: #1A1615;
+    --code-bg: #070606; --code-fg: #EFE9E8; --accent: #F0645A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --panel: #1A1615;
+  --code-bg: #070606; --code-fg: #EFE9E8; --accent: #F0645A; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 400 16px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+code, pre, .mono { font-family: var(--mono); }
+.wrap {
+  max-width: 1120px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* Hero */
+.hero {
+  background: radial-gradient(120% 90% at 50% 40%, var(--red-hi), var(--red) 55%, var(--red-lo));
+  color: var(--on-red);
+}
+.hero .wrap { padding-block: 40px 72px; display: grid; gap: 56px; }
+/* The nav stays on top while the page scrolls, in the hero's red. */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--red); color: var(--on-red); box-shadow: 0 1px 0 rgba(0, 0, 0, .18);
+}
+.bar .wrap { padding-block: 12px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--red); }
+section { scroll-margin-top: 64px; }
+nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font: 700 15px/1 var(--mono); text-decoration: none; }
+.brand img { width: 26px; height: 26px; image-rendering: pixelated; }
+nav ul { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; font: 500 14px/1 var(--body); flex-wrap: wrap; }
+nav a { text-decoration: none; opacity: .85; }
+nav a:hover, nav a:focus-visible { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+
+.lockup { display: flex; align-items: center; gap: clamp(16px, 3vw, 32px); }
+.ysq {
+  position: relative; flex: none;
+  width: clamp(88px, 15vw, 180px); aspect-ratio: 1; max-width: 100%;
+  background: var(--ink);
+}
+.ysq b {
+  position: absolute; left: 10%; top: 8%;
+  font: 800 clamp(20px, 3.4vw, 40px)/1 var(--display); font-stretch: 100%;
+}
+.ysq i { position: absolute; left: 11%; bottom: 11%; width: 37.5%; height: 6.25%; background: var(--on-red); }
+.mcp {
+  margin: 0; font: 900 clamp(84px, 17vw, 210px)/.82 var(--display); font-stretch: 112%;
+  letter-spacing: -.02em;
+}
+.caption { margin: 18px 0 0; font: 400 clamp(15px, 1.8vw, 20px)/1.4 var(--mono); opacity: .92; }
+.lead {
+  max-width: 40ch; margin: 0;
+  font: 600 clamp(20px, 2.4vw, 28px)/1.3 var(--display); font-stretch: 100%;
+  text-wrap: balance;
+}
+.hero-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: end; }
+.hero-grid > * { min-width: 0; }
+
+/* Install box */
+.install { background: var(--ink); color: var(--code-fg); }
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid #2A2423; }
+.tabs button {
+  appearance: none; border: 0; background: none; color: #B9ABA9; cursor: pointer;
+  padding: 12px 14px; font: 500 13px/1 var(--mono);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs button[aria-selected="true"] { color: #fff; border-bottom-color: var(--red-hi); }
+.tabs button:focus-visible { outline: 2px solid var(--red-hi); outline-offset: -2px; }
+.cmd { display: flex; align-items: flex-start; gap: 12px; padding: 16px; }
+.cmd pre { margin: 0; flex: 1; min-width: 0; overflow-x: auto; font-size: 13.5px; line-height: 1.6; white-space: pre; }
+.cmd pre::before { content: "$ "; color: #8A7B79; }
+.copy {
+  flex: none; appearance: none; cursor: pointer; border: 1px solid #3A3230; background: none; color: #E9E2E1;
+  padding: 6px 10px; font: 500 12px/1 var(--mono);
+}
+.copy:hover, .copy:focus-visible { border-color: var(--red-hi); outline: none; }
+.after { padding: 0 16px 14px; margin: 0; color: #9C8E8C; font: 400 12.5px/1.5 var(--mono); }
+
+/* Sections */
+section { padding-block: 72px; border-top: 1px solid var(--line); }
+section:first-of-type { border-top: 0; }
+.eyebrow { margin: 0 0 10px; font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h2 {
+  margin: 0 0 16px; font: 800 clamp(30px, 4.4vw, 48px)/1.02 var(--display); font-stretch: 108%;
+  letter-spacing: -.01em; text-wrap: balance;
+}
+h3 { margin: 0 0 6px; font: 700 19px/1.25 var(--display); font-stretch: 100%; }
+p { margin: 0; }
+.prose { max-width: 62ch; color: var(--muted); }
+
+.figures { display: flex; flex-wrap: wrap; gap: 12px 40px; margin-top: 28px; font-variant-numeric: tabular-nums; }
+.figures div { display: grid; gap: 2px; }
+.figures strong { font: 800 40px/1 var(--display); font-stretch: 110%; }
+.figures span { font: 400 13px/1.3 var(--mono); color: var(--muted); }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 40px; }
+.split > * { min-width: 0; }
+.points { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 14px; }
+.points li { padding-left: 20px; position: relative; }
+.points li::before { content: ""; position: absolute; left: 0; top: .62em; width: 8px; height: 8px; background: var(--red); }
+.points b { font-weight: 650; }
+
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0; margin-top: 32px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.groups div { padding: 16px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.groups code { font-size: 14px; font-weight: 600; color: var(--accent); }
+.groups p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+.note { margin-top: 16px; font: 400 13.5px/1.6 var(--mono); color: var(--muted); }
+.note code { color: var(--fg); }
+
+/* Stage track */
+/* overflow-x clips vertically too, so the padding keeps the raised stage numbers inside. */
+.track-wrap { overflow-x: auto; margin-top: 22px; padding-top: 14px; }
+.track { display: grid; grid-template-columns: repeat(5, minmax(170px, 1fr)); min-width: 860px; counter-reset: s; }
+.stage { position: relative; padding: 18px 18px 20px 0; border-top: 3px solid var(--fg); }
+.stage::before {
+  counter-increment: s; content: counter(s);
+  position: absolute; top: -13px; left: 0; width: 22px; height: 22px; display: grid; place-items: center;
+  background: var(--fg); color: var(--bg); font: 600 12px/1 var(--mono);
+}
+.stage.hot { border-top-color: var(--red); }
+.stage.hot::before { background: var(--red); color: #fff; }
+.stage h3 { margin-top: 8px; }
+.stage p { font-size: 14px; color: var(--muted); }
+.stage code { display: inline-block; margin-top: 10px; font-size: 12.5px; padding: 3px 7px; background: var(--panel); border: 1px solid var(--line); }
+
+/* TUI screens: real renders of the views package, dark in both themes like a terminal */
+.term { margin-top: 40px; background: var(--term-bg); color: var(--term-fg); border: 1px solid var(--term-line); }
+.term-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--term-line); }
+.term-tabs button {
+  appearance: none; border: 0; background: none; color: #A2918F; cursor: pointer;
+  padding: 11px 14px; font: 500 13px/1 var(--mono);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.term-tabs button[aria-selected="true"] { color: #fff; border-bottom-color: var(--red-hi); }
+.term-tabs button:focus-visible { outline: 2px solid var(--red-hi); outline-offset: -2px; }
+.term-screen { overflow-x: auto; padding: 14px 16px; }
+.shot { margin: 0; font: 400 12.5px/1.2 "JetBrains Mono", "DejaVu Sans", "Apple Symbols", ui-monospace, monospace; white-space: pre; min-height: calc(33 * 1.2em); }
+.term-cap { margin: 0; padding: 12px 16px; border-top: 1px solid var(--term-line); font: 400 13px/1.5 var(--mono); color: #A2918F; }
+.term-cap code { color: #F1ECEB; }
+
+.groups summary { margin-top: 10px; cursor: pointer; font: 500 12.5px/1.4 var(--mono); color: var(--muted); }
+.groups summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.groups ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font: 400 12.5px/1.4 var(--mono); }
+.groups li { overflow-wrap: anywhere; }
+.groups li.ext::after { content: " +"; color: var(--accent); }
+.groups li.del { color: var(--accent); }
+.choices li { display: grid; gap: 0; margin-bottom: 8px; }
+.choices code { font-size: 14px; color: var(--fg); }
+.choices span { font: 400 14px/1.4 var(--body); color: var(--muted); }
+.shot.pic { min-height: 0; white-space: normal; }
+.shot.pic img { display: block; width: 100%; max-width: 1056px; height: auto; }
+.shot i.c { display: inline-block; width: 1ch; font-style: inherit; text-align: center; vertical-align: top; }
+.ver { font-family: var(--mono); }
+nav li { display: flex; align-items: center; }
+.theme {
+  appearance: none; cursor: pointer; background: none; color: inherit;
+  border: 1px solid rgba(255, 255, 255, .45); padding: 5px 9px; font: 500 12px/1 var(--mono);
+}
+.theme:hover, .theme:focus-visible { border-color: #fff; outline: none; }
+.legend { margin-top: 12px; font: 400 12.5px/1.6 var(--mono); color: var(--muted); }
+.legend b { color: var(--accent); font-weight: 400; }
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 40px; }
+.facts > div { min-width: 0; }
+.facts p { color: var(--muted); font-size: 15px; }
+.facts ul { margin: 6px 0 0; padding: 0; list-style: none; font: 400 14px/1.9 var(--mono); }
+
+.clients { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.clients span { padding: 6px 12px; border: 1px solid var(--line); background: var(--panel); font-size: 14px; }
+
+.steps { list-style: none; margin: 28px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; counter-reset: st; }
+.steps li { counter-increment: st; min-width: 0; color: var(--muted); font-size: 15px; }
+.steps li::before { content: "0" counter(st); display: block; margin-bottom: 8px; font: 800 28px/1 var(--display); font-stretch: 110%; color: var(--accent); }
+
+.code { margin-top: 24px; background: var(--code-bg); color: var(--code-fg); padding: 18px; overflow-x: auto; font-size: 13px; line-height: 1.65; }
+
+footer { background: var(--ink); color: #CFC6C5; }
+footer .wrap { padding-block: 36px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between; font: 400 13px/1.5 var(--mono); }
+footer .legal { margin: 0; color: #9C8E8C; }
+footer ul { display: flex; flex-wrap: wrap; gap: 20px; list-style: none; margin: 0; padding: 0; }
+footer a { text-decoration: none; }
+footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline; }
+
+@media (max-width: 860px) {
+  .hero-grid, .split, .facts, .steps { grid-template-columns: 1fr; }
+  .hero .wrap { gap: 40px; padding-block: 28px 48px; }
+  section { padding-block: 56px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mcp, .ysq { animation: rise .7s cubic-bezier(.2,.7,.2,1) both; }
+  .ysq { animation-delay: .05s; }
+  @keyframes rise { from { transform: translateY(14px); } to { transform: none; } }
+}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="wrap">
+    <nav aria-label="Main">
+      <a class="brand" href="#top"><img id="loader" src="data:image/gif;base64,R0lGODlhMAAwAAAAACH5BAkEAAAALAAAAAAwADAAhA4ODg4ODhYWFh4eHiYmJi4uLjc3Nz4+PkZGRk5OTlZWVl5eXmZmZm5ubnd3d39/f4iIiI6OjpaWlp+fn6enp6+vr7e3t7+/v8fHx8/Pz9jY2N/f3+fn5+/v7/f39////wXdICCOZGmeaKqubIsGcCzPdG3T5a3vPEz2wKBvJCzufsYkjhgbaDYLmCCzaSh1yBjlg4EtPp7B9ZaFGT6fQwDzkYzJTNnlMzl/Cm9bGab4dCAfFXl6cTIaHxwfCIM1ezANaBmMjYUxAmhWkzOOMB4fDJqblTGeoKExnAGlp6ijMBARaqwBqbMytbZDIrlYrry6AL+Eu8JLxMW3vr+4ucy2zrPQrNKn1KHWmtiT2ozcg955excb5OXm5wpje4do7e7vpkriGvT19vfpV+Bv++rKvP30BTTioqDBgwgThgAAOw==" data-anim="data:image/gif;base64,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" alt="" width="26" height="26">ymcp</a>
+      <ul>
+        <li><a href="#server">MCP server</a></li>
+        <li><a href="#pipelines">Pipelines</a></li>
+        <li><a href="#clients">Clients</a></li>
+        <li><a href="#signin">Sign-in</a></li>
+        <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+        <li><a class="ver" id="version" href="https://github.com/xlsft/ymcp/releases/latest" hidden></a></li>
+        <li><button class="theme" id="theme" type="button">Light</button></li>
+      </ul>
+    </nav>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <div class="lockup" role="img" aria-label="ymcp">
+        <div class="ysq" aria-hidden="true"><b>Y</b><i></i></div>
+        <p class="mcp" aria-hidden="true">MCP</p>
+      </div>
+      <p class="caption">It’s fun to fetch with the YMCP</p>
+    </div>
+
+    <div class="hero-grid">
+      <p class="lead">YouTrack for any AI client, signed in with your own login and password. And pipelines that hand issues to coding agents.</p>
+
+      <div class="install" id="install">
+        <div class="tabs" role="tablist" aria-label="Install with">
+          <button role="tab" id="t-unix" aria-selected="true" aria-controls="cmd" data-cmd="curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh">macOS / Linux</button>
+          <button role="tab" id="t-win" aria-selected="false" aria-controls="cmd" data-cmd="irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex">Windows</button>
+          <button role="tab" id="t-brew" aria-selected="false" aria-controls="cmd" data-cmd="brew install xlsft/tap/ymcp">Homebrew</button>
+          <button role="tab" id="t-scoop" aria-selected="false" aria-controls="cmd" data-cmd="scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp">Scoop</button>
+          <button role="tab" id="t-docker" aria-selected="false" aria-controls="cmd" data-cmd="docker run -it --rm -v ymcp:/config xlsoftware/ymcp auth">Docker</button>
+        </div>
+        <div class="cmd" role="tabpanel" id="cmd" aria-labelledby="t-unix">
+          <pre id="cmd-text">curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh</pre>
+          <button class="copy" id="copy" type="button">Copy</button>
+        </div>
+        <p class="after" id="after">Then <code>ymcp setup</code> signs you in and registers ymcp in your clients.</p>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+  <section id="server">
+    <div class="wrap">
+      <p class="eyebrow">MCP server</p>
+      <h2>Every built-in YouTrack tool, and the ones it lacks</h2>
+      <p class="prose">ymcp ships every tool of YouTrack’s own MCP server under the same names, arguments and limits, then adds deleting, sprints, attachments, history, time reports and commands. It works with self-hosted instances behind a VPN.</p>
+
+      <div class="figures" id="figures"></div>
+
+      <div class="split">
+        <div>
+          <h3>Why it is easy to run</h3>
+          <ul class="points">
+            <li><b>Signs in like the web UI.</b> No admin-issued token or OAuth client. The password lives in your system keychain.</li>
+            <li><b>Works without admin rights.</b> Field schemas, groups and comments fall back to what a regular user can read.</li>
+            <li><b>One-command install.</b> <code>ymcp setup</code> registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and more.</li>
+            <li><b>A single static binary</b> for macOS, Linux and Windows, with <code>ymcp update</code> built in.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Why models get it right</h3>
+          <ul class="points">
+            <li><b>Fields by display name.</b> <code>{"State": "In Progress"}</code> is checked against the project before it is sent.</li>
+            <li><b>Errors say what to do next:</b> the allowed values, which tool finds the right ID after a 404, that a 403 needs a permission.</li>
+            <li><b>Destructive tools are marked</b> with <code>destructiveHint</code>, so clients ask before deleting.</li>
+            <li id="prompts-point"><b>Prompts</b> clients offer as slash commands.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="groups" id="groups"></div>
+      <p class="legend">Tools marked <b>+</b> are ymcp’s extras; the rest are YouTrack’s own. Red ones delete or bulk-change data, so clients ask first.</p>
+      <p class="note">Serve only what you need: <code>ymcp serve --tools issues,comments,-delete_issue</code></p>
+    </div>
+  </section>
+
+  <section id="pipelines">
+    <div class="wrap">
+      <p class="eyebrow">Pipelines</p>
+      <h2>A YouTrack search in, pull requests out</h2>
+      <p class="prose">A pipeline watches a search and gives each issue it finds to a coding agent, in its own git worktree on a new branch. ymcp pushes the branch, opens the pull or merge request and brings the agent the review comments until the change is merged.</p>
+
+      <div class="track-wrap">
+        <div class="track">
+          <div class="stage"><h3>Backlog</h3><p>The source query found the issue and no run has taken it yet.</p></div>
+          <div class="stage hot"><h3>Working</h3><p>The agent works on it in its worktree.</p><code>State In Progress</code></div>
+          <div class="stage"><h3>Needs input</h3><p>The agent asked a question or wants a permission. You get a notification.</p><code>tag needs-input</code></div>
+          <div class="stage"><h3>Review</h3><p>The branch is pushed and the agent answers review comments.</p><code>State Fixed</code></div>
+          <div class="stage"><h3>Done or closed</h3><p>The change is merged, or closed without one. The run ends either way.</p></div>
+        </div>
+      </div>
+
+      <div class="term" aria-label="The pipeline TUI">
+        <div class="term-tabs" role="tablist" aria-label="Screens"><button role="tab" id="tt-board" aria-selected="true" aria-controls="shot-board" data-cap="A pipeline&rsquo;s board: issues move across the stages while the agent works.">Board</button><button role="tab" id="tt-run" aria-selected="false" aria-controls="shot-run" data-cap="A run card: the issue, its thread and the agent&rsquo;s question, waiting for your answer.">Run card</button><button role="tab" id="tt-permission" aria-selected="false" aria-controls="shot-permission" data-cap="The agent wants to run a command. <code>/approve</code> or <code>/reject</code> answers it.">Permission</button><button role="tab" id="tt-fields" aria-selected="false" aria-controls="shot-fields" data-cap="<code>e</code> on a card changes the issue&rsquo;s fields without leaving the terminal.">Fields</button><button role="tab" id="tt-pipelines" aria-selected="false" aria-controls="shot-pipelines" data-cap="Every pipeline of a profile, and what needs you.">Pipelines</button><button role="tab" id="tt-inbox" aria-selected="false" aria-controls="shot-inbox" data-cap="The inbox: every run that waits for an answer, across pipelines.">Inbox</button></div>
+        <div class="term-screen"><pre class="shot" role="tabpanel" id="shot-board" aria-labelledby="tt-board"><span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">backend</span><span style="background:#c62a22"> </span> <span style="opacity:.5">youtrack-work <i class="c">·</i> Claude <i class="c">·</i> /home/dev/code/backend</span>                                          <span style="color:#9edc87;font-weight:700"><i class="c">●</i></span> running<span style="opacity:.5">  agents 1/1</span>
+
+  <span style="font-weight:700">BACKLOG 3</span>              <span style="color:#c62a22;font-weight:700">WORKING 2</span>              <span style="font-weight:700">NEEDS INPUT 1</span>          <span style="font-weight:700">REVIEW 2</span>               <span style="font-weight:700">DONE 2</span>              
+  <span style="opacity:.5">────────────────────</span>   <span style="color:#c62a22;font-weight:700">────────────────────</span>   <span style="opacity:.5">────────────────────</span>   <span style="opacity:.5">────────────────────</span>   <span style="opacity:.5">────────────────────</span>
+                                                                                                                  
+    <span style="font-weight:700">BE-131</span>               <span style="color:#c62a22;font-weight:700"><i class="c">▌</i></span> <span style="font-weight:700">BE-123</span>          <span style="opacity:.5">#5</span>     <span style="font-weight:700">BE-127</span>          <span style="opacity:.5">#6</span>     <span style="font-weight:700">BE-118</span>          <span style="opacity:.5">#3</span>     <span style="font-weight:700">BE-111</span>          <span style="opacity:.5">#2</span>
+    Rate limit the       <span style="color:#c62a22;font-weight:700"><i class="c">▌</i></span> Fix login              CSV export             Cache keys             Flaky migration   
+    login endpoint       <span style="color:#c62a22;font-weight:700"><i class="c">▌</i></span>                        <span style="opacity:.5"><i class="c">“</i>Which date forma<i class="c">…</i></span>                            test              
+                         <span style="color:#c62a22;font-weight:700"><i class="c">▌</i></span> <span style="color:#c62a22;font-weight:700"><i class="c">⠋</i></span> 4m12s <span style="opacity:.5">writing</span>        <span style="color:#f5cf7a;font-weight:700"><i class="c">⚑</i> 12m</span><span style="opacity:.5"> waiting</span>          PR #40                 <span style="color:#ff7a70;font-weight:700"><i class="c">✗</i> failed</span><span style="opacity:.5"> 20h</span>      
+    <span style="font-weight:700">BE-133</span>                                                                                                        
+    Pagination for         <span style="font-weight:700">BE-130</span>          <span style="opacity:.5">#7</span>                            <span style="font-weight:700">BE-120</span>          <span style="opacity:.5">#4</span>     <span style="font-weight:700">BE-110</span>          <span style="opacity:.5">#1</span>
+    /issues                Webhooks                                      Retry jobs             Drop legacy       
+                                                                                                endpoints         
+    <span style="font-weight:700">BE-140</span>                 <span style="opacity:.5"><i class="c">◌</i> queued</span>                                      <span style="color:#f5cf7a;font-weight:700"><i class="c">⟳</i> 1 feedback</span>           <span style="color:#9edc87;font-weight:700"><i class="c">✓</i> done</span><span style="opacity:.5"> 26h</span>        
+    Audit log                                                                                                     
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+
+<span style="font-weight:700"><i class="c">←</i><i class="c">→</i><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">move</span>  <span style="font-weight:700">enter</span> <span style="opacity:.5">open</span>  <span style="font-weight:700">a</span> <span style="opacity:.5">answer</span>  <span style="font-weight:700">c</span> <span style="opacity:.5">cancel</span>  <span style="font-weight:700">o</span> <span style="opacity:.5">issue</span>  <span style="font-weight:700">p</span> <span style="opacity:.5">PR</span>  <span style="font-weight:700">r</span> <span style="opacity:.5">reload</span>  <span style="font-weight:700">s</span> <span style="opacity:.5">stop</span>  <span style="font-weight:700">e</span> <span style="opacity:.5">edit</span>  <span style="font-weight:700">i</span> <span style="opacity:.5">inbox</span>  <span style="font-weight:700">esc</span> <span style="opacity:.5">back</span>  <span style="font-weight:700">q</span> <span style="opacity:.5">quit</span></pre><pre class="shot" role="tabpanel" id="shot-run" aria-labelledby="tt-run" hidden><span style="color:#585858;opacity:.5"> backend  youtrack-work <i class="c">·</i> Claude <i class="c">·</i> /home/dev/code/backend                                          <i class="c">●</i> running  agents 1/1</span>
+                                                                                                                        
+<span style="color:#585858;opacity:.5">  BAC</span><span style="color:#c62a22">╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</span>     
+<span style="color:#585858;opacity:.5">  ───</span><span style="color:#c62a22">│</span>                                                                                                            <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">backend #6</span><span style="background:#c62a22"> </span>  <span style="color:#c62a22;font-weight:700">BE-127</span> <span style="font-weight:700">CSV export of the reports</span>                  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">State: In Progress</span><span style="background:#3a3a3a"> </span>   <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Priority: Major</span><span style="background:#3a3a3a"> </span>  <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                                                                  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Assignee: xlsft</span><span style="background:#3a3a3a"> </span>      <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Estimation: 2d</span><span style="background:#3a3a3a"> </span>   <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    R</span><span style="color:#c62a22">│</span>                                                                  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">stage working</span><span style="background:#3a3a3a"> </span>        <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> needs input</span><span style="background:#f5cf7a"> </span>    <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    l</span><span style="color:#c62a22">│</span>                                                                  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a"><i class="c">⎇</i> be-127-csv-export</span><span style="background:#3a3a3a"> </span>                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">Claude <i class="c">·</i> idle</span><span style="opacity:.5"> <i class="c">·</i> started 1h ago</span>                                                                            <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">├</span><span style="color:#c62a22;font-weight:700">────────────────────────────────────────────────────────────────────</span><span style="color:#c62a22">──┬──</span><span style="color:#c62a22">───────────────────────────────────</span><span style="color:#c62a22">┤</span>     
+<span style="color:#585858;opacity:.5">    P</span><span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    /</span><span style="color:#c62a22">│</span>  Users want to <span style="font-weight:700">export</span> a report as CSV from the report page: one row  <span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Log</span>                     <span style="color:#9edc87;font-weight:700"><i class="c">●</i></span> running  <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  per issue, with the columns the report shows.                       <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>  <span style="opacity:.5">14:30</span> <span style="font-weight:700">captured</span> BE-127 CSV export   <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    A</span><span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Comments <i class="c">·</i> 2</span>                                                        <span style="color:#c62a22">│</span>  <span style="opacity:.5">15:17</span> <span style="color:#f5cf7a;font-weight:700">question</span> Which date format<i class="c">…</i>  <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="font-weight:700">Anna Petrova</span><span style="font-weight:700;opacity:.5"> @anna</span><span style="opacity:.5"> <i class="c">·</i> 50m ago</span>                                        <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>    Please also cover the admin reports.                              <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5"><i class="c">◆</i> @xlsft&#x27;s agent #6 (backend) <i class="c">·</i> 13m ago</span>                             <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">│ </span>Which date format should the CSV export use: ISO 8601 or the      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">│ </span>user&#x27;s locale?                                                    <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> needs input</span><span style="background:#f5cf7a"> </span><span style="opacity:.5"> <i class="c">·</i> waiting 12m</span>                                       <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">╭─</span><span style="opacity:.5">───────────────────────────────────────────────────────────────</span><span style="opacity:.5">╮</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">│</span> <span style="opacity:.5">Write a comment, /command, @mention people</span>               <span style="opacity:.5">enter</span> <span style="opacity:.5">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">╰────────────────────────────────────────────────────────────────╯</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>    <span style="font-weight:700">enter</span> <span style="opacity:.5">reply</span>  <span style="font-weight:700">esc</span> <span style="opacity:.5">close</span>  <span style="font-weight:700">tab</span> <span style="opacity:.5">log</span>  <span style="font-weight:700"><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">scroll</span>  <span style="font-weight:700">r</span> <span style="opacity:.5">reload</span>  <span style="font-weight:700">?</span> <span style="opacity:.5">more</span>      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">╰──────────────────────────────────────────────────────────────────────┴─────────────────────────────────────╯</span>     
+                                                                                                                        
+                                                                                                                        </pre><pre class="shot" role="tabpanel" id="shot-permission" aria-labelledby="tt-permission" hidden><span style="color:#585858;opacity:.5"> backend  youtrack-work <i class="c">·</i> Claude <i class="c">·</i> /home/dev/code/backend                                          <i class="c">●</i> running  agents 1/1</span>
+                                                                                                                        
+<span style="color:#585858;opacity:.5">  BAC</span><span style="color:#c62a22">╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</span>     
+<span style="color:#585858;opacity:.5">  ───</span><span style="color:#c62a22">│</span>                                                                                                            <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">frontend #1</span><span style="background:#c62a22"> </span>  <span style="color:#c62a22;font-weight:700">FE-9</span> <span style="font-weight:700">Dark mode</span>                  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">State: In Progress</span><span style="background:#3a3a3a"> </span>  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Type: Feature</span><span style="background:#3a3a3a"> </span>  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Priority: Normal</span><span style="background:#3a3a3a"> </span>  <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                                                 <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Assignee: boris</span><span style="background:#3a3a3a"> </span>                                          <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    R</span><span style="color:#c62a22">│</span>                                                 <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">stage working</span><span style="background:#3a3a3a"> </span>       <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> needs input</span><span style="background:#f5cf7a"> </span>  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a"><i class="c">⎇</i> fe-9-dark-mode</span><span style="background:#3a3a3a"> </span>  <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    l</span><span style="color:#c62a22">│</span>  <span style="opacity:.5">Claude <i class="c">·</i> idle <i class="c">·</i> the runner is stopped</span><span style="opacity:.5"> <i class="c">·</i> started 3h ago</span>                                                    <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                                                            <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">├</span><span style="color:#c62a22">────────────────────────────────────────────────────────────────────</span><span style="color:#c62a22">──┬──</span><span style="color:#c62a22">───────────────────────────────────</span><span style="color:#c62a22">┤</span>     
+<span style="color:#585858;opacity:.5">    P</span><span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    /</span><span style="color:#c62a22">│</span>  Follow the system theme, with a switch in the settings that         <span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Log</span>                     <span style="opacity:.5"><i class="c">○</i> stopped</span>  <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  overrides it. Charts and code blocks need their own dark palette.   <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>  <span style="opacity:.5">12:30</span> <span style="font-weight:700">captured</span> FE-9 Dark mode      <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    A</span><span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Comments <i class="c">·</i> 1</span>                                                        <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">╭─</span> <span style="font-weight:700">Commands</span> <span style="color:#c62a22;font-weight:700">─────────────────────────────────────────────────────</span><span style="color:#c62a22;font-weight:700">╮</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span> <span style="color:#c62a22;font-weight:700"><i class="c">›</i></span> <span style="font-weight:700">/approve</span>                      <span style="opacity:.5">allow what the agent asked for</span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span>   /reject                 <span style="opacity:.5">refuse it; the agent goes on without</span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span>   /compact   <span style="opacity:.5">hide the run&#x27;s comments and leave a short summary</span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span>   /clear     <span style="opacity:.5">hide the run&#x27;s comments; they stay in the history</span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span>   /cancel                   <span style="opacity:.5">cancel the run and close the issue</span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">╰────────────────────────────────────────────────────────────────╯</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> needs input</span><span style="background:#f5cf7a"> </span><span style="opacity:.5"> <i class="c">·</i> waiting 2h</span>                                        <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">╭─</span><span style="color:#c62a22;font-weight:700">───────────────────────────────────────────────────────────────</span><span style="color:#c62a22;font-weight:700">╮</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span> /<span style="color:#141111;background:#e9e2e1"> </span>                                                             <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">│</span> <span style="color:#1d1919">                                                              </span> <span style="color:#c62a22;font-weight:700">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="color:#c62a22;font-weight:700">╰────────────────────────────────────────────────────────────────╯</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>    <span style="font-weight:700"><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">choose</span>  <span style="font-weight:700">tab</span> <span style="opacity:.5">complete</span>  <span style="font-weight:700">esc</span> <span style="opacity:.5">close</span>                                <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">╰──────────────────────────────────────────────────────────────────────┴─────────────────────────────────────╯</span>     
+                                                                                                                        
+                                                                                                                        </pre><pre class="shot" role="tabpanel" id="shot-fields" aria-labelledby="tt-fields" hidden><span style="color:#585858;opacity:.5"> backend  youtrack-work <i class="c">·</i> Claude <i class="c">·</i> /home/dev/code/backend                                          <i class="c">●</i> running  agents 1/1</span>
+                                                                                                                        
+<span style="color:#585858;opacity:.5">  BAC</span><span style="color:#c62a22">╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮</span>     
+<span style="color:#585858;opacity:.5">  ───</span><span style="color:#c62a22">│</span>                                                                                                            <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">backend</span><span style="background:#c62a22"> </span>  <span style="color:#c62a22;font-weight:700">BE-131</span> <span style="font-weight:700">Rate limit the login endpoint</span>   <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">State: Open</span><span style="background:#3a3a3a"> </span>     <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Type: Task</span><span style="background:#3a3a3a"> </span>       <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Priority: Major</span><span style="background:#3a3a3a"> </span>  <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                                                    <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">AI: true</span><span style="background:#3a3a3a"> </span>        <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Assignee: anna</span><span style="background:#3a3a3a"> </span>   <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">flow: frontend</span><span style="background:#3a3a3a"> </span>   <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    R</span><span style="color:#c62a22">│</span>                                                    <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Stage: Backlog</span><span style="background:#3a3a3a"> </span>  <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">Story points: 3</span><span style="background:#3a3a3a"> </span>                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    l</span><span style="color:#c62a22">│</span>                                                    <span style="background:#3a3a3a"> </span><span style="color:#d0d0d0;background:#3a3a3a">backlog</span><span style="background:#3a3a3a"> </span>                                               <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">├</span><span style="color:#c62a22;font-weight:700">────────────────────────────────────────────────────────────────────</span><span style="color:#c62a22">──┬──</span><span style="color:#c62a22">───────────────────────────────────</span><span style="color:#c62a22">┤</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>                    <span style="color:#c62a22;font-weight:700">╭─</span> <span style="font-weight:700">Fields</span><span style="opacity:.5"> <i class="c">·</i> BE</span> <span style="color:#c62a22;font-weight:700">─────────────</span><span style="color:#c62a22;font-weight:700">╮</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    P</span><span style="color:#c62a22">│</span>  Bots try passwords<span style="color:#c62a22;font-weight:700">│</span> <span style="color:#c62a22;font-weight:700"><i class="c">›</i></span> <span style="font-weight:700">State</span>              Open <span style="color:#c62a22;font-weight:700">│</span>ht.                  <span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Run</span>                     <span style="color:#9edc87;font-weight:700"><i class="c">●</i></span> running  <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    /</span><span style="color:#c62a22">│</span>                    <span style="color:#c62a22;font-weight:700">│</span>   Type               Task <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <i class="c">•</i> at most 5 attemp<span style="color:#c62a22;font-weight:700">│</span>   Priority          Major <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>  <span style="opacity:.5">Not taken yet <i class="c">—</i> the runner picks   </span><span style="color:#c62a22;opacity:.5">│</span>     
+<span style="color:#585858;opacity:.5">    B</span><span style="color:#c62a22">│</span>  <i class="c">•</i> 429 with Retry-A<span style="color:#c62a22;font-weight:700">│</span>   AI                 true <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>  it up from the backlog.            <span style="color:#c62a22">│</span>     
+<span style="color:#585858;opacity:.5">    A</span><span style="color:#c62a22">│</span>                    <span style="color:#c62a22;font-weight:700">│</span>   Assignee           anna <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="font-weight:700;opacity:.5">Comments <i class="c">·</i> 1</span>      <span style="color:#c62a22;font-weight:700">│</span>   <span style="opacity:.5">Due date</span>              <span style="opacity:.5"><i class="c">—</i></span> <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                    <span style="color:#c62a22;font-weight:700">│</span>   flow           frontend <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="font-weight:700">Anna Petrova</span><span style="font-weight:700;opacity:.5"> @anna</span><span style="color:#c62a22;font-weight:700">│</span>   Stage           Backlog <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>    Keep the counter<span style="color:#c62a22;font-weight:700">│</span>   Story points          3 <span style="color:#c62a22;font-weight:700">│</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                    <span style="color:#c62a22;font-weight:700">╰───────────────────────────╯</span>                     <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">╭─</span><span style="opacity:.5">───────────────────────────────────────────────────────────────</span><span style="opacity:.5">╮</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">│</span> <span style="opacity:.5">Write a comment, @mention people</span>                         <span style="opacity:.5">enter</span> <span style="opacity:.5">│</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>  <span style="opacity:.5">╰────────────────────────────────────────────────────────────────╯</span>  <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>    <span style="font-weight:700"><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">choose</span>  <span style="font-weight:700">enter</span> <span style="opacity:.5">change</span>  <span style="font-weight:700">esc</span> <span style="opacity:.5">close</span>                                <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">│</span>                                                                      <span style="color:#c62a22">│</span>                                     <span style="color:#c62a22">│</span>     
+     <span style="color:#c62a22">╰──────────────────────────────────────────────────────────────────────┴─────────────────────────────────────╯</span>     
+                                                                                                                        
+                                                                                                                        </pre><pre class="shot" role="tabpanel" id="shot-pipelines" aria-labelledby="tt-pipelines" hidden><span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">ymcp pipelines</span><span style="background:#c62a22"> </span> <span style="font-weight:700">youtrack-work</span>                                                                          <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> 2 need input</span><span style="background:#f5cf7a"> </span>
+
+  <span style="color:#c62a22;font-weight:700">┏━</span><span style="color:#c62a22;font-weight:700">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c62a22;font-weight:700">┓</span>  <span style="opacity:.5">╭─</span><span style="opacity:.5">──────────────────────────────────────────────────────</span><span style="opacity:.5">╮</span>
+  <span style="color:#c62a22;font-weight:700">┃</span>  <span style="color:#c62a22;font-weight:700">backend</span>                                   <span style="color:#9edc87;font-weight:700"><i class="c">●</i></span> running  <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">│</span>  <span style="font-weight:700">frontend</span>                                  <span style="opacity:.5"><i class="c">○</i> stopped</span>  <span style="opacity:.5">│</span>
+  <span style="color:#c62a22;font-weight:700">┃</span>                                                       <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">│</span>                                                       <span style="opacity:.5">│</span>
+  <span style="color:#c62a22;font-weight:700">┃</span>  Claude                                               <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">│</span>  Claude                                               <span style="opacity:.5">│</span>
+  <span style="color:#c62a22;font-weight:700">┃</span>  working <span style="font-weight:700">2</span><span style="opacity:.5"> <i class="c">·</i> </span>review <span style="font-weight:700">2</span><span style="opacity:.5"> <i class="c">·</i> </span>done <span style="color:#9edc87;font-weight:700">1</span>             <span style="color:#ff7a70;font-weight:700"><i class="c">✗</i> 1</span> <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> 1</span><span style="background:#f5cf7a"> </span>  <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">│</span>  <span style="opacity:.5">working 0</span><span style="opacity:.5"> <i class="c">·</i> </span><span style="opacity:.5">review 0</span><span style="opacity:.5"> <i class="c">·</i> </span><span style="opacity:.5">done 0</span>     <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> 1 needs input</span><span style="background:#f5cf7a"> </span>  <span style="opacity:.5">│</span>
+  <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">project: BE #Unresolved</span>                              <span style="color:#c62a22;font-weight:700">┃</span>  <span style="opacity:.5">│</span>  <span style="opacity:.5">project: FE #Unresolved</span>                              <span style="opacity:.5">│</span>
+  <span style="color:#c62a22;font-weight:700">┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛</span>  <span style="opacity:.5">╰───────────────────────────────────────────────────────╯</span>
+
+  <span style="opacity:.5">╭╌</span><span style="opacity:.5">╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌</span><span style="opacity:.5">╮</span>
+  <span style="opacity:.5">┆</span>                                                       <span style="opacity:.5">┆</span>
+  <span style="opacity:.5">┆</span>                                                       <span style="opacity:.5">┆</span>
+  <span style="opacity:.5">┆</span>                           <span style="font-weight:700">+</span>                           <span style="opacity:.5">┆</span>
+  <span style="opacity:.5">┆</span>                     <span style="opacity:.5">New pipeline</span>                      <span style="opacity:.5">┆</span>
+  <span style="opacity:.5">┆</span>                                                       <span style="opacity:.5">┆</span>
+  <span style="opacity:.5">╰╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╯</span>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<span style="font-weight:700"><i class="c">←</i><i class="c">→</i><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">move</span>  <span style="font-weight:700">enter</span> <span style="opacity:.5">actions</span>  <span style="font-weight:700">o</span> <span style="opacity:.5">board</span>  <span style="font-weight:700">n</span> <span style="opacity:.5">new</span>  <span style="font-weight:700">r</span> <span style="opacity:.5">run</span>  <span style="font-weight:700">s</span> <span style="opacity:.5">stop</span>  <span style="font-weight:700">e</span> <span style="opacity:.5">edit</span>  <span style="font-weight:700">L</span> <span style="opacity:.5">logs</span>  <span style="font-weight:700">c</span> <span style="opacity:.5">copy</span>  <span style="font-weight:700">R</span> <span style="opacity:.5">rename</span>  <span style="font-weight:700">d</span> <span style="opacity:.5">delete</span>  <span style="font-weight:700">i</span> <span style="opacity:.5">inbox</span>  <span style="font-weight:700">?</span> <span style="opacity:.5">more</span></pre><pre class="shot" role="tabpanel" id="shot-inbox" aria-labelledby="tt-inbox" hidden><span style="background:#c62a22"> </span><span style="color:#ffffff;background:#c62a22;font-weight:700">Inbox</span><span style="background:#c62a22"> </span>                                                                                            <span style="background:#f5cf7a"> </span><span style="color:#1d1919;background:#f5cf7a;font-weight:700"><i class="c">⚑</i> 2 runs need input</span><span style="background:#f5cf7a"> </span>
+
+<span style="color:#c62a22;font-weight:700"><i class="c">›</i></span> <span style="color:#c62a22;font-weight:700">frontend #1</span>  <span style="font-weight:700">FE-9</span> Dark mode                                                                                 <span style="opacity:.5">waiting 2h</span>
+    <span style="opacity:.5">The agent wants to run: Bash(rm -rf dist). Answer /approve or /reject.</span>
+    <span style="color:#f5cf7a;font-weight:700">! the runner of frontend is stopped; the answer waits until it starts</span>
+
+  <span style="font-weight:700">backend #6</span>  <span style="font-weight:700">BE-127</span> CSV export                                                                              <span style="opacity:.5">waiting 12m</span>
+    <span style="opacity:.5">Which date format should the CSV export use: ISO 8601 or the user&#x27;s locale?</span>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<span style="font-weight:700"><i class="c">↑</i><i class="c">↓</i></span> <span style="opacity:.5">move</span>  <span style="font-weight:700">enter</span> <span style="opacity:.5">reply</span>  <span style="font-weight:700">a</span> <span style="opacity:.5">quick answer</span>  <span style="font-weight:700">v</span> <span style="opacity:.5">view run</span>  <span style="font-weight:700">o</span> <span style="opacity:.5">issue</span>  <span style="font-weight:700">esc</span> <span style="opacity:.5">back</span>  <span style="font-weight:700">q</span> <span style="opacity:.5">quit</span></pre></div>
+        <p class="term-cap" id="term-cap">A pipeline&rsquo;s board: issues move across the stages while the agent works.</p>
+      </div>
+
+      <div class="facts">
+        <div>
+          <h3>Agents</h3>
+          <p>Each run gets its own MCP server with the same YouTrack tools. Your password never reaches the agent.</p>
+          <ul class="choices" id="agents"></ul>
+        </div>
+        <div>
+          <h3>Strategies</h3>
+          <p>Where the work goes once the agent is done.</p>
+          <ul class="choices" id="strategies"></ul>
+        </div>
+        <div>
+          <h3>A TUI, or scripts</h3>
+          <p>A board per pipeline and an inbox of runs that wait for you. Or plain commands:</p>
+          <ul><li>ymcp pipeline new</li><li>ymcp pipeline NAME check</li><li>ymcp pipeline NAME run -d</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="clients">
+    <div class="wrap">
+      <p class="eyebrow">Clients</p>
+      <h2>Set up in the clients you already use</h2>
+      <p class="prose"><code>ymcp setup</code> adds each YouTrack instance as its own server in the clients you pick, and removes it from the ones you uncheck. <span id="clients-count"></span></p>
+      <div class="clients" id="clients-list"></div>
+      <p class="note">Or run it once for the whole team: <code>ymcp serve --transport http</code> serves every profile on one port, behind a token.</p>
+    </div>
+  </section>
+
+  <section id="signin">
+    <div class="wrap">
+      <p class="eyebrow">Sign-in</p>
+      <h2>The same way the YouTrack web app does</h2>
+      <p class="prose">YouTrack’s OAuth password grant needs a service secret that regular users don’t have, so ymcp goes through the web login instead.</p>
+      <ol class="steps">
+        <li>Read the Hub location and YouTrack service ID from the public <code>/api/config</code>.</li>
+        <li>Submit the Hub login form and keep the session cookie.</li>
+        <li>Run the web client’s implicit OAuth flow and take the bearer token from the redirect.</li>
+      </ol>
+      <p class="note">Expired tokens are renewed from the session, without resending the password.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="legal">ymcp · MIT license<br>Not affiliated with JetBrains; YouTrack is a trademark of JetBrains s.r.o.</p>
+    <ul>
+      <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+      <li><a href="https://hub.docker.com/r/xlsoftware/ymcp">Docker Hub</a></li>
+      <li><a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.xlsft/ymcp">MCP Registry</a></li>
+      <li><a href="https://github.com/xlsft/ymcp/discussions">Discussions</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('.tabs button');
+  var text = document.getElementById('cmd-text');
+  var panel = document.getElementById('cmd');
+  var after = document.getElementById('after');
+  var copy = document.getElementById('copy');
+  var notes = {
+    't-docker': 'Then run the server: <code>docker run -d -p 127.0.0.1:8090:8090 -v ymcp:/config -e YMCP_HTTP_TOKEN=… xlsoftware/ymcp</code>'
+  };
+  var setup = after.innerHTML;
+  function select(btn) {
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); b.tabIndex = b === btn ? 0 : -1; });
+    text.textContent = btn.dataset.cmd;
+    panel.setAttribute('aria-labelledby', btn.id);
+    after.innerHTML = notes[btn.id] || setup;
+    copy.textContent = 'Copy';
+  }
+  tabs.forEach(function (b, i) {
+    b.tabIndex = i === 0 ? 0 : -1;
+    b.addEventListener('click', function () { select(b); });
+    b.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      var n = tabs[(i + d + tabs.length) % tabs.length];
+      n.focus(); select(n);
+    });
+  });
+  copy.addEventListener('click', function () {
+    var done = function () { copy.textContent = 'Copied'; };
+    var fallback = function () {
+      var r = document.createRange(); r.selectNodeContents(text);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      copy.textContent = 'Selected';
+    };
+    try {
+      navigator.clipboard.writeText(text.textContent).then(done, fallback);
+    } catch (e) { fallback(); }
+  });
+})();
+</script>
+<script>
+(function () {
+  var tabs = document.querySelectorAll('.term-tabs button');
+  var cap = document.getElementById('term-cap');
+  function select(btn) {
+    tabs.forEach(function (b) {
+      var on = b === btn;
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+      document.getElementById(b.getAttribute('aria-controls')).hidden = !on;
+    });
+    cap.innerHTML = btn.dataset.cap;
+  }
+  tabs.forEach(function (b, i) {
+    b.tabIndex = i === 0 ? 0 : -1;
+    b.addEventListener('click', function () { select(b); });
+    b.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      var n = tabs[(i + d + tabs.length) % tabs.length];
+      n.focus(); select(n);
+    });
+  });
+})();
+</script>
+<script type="application/json" id="site-data">{
+  "tools": {
+    "total": 58,
+    "builtIn": 23,
+    "extras": 35
+  },
+  "groups": [
+    {
+      "name": "issues",
+      "title": "Issues: search, read, create, edit, link, commands, history",
+      "tools": [
+        {
+          "name": "search_issues",
+          "title": "Search issues",
+          "summary": "Searches issues with the YouTrack query language and returns id, summary, project, resolved, reporter, created, updated and the requested custom fields.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "count_issues",
+          "title": "Count issues",
+          "summary": "Counts issues matching a YouTrack search query without fetching them.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_issue",
+          "title": "Get issue",
+          "summary": "Returns full details of an issue: summary, description, URL, project, reporter, tags, votes, custom fields, links, attachments and the most recent comments.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_issue_fields_schema",
+          "title": "Get issue fields schema",
+          "summary": "Returns a JSON Schema of the project's custom fields with allowed values.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_issue",
+          "title": "Create issue",
+          "summary": "Creates an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "create_draft_issue",
+          "title": "Create draft issue",
+          "summary": "Creates an issue draft visible only to the current user.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_issue",
+          "title": "Update issue",
+          "summary": "Updates an issue: summary, description, a subset of custom fields, star (subscription) and vote.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "edit_issue_description",
+          "title": "Edit issue description",
+          "summary": "Changes part of an issue's description by exact find-and-replace, without resending the whole text.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "change_issue_assignee",
+          "title": "Change issue assignee",
+          "summary": "Sets the Assignee of an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_issue",
+          "title": "Delete issue",
+          "summary": "Permanently deletes an issue or a draft, with its comments, attachments and work items.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "apply_command",
+          "title": "Apply command",
+          "summary": "Applies a YouTrack command to one or more issues, the same as the command dialog in the UI: set fields, assign, tag, move to another project, add links, vote, star and more in one line.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_issue_activities",
+          "title": "Get issue activities",
+          "summary": "Returns the change history of an issue: who changed which field, comments, links, tags, attachments, sprints and work items, with old and new values.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "link_issues",
+          "title": "Link issues",
+          "summary": "Links two issues.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "unlink_issues",
+          "title": "Unlink issues",
+          "summary": "Removes a link between two issues; arguments mirror link_issues.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_issue_vcs_changes",
+          "title": "Get issue VCS changes",
+          "summary": "Returns commits and pull requests linked to an issue through a VCS integration (GitHub, GitLab, Bitbucket, Gitea, TeamCity): version, message, author, date and links.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "comments",
+      "title": "Comments on issues",
+      "tools": [
+        {
+          "name": "get_issue_comments",
+          "title": "Get issue comments",
+          "summary": "Returns comments of an issue, oldest first.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "add_issue_comment",
+          "title": "Add issue comment",
+          "summary": "Adds a comment to an issue, optionally visible only to given users and groups.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_issue_comment",
+          "title": "Update issue comment",
+          "summary": "Replaces the text of an issue comment.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "restore_issue_comment",
+          "title": "Restore issue comment",
+          "summary": "Restores a comment that was deleted (not permanently) with delete_issue_comment or in the UI.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_issue_comment",
+          "title": "Delete issue comment",
+          "summary": "Deletes a comment from an issue.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "attachments",
+      "title": "Files on issues and articles",
+      "tools": [
+        {
+          "name": "get_issue_attachments",
+          "title": "Get attachments",
+          "summary": "Lists the attachments of an issue or a knowledge base article: ID, file name, size, type, author and date.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_attachment",
+          "title": "Get attachment",
+          "summary": "Reads an attachment of an issue or article.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "add_attachment",
+          "title": "Add attachment",
+          "summary": "Attaches local files (filePath, or several with filePaths), or the given text as a file, to an issue or a knowledge base article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_attachment",
+          "title": "Delete attachment",
+          "summary": "Permanently deletes an attachment from an issue or article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "articles",
+      "title": "Knowledge base articles",
+      "tools": [
+        {
+          "name": "search_articles",
+          "title": "Search articles",
+          "summary": "Searches the knowledge base.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_article",
+          "title": "Get article",
+          "summary": "Returns an article: title, content, parent and sub-articles, tags, attachments and visibility.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_article",
+          "title": "Create article",
+          "summary": "Creates a knowledge base article, optionally under a parent article and with limited visibility.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_article",
+          "title": "Update article",
+          "summary": "Changes the title, content or parent of an article.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "edit_article_content",
+          "title": "Edit article content",
+          "summary": "Changes part of an article's content by exact find-and-replace, without resending the whole text.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_article",
+          "title": "Delete article",
+          "summary": "Permanently deletes a knowledge base article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "time",
+      "title": "Time tracking and reports",
+      "tools": [
+        {
+          "name": "log_work",
+          "title": "Log work",
+          "summary": "Adds a spent time work item to an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "get_issue_work_items",
+          "title": "Get issue work items",
+          "summary": "Returns spent time work items of an issue, oldest first, with total minutes.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "delete_work_item",
+          "title": "Delete work item",
+          "summary": "Permanently deletes a spent time work item.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_time_report",
+          "title": "Get time report",
+          "summary": "Summarizes spent time across issues: total and per author, issue, work type, day or project, filtered by issue query, author and period.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "agile",
+      "title": "Agile boards and sprints",
+      "tools": [
+        {
+          "name": "find_agile_boards",
+          "title": "Find agile boards",
+          "summary": "Finds agile boards whose name or project key contains a substring (case-insensitive).",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_agile_board",
+          "title": "Get agile board",
+          "summary": "Returns an agile board: projects, owner, columns and the field they map to, estimation field, sprint settings, the current sprint and recent sprints.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_sprint",
+          "title": "Get sprint",
+          "summary": "Returns a sprint of an agile board (the current one by default): name, goal, dates, archived flag and its issues with board-relevant custom fields.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_sprint",
+          "title": "Create sprint",
+          "summary": "Creates a sprint on an agile board that uses sprints.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_sprint",
+          "title": "Update sprint",
+          "summary": "Changes a sprint's name, goal or dates, or archives and restores it.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "add_issue_to_sprint",
+          "title": "Add issue to sprint",
+          "summary": "Adds an issue to a sprint (the current one by default) of an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "remove_issue_from_sprint",
+          "title": "Remove issue from sprint",
+          "summary": "Removes an issue from a sprint (the current one by default) of an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_sprint",
+          "title": "Delete sprint",
+          "summary": "Permanently deletes a sprint from an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "projects",
+      "title": "Projects",
+      "tools": [
+        {
+          "name": "find_projects",
+          "title": "Find projects",
+          "summary": "Finds projects whose name or key contains a substring (case-insensitive).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_project",
+          "title": "Get project",
+          "summary": "Returns project details: key, name, description, leader, custom field names and time tracking settings including work types and work item attributes (for log_work).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "people",
+      "title": "Users and groups",
+      "tools": [
+        {
+          "name": "get_current_user",
+          "title": "Get current user",
+          "summary": "Returns login, email, full name and time zone of the current user.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "find_user",
+          "title": "Find user",
+          "summary": "Finds a user by login or email.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "find_user_groups",
+          "title": "Find user groups",
+          "summary": "Finds user groups and project teams whose name contains a substring (case-insensitive).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_user_group_members",
+          "title": "Get user group members",
+          "summary": "Returns members of a user group or project team: login, full name and email.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "tags",
+      "title": "Tags",
+      "tools": [
+        {
+          "name": "manage_issue_tags",
+          "title": "Manage issue tags",
+          "summary": "Adds a tag to an issue or removes it.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "find_tags",
+          "title": "Find tags",
+          "summary": "Finds tags visible to the current user by name substring.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_tag",
+          "title": "Create tag",
+          "summary": "Creates a tag owned by the current user.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_tag",
+          "title": "Update tag",
+          "summary": "Renames a tag.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_tag",
+          "title": "Delete tag",
+          "summary": "Permanently deletes a tag and removes it from all issues.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "searches",
+      "title": "Saved searches",
+      "tools": [
+        {
+          "name": "get_saved_issue_searches",
+          "title": "Get saved issue searches",
+          "summary": "Returns the current user's favorite saved issue searches.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_saved_search",
+          "title": "Create saved search",
+          "summary": "Saves a search query under a name.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_saved_search",
+          "title": "Update saved search",
+          "summary": "Renames a saved search or changes its query.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_saved_search",
+          "title": "Delete saved search",
+          "summary": "Permanently deletes a saved search.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "api",
+      "title": "Raw REST calls (call_api)",
+      "tools": [
+        {
+          "name": "call_api",
+          "title": "Call YouTrack REST API",
+          "summary": "Calls any YouTrack (or Hub) REST endpoint as the current user, for what no other tool covers.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "name": "issue_brief",
+      "title": "Issue brief",
+      "description": "Catch up on an issue: what it is about, where it stands, what was decided and what's open.",
+      "arguments": [
+        "issue"
+      ]
+    },
+    {
+      "name": "sprint_report",
+      "title": "Sprint report",
+      "description": "Status of a sprint on an agile board: done and open work, who has what, scope changes, time and risks.",
+      "arguments": [
+        "board",
+        "sprint"
+      ]
+    },
+    {
+      "name": "standup",
+      "title": "Stand-up update",
+      "description": "My stand-up from YouTrack: what I did since the last working day, what's next, what blocks me.",
+      "arguments": [
+        "days"
+      ]
+    },
+    {
+      "name": "triage",
+      "title": "Triage issues",
+      "description": "Go through untriaged issues of a project and propose type, priority, assignee and duplicates; applies only what I approve.",
+      "arguments": [
+        "project",
+        "query"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code"
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor"
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code (Copilot)"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf"
+    },
+    {
+      "id": "devin",
+      "name": "Devin Desktop"
+    },
+    {
+      "id": "zed",
+      "name": "Zed"
+    },
+    {
+      "id": "codex",
+      "name": "Codex"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity"
+    },
+    {
+      "id": "junie",
+      "name": "JetBrains Junie"
+    },
+    {
+      "id": "cline",
+      "name": "Cline"
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio"
+    },
+    {
+      "id": "opencode",
+      "name": "opencode"
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code"
+    }
+  ],
+  "agents": [
+    {
+      "name": "claude",
+      "about": "Claude Code CLI"
+    },
+    {
+      "name": "kimi",
+      "about": "Kimi CLI over ACP"
+    },
+    {
+      "name": "opencode",
+      "about": "opencode over ACP"
+    },
+    {
+      "name": "acp",
+      "about": "another ACP agent"
+    }
+  ],
+  "strategies": [
+    {
+      "name": "branch",
+      "about": "push the branch; you open pull or merge requests yourself"
+    },
+    {
+      "name": "github-pr",
+      "about": "push and open a GitHub pull request"
+    },
+    {
+      "name": "github-issue-pr",
+      "about": "also open a GitHub issue the pull request closes"
+    },
+    {
+      "name": "gitlab-mr",
+      "about": "push and open a GitLab merge request"
+    }
+  ]
+}</script>
+<script>
+// Everything listed below comes from site.json and the screens on the
+// site branch, which the Site workflow rebuilds from main. The copy
+// embedded above is the fallback when GitHub can't be reached.
+(function () {
+  var RAW = 'https://raw.githubusercontent.com/xlsft/ymcp/site/';
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function about(title) { // "Issues: search, read" -> "search, read"
+    var i = title.indexOf(': ');
+    return i < 0 ? title : title.slice(i + 2);
+  }
+  function list(items) {
+    return items.length < 2 ? items.join('') : items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+  }
+  function render(d) {
+    document.getElementById('figures').innerHTML = [
+      [d.tools.total, 'tools'], [d.tools.builtIn, 'built-in, same names'], [d.tools.extras, 'extras'],
+      [d.clients.length, 'clients set up for you']
+    ].map(function (f) { return '<div><strong>' + f[0] + '</strong><span>' + f[1] + '</span></div>'; }).join('');
+    document.getElementById('groups').innerHTML = d.groups.map(function (g) {
+      var own = g.tools.filter(function (t) { return t.builtIn; }).length;
+      var tools = g.tools.map(function (t) {
+        var cls = [t.builtIn ? '' : 'ext', t.destructive ? 'del' : ''].join(' ').trim();
+        return '<li' + (cls ? ' class="' + cls + '"' : '') + ' title="' + esc(t.summary) + '">' + esc(t.name) + '</li>';
+      }).join('');
+      var n = g.tools.length;
+      return '<div><code>' + esc(g.name) + '</code><p>' + esc(about(g.title)) + '</p><details><summary>' + n +
+        (n === 1 ? ' tool' : ' tools') + (own ? ' · ' + own + ' built-in' : '') + '</summary><ul>' + tools + '</ul></details></div>';
+    }).join('');
+    document.getElementById('prompts-point').innerHTML = '<b>Prompts</b> clients offer as slash commands: ' +
+      list(d.prompts.map(function (p) { return '<code title="' + esc(p.description) + '">' + esc(p.name) + '</code>'; })) + '.';
+    document.getElementById('clients-list').innerHTML = d.clients.map(function (c) { return '<span>' + esc(c.name) + '</span>'; }).join('');
+    document.getElementById('clients-count').textContent = d.clients.length + ' of them so far:';
+    [['agents', d.agents], ['strategies', d.strategies]].forEach(function (x) {
+      document.getElementById(x[0]).innerHTML = x[1].map(function (c) {
+        return '<li><code>' + esc(c.name) + '</code><span>' + esc(c.about) + '</span></li>';
+      }).join('');
+    });
+  }
+  try { render(JSON.parse(document.getElementById('site-data').textContent)); } catch (e) {}
+  if (!window.fetch) return;
+  fetch(RAW + 'site.json', { cache: 'no-cache' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d && d.tools) render(d); })
+    .catch(function () {});
+  // The screenshots replace the text copies once they load.
+  document.querySelectorAll('pre.shot').forEach(function (pre) {
+    var name = pre.id.replace('shot-', ''), img = new Image();
+    img.alt = document.getElementById('tt-' + name).textContent + ' screen of the pipeline TUI';
+    img.width = 1056; img.height = 603;
+    img.onload = function () { pre.textContent = ''; pre.appendChild(img); pre.classList.add('pic'); };
+    img.src = RAW + 'screens/' + name + '.png';
+  });
+  fetch('https://api.github.com/repos/xlsft/ymcp/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (r) {
+      var v = document.getElementById('version');
+      if (r && r.tag_name) { v.textContent = r.tag_name; v.hidden = false; }
+    })
+    .catch(function () {});
+})();
+</script>
+<script>
+// The loader in the nav stays still. Hovering or focusing the brand plays
+// it from its first frame; leaving lets the loop running finish and then
+// stops on the first frame. A hover while it finishes doesn't restart it,
+// and if the brand is hovered again when the loop ends, it plays on.
+(function () {
+  var LOOP = 2000; // ms: 50 frames of 40 ms
+  var img = document.getElementById('loader');
+  var brand = img.parentNode;
+  var still = img.src, anim = img.dataset.anim;
+  var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  var state = 'idle', started = 0, timer = 0, over = false;
+  function enter() {
+    over = true;
+    if (state !== 'idle' || (calm && calm.matches)) return;
+    state = 'playing';
+    started = performance.now();
+    img.src = anim; // a new src starts the GIF from its first frame
+  }
+  function leave() {
+    over = false;
+    if (state !== 'playing') return;
+    state = 'finishing';
+    var left = LOOP - (performance.now() - started) % LOOP;
+    timer = setTimeout(function () {
+      if (over) { state = 'playing'; return; } // the loop goes on, in step
+      state = 'idle';
+      img.src = still;
+    }, left);
+  }
+  brand.addEventListener('mouseenter', enter);
+  brand.addEventListener('focus', enter);
+  brand.addEventListener('mouseleave', leave);
+  brand.addEventListener('blur', leave);
+})();
+</script>
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme');
+  function show() {
+    var dark = root.getAttribute('data-theme') !== 'light';
+    btn.textContent = dark ? 'Light' : 'Dark';
+    btn.setAttribute('aria-label', dark ? 'Switch to the light theme' : 'Switch to the dark theme');
+  }
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('ymcp-theme', next); } catch (e) {}
+    show();
+  });
+  show();
+})();
+</script>
+</body>
+</html>
