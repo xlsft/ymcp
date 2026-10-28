@@ -147,7 +147,7 @@ func TestRunModal(t *testing.T) {
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",
 		"Log", "captured", "question",
 		"waiting 12m", "Write a comment, /command",
-		"enter/r reply", "esc close", "tab log")
+		"enter reply", "esc close", "tab log")
 	d.hasNot("ymcp:agent", "<!--", "**export**", "(/approve",
 		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
 	lines := strings.Split(d.view(), "\n")
@@ -174,7 +174,7 @@ func TestRunModal(t *testing.T) {
 	}
 
 	// The comment is posted through YouTrack and shown at once.
-	d.keys("r")
+	d.keys("enter")
 	d.has("enter send", "alt+enter new line", "esc leave the box")
 	d.typeText("ISO 8601, please.")
 	d.keys("enter")
@@ -225,7 +225,7 @@ func TestRunModalSendFails(t *testing.T) {
 	d.has("comment not posted: 403 Forbidden", "hello  (draft)", "Comments · 2")
 	d.hasNot("sending…")
 	// r brings the draft back.
-	d.keys("r")
+	d.keys("enter")
 	if got := d.m.(*Run).reply.draft(); got != "hello" {
 		t.Errorf("draft %q", got)
 	}
@@ -254,7 +254,7 @@ func TestRunModalPermission(t *testing.T) {
 
 	// "/" in the box offers the commands; tab or enter completes, a
 	// second enter sends.
-	d.keys("r")
+	d.keys("enter")
 	d.typeText("/")
 	d.has("Commands", "› /approve", "allow what the agent asked for", "/reject", "refuse it", "tab complete")
 	d.keys("down")
@@ -269,7 +269,7 @@ func TestRunModalPermission(t *testing.T) {
 		t.Errorf("posted %q", yt.added)
 	}
 	// Narrowed by what is typed; esc closes the popup, then the box.
-	d.keys("r")
+	d.keys("enter")
 	d.typeText("/ap")
 	d.has("› /approve")
 	d.hasNot("refuse it")
@@ -281,7 +281,7 @@ func TestRunModalPermission(t *testing.T) {
 	if d.m.(*Run).reply.focused {
 		t.Error("esc kept the focus in the box")
 	}
-	d.keys("r")
+	d.keys("enter")
 	d.send(tea.KeyMsg{Type: tea.KeyBackspace})
 	d.has("› /approve")
 	d.keys("esc")
@@ -320,7 +320,7 @@ func TestRunModalCommands(t *testing.T) {
 	d.hasNot("/cancel", "/approve")
 
 	// Text that is not a command start offers nothing.
-	d.keys("esc", "esc", "r")
+	d.keys("esc", "esc", "enter")
 	d.m.(*Run).reply.clear()
 	d.typeText("hello /c")
 	d.hasNot("/compact")
@@ -353,7 +353,7 @@ func TestIssueCard(t *testing.T) {
 	d.has("backend", "BE-131", "Rate limit the login endpoint", "State: Open", "Priority: Critical", "backlog",
 		"Too many login attempts get through.", "Comments · 1", "Anna Petrova @anna · 20m ago", "Ten a minute is enough.",
 		"Not taken yet — the runner picks it up from", "● running",
-		"Write a comment, @mention people", "enter/r comment", "esc close")
+		"Write a comment, @mention people", "enter comment", "esc close")
 	d.hasNot("/command", "#0", "Log", "No events yet.", "stage", "a approve", "x reject", "c cancel", "tab log", "p PR", "needs input")
 
 	// No run keys.
@@ -362,7 +362,7 @@ func TestIssueCard(t *testing.T) {
 	d.hasNot("Cancel run")
 
 	// No commands to complete.
-	d.keys("r")
+	d.keys("enter")
 	d.typeText("/")
 	d.hasNot("/compact", "/clear", "/cancel", "/approve", "tab complete")
 	d.m.(*Run).reply.clear()
@@ -402,7 +402,7 @@ func TestIssueCardSizes(t *testing.T) {
 				d.has("Not taken yet", "BE-131")
 				d.hasNot("tab shows the log")
 			}
-			d.keys("tab", "r")
+			d.keys("tab", "enter")
 			d.fits(size[0], size[1])
 			d.keys("esc", "?")
 			d.fits(size[0], size[1])
@@ -480,7 +480,7 @@ func TestRunModalWithoutYouTrack(t *testing.T) {
 	f := newFixture(t)
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 100, 30)
 	d.has("YouTrack is not connected here", "CSV export")
-	d.keys("r")
+	d.keys("enter")
 	d.has("YouTrack is not connected here; open the issue", "with o to comment")
 }
 
@@ -524,7 +524,7 @@ func TestRunModalSizes(t *testing.T) {
 			for _, k := range []string{"BE-127", "BE-123", "FE-9"} {
 				d := drive(t, NewRun(&f.d, f.runs[k].Pipeline, f.runs[k].Number, false), size[0], size[1])
 				d.fits(size[0], size[1])
-				d.keys("r")
+				d.keys("enter")
 				d.fits(size[0], size[1])
 				d.keys("esc", "tab", "?")
 				d.fits(size[0], size[1])
@@ -617,7 +617,7 @@ func TestDump(t *testing.T) {
 		board := drive(t, NewBoard(&f.d, "backend"), w, h)
 		run := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), w, h)
 		write(fmt.Sprintf("run-%dx%d.txt", w, h), run.m.(*Run).Overlay(board.m.View()))
-		run.keys("r")
+		run.keys("enter")
 		write(fmt.Sprintf("run-reply-%dx%d.txt", w, h), run.m.(*Run).Overlay(board.m.View()))
 		perm := drive(t, NewRun(&f.d, "frontend", f.runs["FE-9"].Number, true), w, h)
 		perm.typeText("/")
@@ -712,4 +712,25 @@ func TestRunModalMentions(t *testing.T) {
 		t.Errorf("comment = %q", got)
 	}
 	d.hasNot("People")
+}
+
+// TestRunModalReload: r reads the issue again; enter, not r, opens the
+// comment box.
+func TestRunModalReload(t *testing.T) {
+	f := newFixture(t)
+	yt := withIssues(f)
+	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), 160, 45)
+	d.has("r reload")
+	reads := yt.reads
+	d.keys("r")
+	if yt.reads != reads+1 {
+		t.Errorf("issue reads = %d, want %d", yt.reads, reads+1)
+	}
+	if d.m.(*Run).reply.focused {
+		t.Error("r opened the comment box")
+	}
+	d.keys("enter")
+	if !d.m.(*Run).reply.focused {
+		t.Error("enter didn't open the comment box")
+	}
 }

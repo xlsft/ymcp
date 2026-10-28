@@ -90,7 +90,7 @@ func TestRunModalOverBoard(t *testing.T) {
 	}
 
 	// A reply goes to YouTrack.
-	f.keys("r")
+	f.keys("enter")
 	f.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("The session one.")})
 	f.keys("enter")
 	if len(yt.added) != 1 || yt.added[0] != "The session one." {
@@ -112,7 +112,7 @@ func TestIssueModalOverBoard(t *testing.T) {
 	f.send(views.OpenIssue{Pipeline: "backend", Profile: "a", Issue: ytwatch.Issue{ID: "2-1", Key: "BE-1", Summary: "Fix the login cookie"}})
 	topIs[*views.Run](t, f)
 	f.has(t, "BE-1", "Fix the login cookie", "Which cookie?", "Not taken yet")
-	f.keys("r")
+	f.keys("enter")
 	f.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Any cookie.")})
 	f.keys("enter")
 	if len(yt.added) != 1 || yt.added[0] != "Any cookie." {

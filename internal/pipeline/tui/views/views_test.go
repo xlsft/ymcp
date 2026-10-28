@@ -645,3 +645,26 @@ func TestElapsed(t *testing.T) {
 		}
 	}
 }
+
+// TestBoardReloadAndRunner: r reads the board and its backlog again; s
+// starts a stopped runner and stops a running one.
+func TestBoardReloadAndRunner(t *testing.T) {
+	f := newFixture(t)
+	d := drive(t, NewBoard(&f.d, "backend"), 120, 34)
+	d.has("r reload", "s stop")
+	searches := f.backlog.calls
+	d.keys("r")
+	if f.backlog.calls != searches+1 {
+		t.Errorf("backlog searches = %d, want %d", f.backlog.calls, searches+1)
+	}
+	d.keys("s")
+	d.has("Stopped backend.")
+
+	fe := drive(t, NewBoard(&f.d, "frontend"), 120, 34)
+	fe.has("s start")
+	fe.keys("s")
+	fe.has("Started frontend in the background")
+	if want := []string{"stop backend", "start frontend"}; !slices.Equal(f.daemon.calls, want) {
+		t.Errorf("daemon calls %v, want %v", f.daemon.calls, want)
+	}
+}

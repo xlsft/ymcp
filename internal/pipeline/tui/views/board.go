@@ -345,9 +345,17 @@ func (m *Board) key(k string) tea.Cmd {
 	case "i":
 		return navigate(OpenInbox{})
 	case "r":
-		return startRunner(&m.base, m.name, m.runner)
+		m.say("Reloading…")
+		cmds := []tea.Cmd{m.reload()}
+		if m.d.Backlog != nil && m.p != nil && !m.backlogLoading && strings.TrimSpace(m.p.Source.Query) != "" {
+			cmds = append(cmds, m.searchBacklog())
+		}
+		return tea.Batch(cmds...)
 	case "s":
-		return stopRunner(&m.base, m.name, m.runner)
+		if m.runner.state == runnerRunning {
+			return stopRunner(&m.base, m.name, m.runner)
+		}
+		return startRunner(&m.base, m.name, m.runner)
 	case "e":
 		if m.p == nil {
 			return nil
@@ -443,7 +451,7 @@ func (m *Board) View() string {
 	header := []string{m.headerLine(w), ""}
 	help := []binding{
 		{"←→↑↓", "move"}, {"enter", "open"}, {"a", "answer"}, {"c", "cancel"}, {"o", "issue"}, {"p", "PR"},
-		{"r", "run"}, {"s", "stop"}, {"e", "edit"}, {"i", "inbox"}, {"esc", "back"}, {"q", "quit"},
+		{"r", "reload"}, {"s", m.runnerAction()}, {"e", "edit"}, {"i", "inbox"}, {"esc", "back"}, {"q", "quit"},
 	}
 	if !m.loaded {
 		return m.frame(header, []string{theme.Dim.Render("  Loading…")}, help)
@@ -690,4 +698,12 @@ func finishedSince(r store.Run, now time.Time) string {
 		at = *r.FinishedAt
 	}
 	return short(now.Sub(at))
+}
+
+// runnerAction is what s does to the pipeline's runner now.
+func (m *Board) runnerAction() string {
+	if m.runner.state == runnerRunning {
+		return "stop"
+	}
+	return "start"
 }

@@ -535,8 +535,10 @@ func (m *Run) key(k string) tea.Cmd {
 		*scroll = 1 << 30
 	case "end", "G":
 		*scroll = 0
-	case "r", "enter":
+	case "enter":
 		return m.focusReply()
+	case "r":
+		return m.refresh()
 	case "a":
 		if m.waitsOnPermission() {
 			return m.quick("/approve")
@@ -1471,13 +1473,13 @@ func (m *Run) help() []binding {
 		return m.fieldsHelp()
 	}
 	if m.backlog {
-		h := []binding{{"enter/r", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}}
+		h := []binding{{"enter", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}, {"r", "reload"}}
 		if m.d.Fields != nil {
 			h = append(h, binding{"e", "fields"})
 		}
 		return append(h, binding{"o", "issue"}, binding{"i", "inbox"}, binding{"q", "quit"})
 	}
-	h := []binding{{"enter/r", "reply"}}
+	h := []binding{{"enter", "reply"}}
 	if m.waitsOnPermission() {
 		h = append(h, binding{"a", "approve"}, binding{"x", "reject"})
 	}
@@ -1486,7 +1488,7 @@ func (m *Run) help() []binding {
 	if m.focus == paneLog {
 		other = "issue"
 	}
-	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"})
+	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"}, binding{"r", "reload"})
 	if m.hasChange() {
 		h = append(h, binding{"t", "PR thread"})
 	}
@@ -1613,4 +1615,14 @@ func feedText(e store.Event) string {
 		return ""
 	}
 	return oneLine(string(e.Data))
+}
+
+// refresh reads the run, the issue and the pull request again now.
+func (m *Run) refresh() tea.Cmd {
+	m.say("Reloading…")
+	cmds := []tea.Cmd{m.reload(), m.loadIssue(true)}
+	if m.hasChange() {
+		cmds = append(cmds, m.loadChange())
+	}
+	return tea.Batch(cmds...)
 }

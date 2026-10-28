@@ -197,7 +197,7 @@ on this machine or on an SSH host (`workspace.host`, an alias from `~/.ssh/confi
 Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
 runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
 issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
-and the agent's log, with a comment box (`r`) whose `/` completes the commands below. Every field of the issue that
+and the agent's log, with a comment box (`enter`) whose `/` completes the commands below; `r` reloads the board or the card. Every field of the issue that
 has a value shows at the top of the card, four to a row. `e` lists the project's fields to change one: pick a value,
 add or remove one of several, or type a number. A backlog issue the source query no longer finds after the change
 leaves the board. Shortcuts work on Cyrillic keyboard layouts too. Or from the command line:

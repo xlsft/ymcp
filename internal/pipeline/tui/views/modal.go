@@ -214,5 +214,5 @@ func (r *replyBox) lines(w, height int, hint string) []string {
 		}
 		line = first + theme.Dim.Render("  (draft)")
 	}
-	return box([]string{spread(line, theme.Dim.Render("enter/r"), iw)}, w, solidEdges, theme.Dim, "", "")
+	return box([]string{spread(line, theme.Dim.Render("enter"), iw)}, w, solidEdges, theme.Dim, "", "")
 }
