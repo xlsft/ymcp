@@ -599,14 +599,33 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) { if (d && d.tools) render(d); })
     .catch(function () {});
-  // The screenshots replace the text copies once they load.
-  document.querySelectorAll('pre.shot').forEach(function (pre) {
-    var name = pre.id.replace('shot-', ''), img = new Image();
+  // The screenshots replace the text copies once they load, lazily: the
+  // open tab's when the terminal comes near the screen, the others when
+  // their tab is opened.
+  function shot(name) {
+    var pre = document.getElementById('shot-' + name);
+    if (!pre || pre.dataset.asked) return;
+    pre.dataset.asked = '1';
+    var img = new Image();
     img.alt = document.getElementById('tt-' + name).textContent + ' screen of the pipeline TUI';
     img.width = 1056; img.height = 603;
+    img.decoding = 'async'; // no loading=lazy: a lazy image outside the DOM never loads
     img.onload = function () { pre.textContent = ''; pre.appendChild(img); pre.classList.add('pic'); };
     img.src = RAW + 'screens/' + name + '.png';
+  }
+  function open() {
+    var tab = document.querySelector('.term-tabs [aria-selected="true"]');
+    if (tab) shot(tab.getAttribute('aria-controls').replace('shot-', ''));
+  }
+  var term = document.querySelector('.term'), near = !window.IntersectionObserver;
+  document.querySelectorAll('.term-tabs button').forEach(function (b) {
+    b.addEventListener('click', function () { if (near) open(); });
+    b.addEventListener('keyup', function () { if (near) open(); });
   });
+  if (near) open();
+  else new IntersectionObserver(function (seen, io) {
+    if (seen.some(function (e) { return e.isIntersecting; })) { near = true; open(); io.disconnect(); }
+  }, { rootMargin: '400px 0px' }).observe(term);
   fetch('https://api.github.com/repos/xlsft/ymcp/releases/latest')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (r) {
