@@ -13,8 +13,8 @@ import (
 )
 
 // Server is a ymcp registration: the name it appears under in a client
-// and the command that starts it, e.g. youtrack-beget running
-// `ymcp --profile youtrack-beget`.
+// and the command that starts it, e.g. youtrack-work running
+// `ymcp --profile youtrack-work`.
 type Server struct {
 	Name    string
 	Command string

@@ -51,7 +51,7 @@ func TestGitLabComments(t *testing.T) {
 		{"id": "d2", "individual_note": true, "notes": []any{glNoteJSON(2, "alice", "top comment", "2026-10-27T13:00:00.000+03:00", "2026-10-27T13:00:00.000+03:00")}},
 		{"id": "d3", "individual_note": false, "resolvable": true, "resolved": false, "notes": []any{diff, reply}},
 	}
-	agent := glNoteJSON(7, "itorshin", "<!-- ymcp:agent pipeline=p run=1 msg=a -->\nhi", "2026-10-27T13:05:00.000+03:00", "2026-10-27T13:05:00.000+03:00")
+	agent := glNoteJSON(7, "dev", "<!-- ymcp:agent pipeline=p run=1 msg=a -->\nhi", "2026-10-27T13:05:00.000+03:00", "2026-10-27T13:05:00.000+03:00")
 	page2 := []map[string]any{
 		{"id": "d4", "individual_note": false, "resolvable": true, "resolved": true, "notes": []any{glNoteJSON(5, "bob", "done", "2026-10-27T13:03:00.000+03:00", "2026-10-27T13:03:00.000+03:00")}},
 		{"id": "d5", "individual_note": true, "notes": []any{internal}},
@@ -140,7 +140,7 @@ func TestGitLabWrites(t *testing.T) {
 		defer mu.Unlock()
 		next++
 		notes[strconv.Itoa(next)] = body
-		return glNoteJSON(next, "itorshin", body, "2026-10-27T13:00:00Z", "2026-10-27T13:00:00Z")
+		return glNoteJSON(next, "dev", body, "2026-10-27T13:00:00Z", "2026-10-27T13:00:00Z")
 	}
 	lastBody := func(method, path string) string {
 		reqs := f.find(method, path)
@@ -167,7 +167,7 @@ func TestGitLabWrites(t *testing.T) {
 			return
 		}
 		id, _ := strconv.Atoi(r.PathValue("n"))
-		writeJSON(w, r, 200, glNoteJSON(id, "itorshin", b, "2026-10-27T13:00:00Z", "2026-10-27T13:00:00Z"), false)
+		writeJSON(w, r, 200, glNoteJSON(id, "dev", b, "2026-10-27T13:00:00Z", "2026-10-27T13:00:00Z"), false)
 	})
 	f.handle("PUT "+glProject+"/merge_requests/5/notes/{n}", func(w http.ResponseWriter, r *http.Request) {
 		b := lastBody("PUT", r.URL.Path)
@@ -175,7 +175,7 @@ func TestGitLabWrites(t *testing.T) {
 		notes[r.PathValue("n")] = b
 		mu.Unlock()
 		id, _ := strconv.Atoi(r.PathValue("n"))
-		writeJSON(w, r, 200, glNoteJSON(id, "itorshin", b, "2026-10-27T13:00:00Z", "2026-10-27T13:10:00+03:00"), false)
+		writeJSON(w, r, 200, glNoteJSON(id, "dev", b, "2026-10-27T13:00:00Z", "2026-10-27T13:10:00+03:00"), false)
 	})
 	l := newGitLab(t, f)
 	ctx := ctxT(t)
@@ -245,7 +245,7 @@ func TestGitLabOpenChange(t *testing.T) {
 		writeJSON(w, r, 200, map[string]any{"iid": iid, "state": states[r.PathValue("iid")], "merged_at": "2026-10-27T15:43:49.292+03:00"}, false)
 	})
 	f.handle("GET /api/v4/user", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, r, 200, map[string]any{"id": 1, "username": "itorshin"}, false)
+		writeJSON(w, r, 200, map[string]any{"id": 1, "username": "dev"}, false)
 	})
 	l := newGitLab(t, f)
 	ctx := ctxT(t)
@@ -286,10 +286,10 @@ func TestGitLabOpenChange(t *testing.T) {
 			t.Errorf("Change(%d) = %+v, %v", iid, ch, err)
 		}
 	}
-	if me, err := l.Me(ctx); err != nil || me != "itorshin" {
+	if me, err := l.Me(ctx); err != nil || me != "dev" {
 		t.Errorf("Me = %q, %v", me, err)
 	}
-	if me, _ := l.Me(ctx); me != "itorshin" || len(f.find("GET", "/api/v4/user")) != 1 {
+	if me, _ := l.Me(ctx); me != "dev" || len(f.find("GET", "/api/v4/user")) != 1 {
 		t.Error("Me isn't cached")
 	}
 }

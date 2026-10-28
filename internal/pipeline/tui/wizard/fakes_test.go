@@ -286,7 +286,7 @@ func newFakes() *fakes {
 	f.deps = Deps{
 		Local: fakeLocal{
 			profiles: []config.Config{
-				{Name: "youtrack-acme", DisplayName: "YouTrack (acme)", URL: "https://acme.youtrack.cloud", Login: "itorshin"},
+				{Name: "youtrack-acme", DisplayName: "YouTrack (acme)", URL: "https://acme.youtrack.cloud", Login: "dev"},
 				{Name: "youtrack-work", DisplayName: "YouTrack (work)", URL: "https://example.youtrack.cloud", Login: "admin"},
 			},
 			existing: map[string]bool{"frontend": true},

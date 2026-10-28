@@ -32,10 +32,10 @@ func setChange(title, description string) func(*fakeTurn) agent.Result {
 // with the work turn's answer and its narration.
 func TestDescribeOpensWithTheAgentsTitle(t *testing.T) {
 	h := describeHarness(t)
-	is := h.yt.addIssue("Мелкие баги модуля", "Open")
+	is := h.yt.addIssue("Small bugs in the module", "Open")
 	h.ag.script(
-		fixTurn("Изучаю канон обработки ошибок.\n\nЛинтер прошёл.\n\n- Fixes the errors."),
-		setChange("fix(registry): show the causes of errors", "- Shows the causes of errors ([K8S-1](https://yt/K8S-1))"),
+		fixTurn("Reading how errors are handled.\n\nThe linter passes.\n\n- Fixes the errors."),
+		setChange("fix(api): show the causes of errors", "- Shows the causes of errors ([ABC-1](https://yt/ABC-1))"),
 	)
 	h.start()
 	run := h.waitReview(1, is.Key)
@@ -45,7 +45,7 @@ func TestDescribeOpensWithTheAgentsTitle(t *testing.T) {
 	}
 	o := opens[0]
 	body := text.StripHeader(o.Body)
-	if o.Title != "fix(registry): show the causes of errors" || strings.TrimSpace(body) != "- Shows the causes of errors ([K8S-1](https://yt/K8S-1))" {
+	if o.Title != "fix(api): show the causes of errors" || strings.TrimSpace(body) != "- Shows the causes of errors ([ABC-1](https://yt/ABC-1))" {
 		t.Errorf("opened %q:\n%s", o.Title, body)
 	}
 	prompts := h.ag.promptLog()

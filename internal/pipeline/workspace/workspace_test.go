@@ -184,7 +184,7 @@ func TestAgentIdentity(t *testing.T) {
 		{"dev@xlsft.ru", "Claude · backend #17", "agent_backend_17", "Claude · backend #17", "dev+agent_backend_17@xlsft.ru"},
 		{"dev+old@xlsft.ru", "Kimi", "agent_backend_1", "Kimi", "dev+agent_backend_1@xlsft.ru"},
 		{"dev+a+b@xlsft.ru", "", "agent_Front-End API_2", "Agent", "dev+agent_front_end_api_2@xlsft.ru"},
-		{"  dev@xlsft.ru ", " A <x>\n", "__K8S-1434__", "A x", "dev+k8s_1434@xlsft.ru"},
+		{"  dev@xlsft.ru ", " A <x>\n", "__ABC-1434__", "A x", "dev+abc_1434@xlsft.ru"},
 		{"dev@xlsft.ru", "A", "Бэкенд", "A", "dev@xlsft.ru"},
 		{"dev+old@xlsft.ru", "A", "", "A", "dev@xlsft.ru"},
 		{"not-an-email", "A", "t", "A", ""},
