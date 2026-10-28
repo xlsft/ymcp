@@ -842,8 +842,8 @@ func (m *Run) heading() string {
 
 // topBar is the head of the card across its width: the pipeline and run,
 // the issue key and summary on the left, the issue's fields and the run's
-// state as a grid of chips on the right (under the title when they need
-// more room), then the agent line and, with a pull request, the tabs of
+// state as a grid of chips on the right (under the title when they don't
+// fit there), then the agent line and, with a pull request, the tabs of
 // the thread. The grid takes no more rows than leave the top bar within
 // half of rows.
 func (m *Run) topBar(w int, border bool, rows int) []string {
@@ -871,7 +871,7 @@ func (m *Run) topBar(w int, border bool, rows int) []string {
 	groups := m.chipGroups()
 	var out []string
 	if w >= wideFrom {
-		out = sideBySide(head, groups, w)
+		out = sideBySide(head, groups, w, max(rows/2-len(tail), 2))
 	}
 	if out == nil { // the title, then the grid under it
 		out = wrapLines(head, w, 2)
@@ -882,15 +882,15 @@ func (m *Run) topBar(w int, border bool, rows int) []string {
 }
 
 // sideBySide lays a title out on the left and the grid of chips on the
-// right of w cells, when the grid fits there in two rows: the title takes
-// its whole width when the grid still fits beside it, else it wraps into
-// what the grid leaves. It returns nil when the grid does not fit.
-func sideBySide(head string, groups [][]string, w int) []string {
+// right of w cells, when the whole grid fits there in n rows: the title
+// takes its whole width when the grid still fits beside it, else it wraps
+// into what the grid leaves. It returns nil when the grid does not fit.
+func sideBySide(head string, groups [][]string, w, n int) []string {
 	headW := ansi.StringWidth(head)
 	var rows []string
 	fit := false
 	for _, leftW := range []int{headW, max(w*2/5, 24)} {
-		if rows, fit = chipGrid(groups, w-leftW-3, 2); fit {
+		if rows, fit = chipGrid(groups, w-leftW-3, n); fit {
 			break
 		}
 	}
@@ -902,9 +902,8 @@ func sideBySide(head string, groups [][]string, w int) []string {
 		widest = max(widest, ansi.StringWidth(r))
 	}
 	left := wrapLines(head, max(w-widest-3, 1), 2)
-	n := max(len(left), len(rows))
-	out := make([]string, n)
-	for i := range n {
+	out := make([]string, max(len(left), len(rows)))
+	for i := range out {
 		l, r := "", ""
 		if i < len(left) {
 			l = left[i]
