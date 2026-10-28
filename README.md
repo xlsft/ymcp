@@ -106,6 +106,9 @@ cosign verify xlsoftware/ymcp:latest \
 
 ## Commands
 
+[docs/reference.md](docs/reference.md) has the full reference: every command, every tool and prompt with its inputs
+and outputs, and every field of the pipeline file.
+
 | Command | |
 |---|---|
 | `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http` serves Streamable HTTP, see [HTTP](#http) |

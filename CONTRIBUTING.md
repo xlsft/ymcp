@@ -26,6 +26,13 @@ go tool govulncheck ./...
 go test -race ./...
 ```
 
+[`docs/reference.md`](docs/reference.md), the reference of the command line, the tools, the prompts and the pipeline
+file, is generated from the code, and a test fails when it is out of date. After changing any of those, rewrite it:
+
+```sh
+YMCP_REFERENCE=write go test ./cmd/ymcp -run TestReference
+```
+
 ## E2E tests
 
 `e2e/` runs the real binary as an MCP server over stdio against a real YouTrack and calls every tool. The test
@@ -66,7 +73,7 @@ Never create a user per run.
 3. Test it in `tools_test.go`. `connect` runs the tool through an in-memory MCP client against the fake
    YouTrack in `internal/youtrack/youtracktest`; assert on the REST requests it sends.
 4. Add a scenario to `e2e/scenarios_test.go` that calls it on the live instance.
-5. Add it to the tool tables in the README.
+5. Add it to the tool tables in the README and rewrite `docs/reference.md` (see [Checks](#checks)).
 
 ### Trying changes on a live instance
 
