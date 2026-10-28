@@ -33,11 +33,13 @@ type glUser struct {
 }
 
 type glMR struct {
-	IID    int    `json:"iid"`
-	WebURL string `json:"web_url"`
-	State  string `json:"state"`
-	Draft  bool   `json:"draft"`
-	WIP    bool   `json:"work_in_progress"`
+	IID         int    `json:"iid"`
+	WebURL      string `json:"web_url"`
+	State       string `json:"state"`
+	Draft       bool   `json:"draft"`
+	WIP         bool   `json:"work_in_progress"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type glNote struct {
@@ -170,7 +172,7 @@ func (l *gitlab) Open(ctx context.Context, o OpenOptions) (Change, error) {
 }
 
 func mrChange(mr glMR) Change {
-	ch := Change{Number: mr.IID, URL: mr.WebURL, State: StateOpen, Draft: mr.Draft || mr.WIP}
+	ch := Change{Number: mr.IID, URL: mr.WebURL, State: StateOpen, Draft: mr.Draft || mr.WIP, Title: mr.Title, Body: mr.Description}
 	switch mr.State {
 	case "merged":
 		ch.State, ch.Merged = StateMerged, true
@@ -184,6 +186,24 @@ func (l *gitlab) Change(ctx context.Context, number int) (Change, error) {
 	var mr glMR
 	if err := l.get(ctx, l.mrPath(number, ""), nil, &mr); err != nil {
 		return Change{}, err
+	}
+	return mrChange(mr), nil
+}
+
+// Update replaces a merge request's title and description; a draft stays
+// a draft.
+func (l *gitlab) Update(ctx context.Context, number int, title, body string) (Change, error) {
+	var cur glMR
+	if err := l.get(ctx, l.mrPath(number, ""), nil, &cur); err != nil {
+		return Change{}, err
+	}
+	if (cur.Draft || cur.WIP) && !draftRe.MatchString(title) {
+		title = "Draft: " + title
+	}
+	in := map[string]any{"title": title, "description": clip(body, gitlabMaxBody)}
+	var mr glMR
+	if err := l.write(ctx, http.MethodPut, l.mrPath(number, ""), in, &mr); err != nil {
+		return Change{}, fmt.Errorf("vcs: updating the merge request: %w", err)
 	}
 	return mrChange(mr), nil
 }

@@ -1,7 +1,8 @@
 // Package mcpserver serves the ymcp tools to pipeline agents over MCP
 // streamable HTTP on a loopback port. Each run gets its own bearer token
 // and MCP server: YouTrack text the agent writes is marked as the run's,
-// and two pipeline tools, request_input and report, reach the runner.
+// and the pipeline tools, request_input, report and set_change, reach the
+// runner.
 package mcpserver
 
 import (
@@ -31,7 +32,13 @@ type Callbacks interface {
 	RequestInput(ctx context.Context, run int64, question string) error
 	// Report publishes a brief interim status.
 	Report(ctx context.Context, run int64, text string) error
+	// SetChange keeps the title and description of the run's pull or
+	// merge request, which ymcp opens or updates after its push.
+	SetChange(ctx context.Context, run int64, title, description string) error
 }
+
+// ChangeSet is what set_change returns to the agent.
+const ChangeSet = "Saved. ymcp sets them on the pull or merge request after its push."
 
 // RunInfo identifies the run behind a token.
 type RunInfo struct {
@@ -210,7 +217,7 @@ func (g *grant) closeSessions() {
 func (s *Server) newMCP(r RunInfo) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "ymcp", Version: version()}, &mcp.ServerOptions{
 		Instructions: "Tools for the YouTrack instance at " + s.yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123). " +
-			"request_input and report talk to the ymcp pipeline running this session.",
+			"request_input, report and set_change talk to the ymcp pipeline running this session.",
 	})
 	var opts tools.Options
 	if s.decorate != nil {
@@ -228,6 +235,11 @@ type requestInputIn struct {
 
 type reportIn struct {
 	Text string `json:"text" jsonschema:"A brief status update, Markdown supported"`
+}
+
+type setChangeIn struct {
+	Title       string `json:"title" jsonschema:"The title of the pull or merge request, one line"`
+	Description string `json:"description" jsonschema:"Its description, Markdown supported"`
 }
 
 func (s *Server) addPipelineTools(srv *mcp.Server, r RunInfo) {
@@ -260,6 +272,22 @@ func (s *Server) addPipelineTools(srv *mcp.Server, r RunInfo) {
 			return nil, nil, fmt.Errorf("report not posted: %w", err)
 		}
 		return textResult("Reported."), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "set_change",
+		Description: "Sets the title and description of the pull or merge request of your branch. ymcp opens it with them after " +
+			"pushing, or updates it. Call it when ymcp asks for them; the latest call wins.",
+		Annotations: pipelineHints("Set the PR/MR"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setChangeIn) (*mcp.CallToolResult, any, error) {
+		title := strings.Join(strings.Fields(in.Title), " ")
+		if title == "" || strings.TrimSpace(in.Description) == "" {
+			return nil, nil, errors.New("title and description must not be empty")
+		}
+		if err := s.cb.SetChange(ctx, r.ID, title, strings.TrimSpace(in.Description)); err != nil {
+			return nil, nil, fmt.Errorf("not saved: %w", err)
+		}
+		return textResult(ChangeSet), nil, nil
 	})
 }
 

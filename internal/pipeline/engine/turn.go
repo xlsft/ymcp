@@ -65,6 +65,7 @@ type turn struct {
 	buf     strings.Builder // coalesced text chunks not yet recorded
 	bufKind agent.Kind
 
+	opts        agent.StartOptions // how the agent was started, for the describe turn
 	startHead   string             // the worktree's commit when the agent started
 	perms       []agent.Permission // open permission requests, oldest first
 	permTimer   *time.Timer
@@ -254,6 +255,7 @@ func (t *turn) run1(answer string) string {
 		SystemPrompt: system,
 		OnGroup:      func(pgid int) { r.recordGroup(t.bg, run, pgid) },
 	}
+	t.opts = opts
 	res, cause, perr := t.session(opts, prompt, comments, issue)
 	return t.outcome(res, cause, perr)
 }
@@ -1057,7 +1059,7 @@ func (t *turn) outcome(res agent.Result, cause string, perr error) string {
 
 	pushed, gitErr := t.commitAndPush(answer)
 	if gitErr == nil && pushed {
-		gitErr = t.openChange(answer)
+		gitErr = t.publishChange(answer)
 	}
 
 	// Tools the agent was not allowed to use: claude reports them after the
