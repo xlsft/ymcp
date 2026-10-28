@@ -55,7 +55,6 @@ Or with a package manager, then run `ymcp setup`:
 ```sh
 brew install xlsft/tap/ymcp                                                  # macOS, Linux
 scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp   # Windows
-winget install xlsft.ymcp                                                    # Windows, once Microsoft accepts it
 ```
 
 Package-managed copies update through their manager (`brew upgrade ymcp` and so on); `ymcp update` says so.

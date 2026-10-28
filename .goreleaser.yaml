@@ -89,37 +89,6 @@ scoops:
       email: 41898282+github-actions[bot]@users.noreply.github.com
     skip_upload: '{{ if envOrDefault "YMCP_PACKAGES_TOKEN" "" }}false{{ else }}true{{ end }}'
 
-winget:
-  - name: ymcp
-    publisher: xlsft
-    package_identifier: xlsft.ymcp
-    short_description: YouTrack MCP server and pipelines that hand issues to coding agents
-    description: |
-      ymcp is a toolchain for YouTrack project work. Its MCP server gives AI clients (Claude, Cursor, VS Code, Zed,
-      Codex and others) the full YouTrack MCP toolset plus deletes, sprints, attachments, history and reports, signing
-      in with a YouTrack login and password. Its pipelines hand YouTrack issues to coding agents (Claude Code, Kimi,
-      opencode or any ACP agent) and open pull or merge requests for their work.
-    license: MIT
-    homepage: https://github.com/xlsft/ymcp
-    publisher_url: https://github.com/xlsft
-    release_notes_url: https://github.com/xlsft/ymcp/releases/tag/{{ .Tag }}
-    tags: [youtrack, mcp, cli, pipeline, agents]
-    commit_author:
-      name: github-actions[bot]
-      email: 41898282+github-actions[bot]@users.noreply.github.com
-    skip_upload: '{{ if envOrDefault "YMCP_PACKAGES_TOKEN" "" }}false{{ else }}true{{ end }}'
-    repository:
-      owner: xlsft
-      name: winget-pkgs
-      branch: "ymcp-{{ .Version }}"
-      token: '{{ .Env.YMCP_PACKAGES_TOKEN }}'
-      pull_request:
-        enabled: true
-        base:
-          owner: microsoft
-          name: winget-pkgs
-          branch: master
-
 changelog:
   use: github
   sort: asc
@@ -153,7 +122,7 @@ release:
     irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
     ```
 
-    Homebrew: `brew install xlsft/tap/ymcp` · Scoop: `scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp` · winget: `winget install xlsft.ymcp` (once Microsoft merges the package).
+    Homebrew: `brew install xlsft/tap/ymcp` · Scoop: `scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp`.
 
     Already installed: `ymcp update`. Docker: `docker pull xlsoftware/ymcp:{{ .Version }}`.
 
