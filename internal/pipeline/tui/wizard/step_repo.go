@@ -18,13 +18,6 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 )
 
-var strategyKinds = []option{
-	{value: "branch", title: "branch", desc: "push the branch; you open pull or merge requests yourself"},
-	{value: "github-pr", title: "github-pr", desc: "push and open a GitHub pull request"},
-	{value: "github-issue-pr", title: "github-issue-pr", desc: "also open a GitHub issue the pull request closes"},
-	{value: "gitlab-mr", title: "gitlab-mr", desc: "push and open a GitLab merge request"},
-}
-
 // repoStep picks the repository (on this machine or an ssh host), shows
 // what workspace.Inspect finds there, and how finished work is published,
 // suggested from the repository's origin.
@@ -578,9 +571,9 @@ func hosting(kind string) string {
 }
 
 func (s *repoStep) strategyOptions() []option {
-	out := make([]option, len(strategyKinds))
-	copy(out, strategyKinds)
-	for i := range out {
+	out := make([]option, len(spec.StrategyKinds))
+	for i, k := range spec.StrategyKinds {
+		out[i] = option{value: k.Name, title: k.Name, desc: k.About}
 		if s.det != nil && s.det.Kind == out[i].value {
 			out[i].status = func(int) string { return styleOK.Render("detected") }
 		}

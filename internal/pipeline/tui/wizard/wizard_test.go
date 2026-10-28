@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/xlsft/ymcp/internal/pipeline/agent"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 )
@@ -1063,4 +1064,16 @@ func TestIdentityToggle(t *testing.T) {
 	}
 	d.goStep(5)
 	d.must("agent's own author")
+}
+
+// TestProvidersMatch: the wizard describes the providers from spec and
+// checks them with agent, so both list the same ones.
+func TestProvidersMatch(t *testing.T) {
+	var got []string
+	for _, c := range spec.Providers {
+		got = append(got, c.Name)
+	}
+	if !slices.Equal(got, agent.Providers) {
+		t.Errorf("spec.Providers %v, agent.Providers %v", got, agent.Providers)
+	}
 }
