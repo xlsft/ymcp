@@ -42,7 +42,7 @@ func TestScreens(t *testing.T) {
 	write("inbox", drive(t, NewInbox(&f.d), w, 12).m.View())
 
 	// The cards, over the board they open from.
-	const h = 30
+	const h = 33
 	board := drive(t, NewBoard(&f.d, "backend"), w, h)
 	run := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), w, h)
 	write("run", run.m.(*Run).Overlay(board.m.View()))
