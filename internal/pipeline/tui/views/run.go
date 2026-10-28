@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/config"
@@ -550,7 +551,11 @@ const wideFrom = 70
 // gutter is what separates the issue from the log, and its width.
 const gutterWidth = 5
 
-func gutter() string { return "  " + theme.Dim.Render("│") + "  " }
+func gutter() string { return "  " + modalBorder.Render("│") + "  " }
+
+// footIndent puts the help and status lines under the issue in line with
+// the text of the comment box.
+const footIndent = "  "
 
 // modalPad is the padding inside the card's frame: two cells left and
 // right and a row above and below, less on small screens.
@@ -610,12 +615,20 @@ func (m *Run) Overlay(under string) string {
 // the comment box beside the run's log, and the status and help lines.
 func (m *Run) box(bw, bh int) []string {
 	cw, ih, border := m.inner()
+	// Side by side, the gutter runs down to the frame and the help and
+	// status lines sit under the issue.
+	lw, rw := split(cw)
+	beside := border && rw > 0 && m.loaded
+	footW := cw
+	if beside {
+		footW = max(lw-len(footIndent), 1)
+	}
 	// The comment box shows its own keys while it has the focus. The
 	// status line shows only when it says something; on tiny screens it
 	// takes the help's place.
 	var foot []string
 	if !m.reply.focused {
-		foot = m.helpLines(m.help(), cw)
+		foot = m.helpLines(m.help(), footW)
 		if ih < 8 {
 			foot = foot[:1]
 		}
@@ -624,7 +637,16 @@ func (m *Run) box(bw, bh int) []string {
 		if ih < 8 {
 			foot = nil
 		}
-		foot = append([]string{s}, foot...)
+		status := []string{s}
+		if beside { // narrower under the issue: wrap rather than cut
+			status = wrap(s, footW)
+		}
+		foot = append(status, foot...)
+	}
+	if beside {
+		for i, l := range foot {
+			foot[i] = footIndent + cut(l, footW)
+		}
 	}
 	gap := 0
 	if len(foot) > 0 && ih >= 16 {
@@ -661,13 +683,21 @@ func (m *Run) box(bw, bh int) []string {
 	}
 	inner := make([]string, 0, ih)
 	inner = append(inner, body[:min(len(body), max(ih-len(foot)-gap, 0))]...)
+	panesEnd := len(inner)
 	for len(inner) < ih-len(foot) {
 		inner = append(inner, "")
 	}
 	inner = append(inner, foot...)
 	if len(inner) > ih {
 		ruleAt -= len(inner) - ih
+		panesEnd -= len(inner) - ih
 		inner = inner[len(inner)-ih:]
+	}
+	beside = beside && ruleAt >= 0
+	if beside {
+		for i := max(panesEnd, ruleAt+1); i < len(inner); i++ {
+			inner[i] = pad(inner[i], lw) + gutter()
+		}
 	}
 	if !border {
 		for i, l := range inner {
@@ -689,9 +719,22 @@ func (m *Run) box(bw, bh int) []string {
 		padded = append(padded, side+pad(l, cw)+side)
 	}
 	for range py {
-		padded = append(padded, "")
+		if beside {
+			padded = append(padded, side+pad("", lw)+gutter())
+		} else {
+			padded = append(padded, "")
+		}
 	}
-	return frameBox(padded, bw-2, "", "")
+	out := frameBox(padded, bw-2, "", "")
+	b := lipgloss.RoundedBorder()
+	if ruleAt >= 0 { // the rule meets the frame
+		out[1+py+ruleAt] = modalBorder.Render("├") + m.ruleLine(cw, px) + modalBorder.Render("┤")
+	}
+	if beside { // so does the gutter, at the bottom
+		at := px + lw + 2
+		out[len(out)-1] = modalBorder.Render(b.BottomLeft + strings.Repeat(b.Bottom, at) + "┴" + strings.Repeat(b.Bottom, max(bw-3-at, 0)) + b.BottomRight)
+	}
+	return out
 }
 
 // heading is the title of the card: the pipeline and the run number, the
@@ -873,16 +916,17 @@ func (m *Run) ruleLine(cw, extra int) string {
 	}
 	thread := m.focus == paneThread && !m.reply.focused
 	log := m.focus == paneLog && !m.reply.focused
-	return rule(lw+extra, thread) + theme.Dim.Render("──┬──") + rule(rw+extra, log)
+	return rule(lw+extra, thread) + modalBorder.Render("──┬──") + rule(rw+extra, log)
 }
 
-// rule is a horizontal line, in the brand colour on the focused pane.
+// rule is a horizontal line in the colour of the frame, bold over the
+// focused pane.
 func rule(w int, focused bool) string {
 	line := strings.Repeat("─", max(w, 1))
 	if focused {
 		return theme.Accent.Render(line)
 	}
-	return theme.Dim.Render(line)
+	return modalBorder.Render(line)
 }
 
 // issuePane is the left side: the thread, then the comment box at the
@@ -1158,7 +1202,7 @@ func (m *Run) replyArea(w, rows int) (out []string) {
 		for i, k := range keys {
 			parts[i] = theme.Key.Render(k.key) + " " + theme.Dim.Render(k.desc)
 		}
-		out = append(out, cut(strings.Join(parts, "  "), w))
+		out = append(out, cut(footIndent+strings.Join(parts, "  "), w)) // in line with the text in the box
 	}
 	return out
 }
@@ -1277,12 +1321,13 @@ func (m *Run) help() []binding {
 		return []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
 	}
 	if m.backlog {
-		return []binding{{"r", "comment"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"esc", "close"}, {"q", "quit"}}
+		return []binding{{"enter/r", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"q", "quit"}}
 	}
-	h := []binding{{"r", "reply"}}
+	h := []binding{{"enter/r", "reply"}}
 	if m.waitsOnPermission() {
 		h = append(h, binding{"a", "approve"}, binding{"x", "reject"})
 	}
+	h = append(h, binding{"esc", "close"})
 	other := "log"
 	if m.focus == paneLog {
 		other = "issue"
@@ -1295,7 +1340,7 @@ func (m *Run) help() []binding {
 	if m.run.PRURL != "" {
 		h = append(h, binding{"p", "PR"})
 	}
-	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"esc", "close"}, binding{"q", "quit"})
+	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"q", "quit"})
 }
 
 // feedKinds are the labels and colours of the event kinds in the log.

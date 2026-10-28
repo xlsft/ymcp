@@ -127,7 +127,7 @@ func TestRunModal(t *testing.T) {
 		"@xlsft's agent #6 (backend) · 13m ago", "Which date format should the CSV export use",
 		"Log", "captured", "question",
 		"waiting 12m", "Write a comment…",
-		"r reply", "tab log", "esc close")
+		"enter/r reply", "esc close", "tab log")
 	d.hasNot("Estimation", "Assignee", "ymcp:agent", "<!--", "**export**", "(/approve",
 		"NEEDS INPUT", "Permission", "posts the comment") // no separate rows any more
 	lines := strings.Split(d.view(), "\n")
@@ -333,7 +333,7 @@ func TestIssueCard(t *testing.T) {
 	d.has("backend", "BE-131", "Rate limit the login endpoint", "State: Open", "Priority: Critical", "backlog",
 		"Too many login attempts get through.", "Comments · 1", "Anna Petrova @anna · 20m ago", "Ten a minute is enough.",
 		"Not taken yet — the runner picks it up from", "● running",
-		"Write a comment…", "r comment", "o issue", "esc close")
+		"Write a comment…", "enter/r comment", "esc close")
 	d.hasNot("#0", "Log", "No events yet.", "stage", "a approve", "x reject", "c cancel", "tab log", "p PR", "needs input")
 
 	// No run keys.
@@ -461,7 +461,7 @@ func TestRunModalWithoutYouTrack(t *testing.T) {
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, true), 100, 30)
 	d.has("YouTrack is not connected here", "CSV export")
 	d.keys("r")
-	d.has("open the issue with o to comment")
+	d.has("YouTrack is not connected here; open the issue", "with o to comment")
 }
 
 func TestRunModalReadError(t *testing.T) {
@@ -626,21 +626,27 @@ func TestIsWorking(t *testing.T) {
 
 // TestRuleReachesTheFrame: the line under the top bar runs through the
 // padding to the frame on both sides, at the side-by-side and the narrow
-// layout.
+// layout; side by side, the gutter runs down to the frame's bottom.
 func TestRuleReachesTheFrame(t *testing.T) {
 	for _, size := range [][2]int{{120, 40}, {160, 45}, {70, 30}} {
 		f := newFixture(t)
 		withIssues(f)
 		d := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), size[0], size[1])
-		found := false
+		found, bottom := false, false
 		for _, l := range strings.Split(ansi.Strip(d.m.View()), "\n") {
 			s := strings.TrimSpace(l)
-			if strings.HasPrefix(s, "│─") && strings.HasSuffix(s, "─│") {
+			if strings.HasPrefix(s, "├─") && strings.HasSuffix(s, "─┤") {
 				found = true
+			}
+			if strings.HasPrefix(s, "╰") && strings.Contains(s, "┴") {
+				bottom = true
 			}
 		}
 		if !found {
 			t.Errorf("%dx%d: no rule from frame to frame:\n%s", size[0], size[1], ansi.Strip(d.m.View()))
+		}
+		if wide := size[0] >= 100; bottom != wide {
+			t.Errorf("%dx%d: gutter meets the bottom = %v, want %v:\n%s", size[0], size[1], bottom, wide, ansi.Strip(d.m.View()))
 		}
 	}
 }
