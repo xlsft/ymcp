@@ -69,6 +69,10 @@ type Options struct {
 	// origin remote). On failure the Remote holds what was found before
 	// it. Default: vcs.ParseRemote, vcs.TokenFor and vcs.New.
 	NewStrategy func(ctx context.Context, kind vcs.Kind, originURL string) (Remote, error)
+	// NewCI builds the CI of the repository at originURL for the branch
+	// strategy; the other strategies read their own. Default:
+	// vcs.ParseRemote, vcs.TokenFor and vcs.NewCI.
+	NewCI func(ctx context.Context, originURL string) (vcs.CI, error)
 	// Notify, when set, is told about moments a human may want to know
 	// of: kind is one of the Notify* constants, url the page to open
 	// (the question, the pull request or the issue). It is called from
@@ -111,7 +115,10 @@ type Runner struct {
 	vcsMe     string // login on the code host
 	vcsRepo   string // host/owner/name
 	vcsSource string // sourceGitHub or sourceGitLab
-	notifyFn  func(ctx context.Context, kind string, run store.Run, title, body, url string)
+	// ci is the CI watched after each push; nil when ci.watch is off or
+	// the host's CI can't be read.
+	ci       vcs.CI
+	notifyFn func(ctx context.Context, kind string, run store.Run, title, body, url string)
 
 	mu      sync.Mutex
 	workers map[int64]*worker
@@ -179,6 +186,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		}
 		logger.Info("code host", "repo", repoName(rem.Repo), "strategy", p.Strategy.Kind, "as", vcsMe, "token", rem.TokenSource)
 	}
+	ci := connectCI(ctx, p, host, rem.Strategy, opts, logger)
 	ag, err := opts.NewAgent(p.Agent, host, logger)
 	if err != nil {
 		return nil, err
@@ -194,6 +202,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		vcsMe:      vcsMe,
 		vcsRepo:    repoName(rem.Repo),
 		vcsSource:  sourceOf(p.Strategy.Kind),
+		ci:         ci,
 		notifyFn:   opts.Notify,
 		vcsWait:    map[int64]time.Time{},
 		p:          p,
@@ -227,6 +236,9 @@ func withDefaults(o Options) Options {
 	}
 	if o.NewStrategy == nil {
 		o.NewStrategy = newStrategy
+	}
+	if o.NewCI == nil {
+		o.NewCI = newCI
 	}
 	return o
 }

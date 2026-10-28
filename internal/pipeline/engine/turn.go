@@ -1358,6 +1358,7 @@ func (t *turn) commitAndPush(answer string) (pushed bool, err error) {
 		data["forced"] = "with lease"
 	}
 	r.event(t.bg, t.run.ID, "git.push", data)
+	r.ciPushed(t.bg, t.run, head, t.onlyCI())
 	return true, nil
 }
 

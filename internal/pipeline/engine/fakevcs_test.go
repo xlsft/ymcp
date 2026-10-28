@@ -37,6 +37,7 @@ type fakeVCS struct {
 	bodies   map[string][]string // comment id -> every body it had
 	closes   []int               // the changes Close was called for
 	hidden   []string            // the comments Hide was called for
+	ci       fakeCI              // its CI
 }
 
 type fakeVCSComment struct {

@@ -38,6 +38,27 @@ type Pipeline struct {
 	// Notifications narrows the machine's notification settings for this
 	// pipeline; nil keeps them as they are.
 	Notifications *Notifications `json:"notifications,omitempty"`
+	// CI is how the runner watches the CI of what the agent pushes.
+	CI CI `json:"ci,omitzero"`
+}
+
+// CI is how the runner watches the CI of the agent's pushes: a failure
+// gives the agent a turn with the failed jobs and the end of their logs,
+// up to Fixes times in a row; then the run waits for a human.
+type CI struct {
+	Watch *bool `json:"watch,omitempty"` // on when nil
+	Fixes int   `json:"fixes,omitempty"` // default 3
+}
+
+// Watched reports whether the runner watches the CI.
+func (c CI) Watched() bool { return c.Watch == nil || *c.Watch }
+
+// MaxFixes is how many turns in a row a failing CI gets.
+func (c CI) MaxFixes() int {
+	if c.Fixes <= 0 {
+		return DefaultCIFixes
+	}
+	return c.Fixes
 }
 
 // Source is the YouTrack search the pipeline takes issues from.
@@ -213,6 +234,7 @@ const (
 
 	DefaultBranch       = "{{issue.id}}-{{issue.summary | slug}}"
 	DefaultCommitPrefix = "{{issue.id}}"
+	DefaultCIFixes      = 3
 	DefaultIdentityName = "{{agent.name}} · {{pipeline.name}} #{{run.number}}"
 	DefaultIdentityTag  = "agent_{{pipeline.name}}_{{run.number}}"
 	DefaultLanguage     = "English"
