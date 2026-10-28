@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: go test -tags e2e
@@ -35,3 +35,12 @@ jobs:
           YOUTRACK_E2E_LOGIN: ${{ secrets.YOUTRACK_E2E_LOGIN }}
           YOUTRACK_E2E_PASSWORD: ${{ secrets.YOUTRACK_E2E_PASSWORD }}
         run: go test -tags e2e -count=1 -v ./e2e
+      # Dependabot's pull requests get no repository secrets, and the suite
+      # then skips; say so instead of passing quietly.
+      - name: Skipped
+        if: env.ENDPOINT == ''
+        env:
+          ENDPOINT: ${{ secrets.YOUTRACK_E2E_ENDPOINT }}
+        run: |
+          echo "::warning::No YOUTRACK_E2E_* secrets, so the E2E suite skipped; main runs it before releasing"
+          echo "E2E skipped: no YOUTRACK_E2E_* secrets in this run" >> "$GITHUB_STEP_SUMMARY"
