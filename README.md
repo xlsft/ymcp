@@ -257,6 +257,11 @@ the name (`{{agent.name}} · {{pipeline.name}} #{{run.number}}`) and `workspace.
 your address (`agent_{{pipeline.name}}_{{run.number}}`, so `dev@example.com` becomes
 `dev+agent_backend_3@example.com`). Both take the issue's keys too; the tag keeps lowercase letters, digits and `_`.
 
+Every commit message starts with `workspace.commitPrefix` (`{{issue.id}}`). Set it to `""` for none, e.g. when the
+repository runs commitlint: the agent then writes its commit messages the repository's way. `strategy.title` is the
+template of the PR/MR title (`{{issue.key}} {{issue.summary}}`); `{{commit.subject}}` is the subject of the branch's
+first commit, so `"title": "{{commit.subject}}"` gives a conventional title, which a squash merge keeps.
+
 ### Agents
 
 | `agent.provider` | |

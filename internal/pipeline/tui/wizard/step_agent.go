@@ -611,8 +611,8 @@ func (s *agentStep) vars() text.Vars {
 		v["issue.fields."+k] = f
 	}
 	branch, _ := text.Render(p.Workspace.Branch, v)
-	prefix, _ := text.Render(p.Workspace.CommitPrefix, v)
-	v["branch"], v["commit.prefix"] = branch, prefix
+	prefix, _ := text.Render(p.Workspace.Prefix(), v)
+	v["branch"], v["commit.prefix"], v["commit.rule"] = branch, prefix, spec.CommitRule(prefix)
 	v["base"] = p.Workspace.Base
 	if v["base"] == "" {
 		v["base"] = "main"

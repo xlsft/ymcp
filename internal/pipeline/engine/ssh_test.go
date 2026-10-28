@@ -65,7 +65,7 @@ func TestSSHRun(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(s0.RunDir), "/ymcp/runs/1") || s0.Dir != run.Worktree {
 		t.Errorf("start options = %+v", s0)
 	}
-	if got := git(t, h.origin, "log", "-1", "--format=%s", run.Branch); got != is.Key+" Fixed it." {
+	if got := git(t, h.origin, "log", "-1", "--format=%s", run.Branch); got != is.Key+" Fixed it" {
 		t.Errorf("origin log = %q", got)
 	}
 	cs, err := sshtest.Calls(log)

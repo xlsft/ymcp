@@ -272,7 +272,7 @@ func (t *turn) prepareWorkspace() error {
 			return err
 		}
 	}
-	prefix, err := text.Render(r.p.Workspace.CommitPrefix, t.vars)
+	prefix, err := text.Render(r.p.Workspace.Prefix(), t.vars)
 	if err != nil {
 		return fmt.Errorf("workspace.commitPrefix: %w", err)
 	}
@@ -331,6 +331,7 @@ func (t *turn) prepareWorkspace() error {
 	t.vars["branch"] = w.wt.Branch
 	t.vars["base"] = w.wt.Base
 	t.vars["commit.prefix"] = prefix
+	t.vars["commit.rule"] = spec.CommitRule(prefix)
 	return nil
 }
 
@@ -1376,7 +1377,8 @@ func commitMessage(prefix, answer string) string {
 	if prefix = strings.TrimSpace(prefix); prefix != "" {
 		limit -= utf8.RuneCountInString(prefix) + 1
 	}
-	subject := commitSubject(answer, max(limit, 24))
+	// No full stop at the end: git's convention, and commitlint's.
+	subject := strings.TrimSuffix(commitSubject(answer, max(limit, 24)), ".")
 	if subject == "" {
 		subject = "agent changes"
 	}

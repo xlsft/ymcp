@@ -72,18 +72,27 @@ type Stages struct {
 
 // Workspace says where and on which branch the agent works.
 type Workspace struct {
-	Host         string `json:"host,omitempty"`      // empty = local; otherwise an ssh host alias
-	Dir          string `json:"dir"`                 // the repository
-	Base         string `json:"base,omitempty"`      // empty = the default branch of origin
-	Branch       string `json:"branch"`              // template, default "{{issue.id}}-{{issue.summary | slug}}"
-	CommitPrefix string `json:"commitPrefix"`        // template, default "{{issue.id}}"
-	Worktrees    string `json:"worktrees,omitempty"` // empty = <user cache dir>/ymcp/worktrees/<pipeline name> on the host
-	Parallel     int    `json:"parallel"`            // default 1
-	KeepWorktree bool   `json:"keepWorktree,omitempty"`
+	Host         string  `json:"host,omitempty"`         // empty = local; otherwise an ssh host alias
+	Dir          string  `json:"dir"`                    // the repository
+	Base         string  `json:"base,omitempty"`         // empty = the default branch of origin
+	Branch       string  `json:"branch"`                 // template, default "{{issue.id}}-{{issue.summary | slug}}"
+	CommitPrefix *string `json:"commitPrefix,omitempty"` // template, default "{{issue.id}}"; "" for none
+	Worktrees    string  `json:"worktrees,omitempty"`    // empty = <user cache dir>/ymcp/worktrees/<pipeline name> on the host
+	Parallel     int     `json:"parallel"`               // default 1
+	KeepWorktree bool    `json:"keepWorktree,omitempty"`
 	// Identity gives the agent a git author of its own in each worktree.
 	// Off by default: the agent commits as the repository's user.name and
 	// user.email.
 	Identity Identity `json:"identity,omitzero"`
+}
+
+// Prefix is the template put in front of the agent's commit messages:
+// the default when unset, "" for none.
+func (w Workspace) Prefix() string {
+	if w.CommitPrefix == nil {
+		return DefaultCommitPrefix
+	}
+	return *w.CommitPrefix
 }
 
 // Identity is the git author the agent commits as when it has its own.
@@ -117,6 +126,10 @@ type Timeouts struct {
 type Strategy struct {
 	Kind  string `json:"kind"` // branch | github-pr | github-issue-pr | gitlab-mr
 	Draft bool   `json:"draft,omitempty"`
+	// Title is the template of the PR/MR title, default
+	// "{{issue.key}} {{issue.summary}}"; {{commit.subject}} is the subject
+	// of the branch's first commit.
+	Title string `json:"title,omitempty"`
 }
 
 // Feedback says whose messages the agent reacts to and how long to wait for
@@ -191,6 +204,7 @@ const (
 
 	DefaultBranch       = "{{issue.id}}-{{issue.summary | slug}}"
 	DefaultCommitPrefix = "{{issue.id}}"
+	DefaultTitle        = "{{issue.key}} {{issue.summary}}"
 	DefaultIdentityName = "{{agent.name}} · {{pipeline.name}} #{{run.number}}"
 	DefaultIdentityTag  = "agent_{{pipeline.name}}_{{run.number}}"
 	DefaultLanguage     = "English"
@@ -213,8 +227,12 @@ func (p Pipeline) WithDefaults() Pipeline {
 	if p.Workspace.Branch == "" {
 		p.Workspace.Branch = DefaultBranch
 	}
-	if p.Workspace.CommitPrefix == "" {
-		p.Workspace.CommitPrefix = DefaultCommitPrefix
+	if p.Workspace.CommitPrefix == nil {
+		prefix := DefaultCommitPrefix
+		p.Workspace.CommitPrefix = &prefix
+	}
+	if p.Strategy.Title == "" {
+		p.Strategy.Title = DefaultTitle
 	}
 	if p.Workspace.Parallel == 0 {
 		p.Workspace.Parallel = 1

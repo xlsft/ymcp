@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -566,7 +567,7 @@ func (t *turn) openChange(answer string) error {
 	if link == "" || link == "none" {
 		link = r.issueURL(t.run)
 	}
-	title := strings.TrimSpace(key + " " + summary)
+	title := t.changeTitle()
 	body := "YouTrack issue: [" + key + "](" + link + ")"
 	if a := strings.TrimSpace(answer); a != "" {
 		body += "\n\n" + trimText(a, 30000)
@@ -576,7 +577,7 @@ func (t *turn) openChange(answer string) error {
 		Body: r.decorateVCS(t.run.Number, body), Draft: r.p.Strategy.Draft,
 	}
 	if r.vcs.Kind() == vcs.KindGitHubIssuePR {
-		o.IssueTitle = title
+		o.IssueTitle = strings.TrimSpace(key + " " + summary) // the mirror of the YouTrack issue
 		ib := "Mirrors the YouTrack issue [" + key + "](" + link + ")."
 		if d := strings.TrimSpace(t.vars["issue.description"]); d != "" && d != "none" {
 			ib += "\n\n" + trimText(d, 30000)
@@ -613,6 +614,34 @@ func (t *turn) openChange(answer string) error {
 	r.event(t.bg, saved.ID, "vcs.opened", data)
 	return nil
 }
+
+// changeTitle renders strategy.title, with {{commit.subject}} the subject
+// of the branch's first commit. A title that comes out empty, or a
+// template that fails, gives the default.
+func (t *turn) changeTitle() string {
+	r := t.r
+	v := maps.Clone(t.vars)
+	if strings.Contains(r.p.Strategy.Title, "commit.subject") {
+		ctx, cancel := context.WithTimeout(t.bg, gitTimeout)
+		subject, err := workspace.FirstSubject(ctx, r.host, t.w.wt)
+		cancel()
+		if err != nil {
+			r.log.Warn("reading the branch's first commit failed", "run", t.run.Number, "err", err)
+		}
+		v["commit.subject"] = subject
+	}
+	title, err := text.Render(r.p.Strategy.Title, v)
+	if err != nil {
+		r.log.Warn("strategy.title failed", "run", t.run.Number, "err", err)
+	}
+	if title = oneLineTitle(title); title == "" {
+		title, _ = text.Render(spec.DefaultTitle, v)
+	}
+	return oneLineTitle(title)
+}
+
+// oneLineTitle is s on one line, without spaces at its ends.
+func oneLineTitle(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // changeLine names the change the turn opened, for a YouTrack comment.
 func (t *turn) changeLine() string {
