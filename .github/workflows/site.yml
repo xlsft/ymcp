@@ -1,15 +1,17 @@
 name: Site
 
-# Draws the TUI screens (TestScreens) and writes the site's data
-# (internal/site) from main, then publishes both on the site branch, where
-# the page and the README read them:
+# Draws the TUI screens (TestScreens), writes the site's data
+# (internal/site) and builds the landing page (site/index.html) from main,
+# then publishes them on the site branch, where the page, the README and
+# site/docker-compose.yaml read them:
 #
+#   https://raw.githubusercontent.com/xlsft/ymcp/site/index.html
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/site.json
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/screens/board.png
 #
 # The branch holds generated files only. A commit lands there only when
-# the data or a screen's text changed, not on every rebuild of the same
-# pictures. Pull requests build everything and attach it to the run.
+# the page, the data or a screen's text changed, not on every rebuild of
+# the same pictures. Pull requests build everything and attach it to the run.
 on:
   push:
     branches: [main]
@@ -17,7 +19,10 @@ on:
     paths:
       - internal/pipeline/tui/**
       - internal/site/**
+      - site/**
+      - docs/loader-black.gif
       - .github/scripts/screens.py
+      - .github/scripts/site.py
       - .github/workflows/site.yml
   workflow_dispatch:
 
@@ -57,6 +62,8 @@ jobs:
             JetBrainsMonoNerdFontMono-Italic.ttf
       - name: Pictures
         run: python3 .github/scripts/screens.py ans font out/screens
+      - name: Page
+        run: python3 .github/scripts/site.py site/index.html out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: site
@@ -72,16 +79,16 @@ jobs:
           else
             git worktree add -q --orphan -b site pub
           fi
-          rm -rf pub/screens pub/site.json
+          rm -rf pub/screens pub/site.json pub/index.html
           cp -R out/. pub/
           cd pub
           git add -A
           # Chrome's pictures differ by a few bytes from run to run; the
           # text they are drawn from doesn't.
-          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- site.json 'screens/*.html'; then
-            echo "Site data and screens unchanged" >> "$GITHUB_STEP_SUMMARY"
+          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html'; then
+            echo "Site page, data and screens unchanged" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git commit -q -m "site: ${GITHUB_SHA::7}"
           git push -q origin site
-          echo "Published site data and screens from ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published the site page, data and screens from ${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
