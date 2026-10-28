@@ -23,7 +23,7 @@ jobs:
       IMAGE: ${{ vars.DOCKERHUB_IMAGE || format('{0}/ymcp', secrets.YOUTRACK_DOCKERHUB_LOGIN) }}
     steps:
       - uses: actions/checkout@v7
-      - uses: peter-evans/dockerhub-description@v4
+      - uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.YOUTRACK_DOCKERHUB_LOGIN }}
           password: ${{ secrets.YOUTRACK_DOCKERHUB_TOKEN }}
