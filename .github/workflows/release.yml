@@ -9,8 +9,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Read-only by default; the jobs that tag, publish or sign ask for more.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   ci:
