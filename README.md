@@ -195,11 +195,20 @@ worktree on a new branch. ymcp pushes the branch, opens a pull or merge request 
 comments until the change is merged. Pipelines need a local install: they are not in the Docker image. The agent works
 on this machine or on an SSH host (`workspace.host`, an alias from `~/.ssh/config`).
 
+<p>
+  <img src="https://raw.githubusercontent.com/xlsft/ymcp/site/screens/board.png" alt="A pipeline's board: backlog, working, needs input, review and done" width="49%">
+  <img src="https://raw.githubusercontent.com/xlsft/ymcp/site/screens/run.png" alt="A run card: the issue, its comments and the agent's question" width="49%">
+  <img src="https://raw.githubusercontent.com/xlsft/ymcp/site/screens/permission.png" alt="The agent asks for a permission; /approve or /reject answers" width="49%">
+  <img src="https://raw.githubusercontent.com/xlsft/ymcp/site/screens/fields.png" alt="Changing the issue's fields from the card" width="49%">
+</p>
+
+The [Site workflow](.github/workflows/site.yml) draws these from the TUI's own code on every change to `main`.
+
 Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
 runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
 issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
 and the agent's log, with a comment box (`enter`) whose `/` completes the commands below; `r` reloads the board or the card. Every field of the issue that
-has a value shows at the top of the card, four to a row. `e` lists the project's fields to change one: pick a value,
+has a value shows at the top of the card, four to a row, beside the title or under it when it doesn't fit. `e` lists the project's fields to change one: pick a value,
 add or remove one of several, or type a number. A backlog issue the source query no longer finds after the change
 leaves the board. Shortcuts work on Cyrillic keyboard layouts too. In kitty and Ghostty the card shows pictures in place, pasted
 screenshots and attachments included, and the agent's working loader plays; other terminals, and tmux, get links to
