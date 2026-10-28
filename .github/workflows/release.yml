@@ -79,8 +79,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pushes to xlsft/homebrew-tap, xlsft/scoop-bucket and the
-          # xlsft/winget-pkgs fork, and opens the winget pull request.
+          # Pushes to xlsft/homebrew-tap and xlsft/scoop-bucket.
           YMCP_PACKAGES_TOKEN: ${{ secrets.YMCP_PACKAGES_TOKEN }}
 
   docker:
@@ -90,14 +89,6 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/docker.yml
-    with:
-      version: ${{ needs.release.outputs.version }}
-    secrets: inherit
-
-  winget:
-    needs: release
-    if: needs.release.outputs.version != ''
-    uses: ./.github/workflows/winget.yml
     with:
       version: ${{ needs.release.outputs.version }}
     secrets: inherit

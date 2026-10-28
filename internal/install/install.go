@@ -12,7 +12,7 @@ import (
 func Docker() bool { return os.Getenv("YMCP_INSTALL") == "docker" }
 
 // Manager is the package manager that installed the binary at exe, judged
-// by where it lives: "brew", "scoop", "winget", or "" for the installer
+// by where it lives: "brew", "scoop", or "" for the installer
 // script, go install or a copy.
 func Manager(exe string) string {
 	p := strings.ToLower(strings.ReplaceAll(exe, `\`, "/"))
@@ -21,8 +21,6 @@ func Manager(exe string) string {
 		return "brew"
 	case strings.Contains(p, "/scoop/apps/") || strings.Contains(p, "/scoop/shims/"):
 		return "scoop"
-	case strings.Contains(p, "/winget/packages/") || strings.Contains(p, "/winget/links/"):
-		return "winget"
 	}
 	return ""
 }
@@ -37,8 +35,6 @@ func UpdateCommand(exe string) string {
 		return "brew upgrade ymcp"
 	case Manager(exe) == "scoop":
 		return "scoop update ymcp"
-	case Manager(exe) == "winget":
-		return "winget upgrade xlsft.ymcp"
 	}
 	return "ymcp update"
 }
