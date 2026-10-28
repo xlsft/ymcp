@@ -1,0 +1,673 @@
+{
+  "tools": {
+    "total": 58,
+    "builtIn": 23,
+    "extras": 35
+  },
+  "groups": [
+    {
+      "name": "issues",
+      "title": "Issues: search, read, create, edit, link, commands, history",
+      "tools": [
+        {
+          "name": "search_issues",
+          "title": "Search issues",
+          "summary": "Searches issues with the YouTrack query language and returns id, summary, project, resolved, reporter, created, updated and the requested custom fields.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "count_issues",
+          "title": "Count issues",
+          "summary": "Counts issues matching a YouTrack search query without fetching them.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_issue",
+          "title": "Get issue",
+          "summary": "Returns full details of an issue: summary, description, URL, project, reporter, tags, votes, custom fields, links, attachments and the most recent comments.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_issue_fields_schema",
+          "title": "Get issue fields schema",
+          "summary": "Returns a JSON Schema of the project's custom fields with allowed values.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_issue",
+          "title": "Create issue",
+          "summary": "Creates an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "create_draft_issue",
+          "title": "Create draft issue",
+          "summary": "Creates an issue draft visible only to the current user.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_issue",
+          "title": "Update issue",
+          "summary": "Updates an issue: summary, description, a subset of custom fields, star (subscription) and vote.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "edit_issue_description",
+          "title": "Edit issue description",
+          "summary": "Changes part of an issue's description by exact find-and-replace, without resending the whole text.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "change_issue_assignee",
+          "title": "Change issue assignee",
+          "summary": "Sets the Assignee of an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_issue",
+          "title": "Delete issue",
+          "summary": "Permanently deletes an issue or a draft, with its comments, attachments and work items.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "apply_command",
+          "title": "Apply command",
+          "summary": "Applies a YouTrack command to one or more issues, the same as the command dialog in the UI: set fields, assign, tag, move to another project, add links, vote, star and more in one line.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_issue_activities",
+          "title": "Get issue activities",
+          "summary": "Returns the change history of an issue: who changed which field, comments, links, tags, attachments, sprints and work items, with old and new values.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "link_issues",
+          "title": "Link issues",
+          "summary": "Links two issues.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "unlink_issues",
+          "title": "Unlink issues",
+          "summary": "Removes a link between two issues; arguments mirror link_issues.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_issue_vcs_changes",
+          "title": "Get issue VCS changes",
+          "summary": "Returns commits and pull requests linked to an issue through a VCS integration (GitHub, GitLab, Bitbucket, Gitea, TeamCity): version, message, author, date and links.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "comments",
+      "title": "Comments on issues",
+      "tools": [
+        {
+          "name": "get_issue_comments",
+          "title": "Get issue comments",
+          "summary": "Returns comments of an issue, oldest first.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "add_issue_comment",
+          "title": "Add issue comment",
+          "summary": "Adds a comment to an issue, optionally visible only to given users and groups.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_issue_comment",
+          "title": "Update issue comment",
+          "summary": "Replaces the text of an issue comment.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "restore_issue_comment",
+          "title": "Restore issue comment",
+          "summary": "Restores a comment that was deleted (not permanently) with delete_issue_comment or in the UI.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_issue_comment",
+          "title": "Delete issue comment",
+          "summary": "Deletes a comment from an issue.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "attachments",
+      "title": "Files on issues and articles",
+      "tools": [
+        {
+          "name": "get_issue_attachments",
+          "title": "Get attachments",
+          "summary": "Lists the attachments of an issue or a knowledge base article: ID, file name, size, type, author and date.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_attachment",
+          "title": "Get attachment",
+          "summary": "Reads an attachment of an issue or article.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "add_attachment",
+          "title": "Add attachment",
+          "summary": "Attaches local files (filePath, or several with filePaths), or the given text as a file, to an issue or a knowledge base article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_attachment",
+          "title": "Delete attachment",
+          "summary": "Permanently deletes an attachment from an issue or article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "articles",
+      "title": "Knowledge base articles",
+      "tools": [
+        {
+          "name": "search_articles",
+          "title": "Search articles",
+          "summary": "Searches the knowledge base.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_article",
+          "title": "Get article",
+          "summary": "Returns an article: title, content, parent and sub-articles, tags, attachments and visibility.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_article",
+          "title": "Create article",
+          "summary": "Creates a knowledge base article, optionally under a parent article and with limited visibility.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_article",
+          "title": "Update article",
+          "summary": "Changes the title, content or parent of an article.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "edit_article_content",
+          "title": "Edit article content",
+          "summary": "Changes part of an article's content by exact find-and-replace, without resending the whole text.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_article",
+          "title": "Delete article",
+          "summary": "Permanently deletes a knowledge base article.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "time",
+      "title": "Time tracking and reports",
+      "tools": [
+        {
+          "name": "log_work",
+          "title": "Log work",
+          "summary": "Adds a spent time work item to an issue.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "get_issue_work_items",
+          "title": "Get issue work items",
+          "summary": "Returns spent time work items of an issue, oldest first, with total minutes.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "delete_work_item",
+          "title": "Delete work item",
+          "summary": "Permanently deletes a spent time work item.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        },
+        {
+          "name": "get_time_report",
+          "title": "Get time report",
+          "summary": "Summarizes spent time across issues: total and per author, issue, work type, day or project, filtered by issue query, author and period.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "agile",
+      "title": "Agile boards and sprints",
+      "tools": [
+        {
+          "name": "find_agile_boards",
+          "title": "Find agile boards",
+          "summary": "Finds agile boards whose name or project key contains a substring (case-insensitive).",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_agile_board",
+          "title": "Get agile board",
+          "summary": "Returns an agile board: projects, owner, columns and the field they map to, estimation field, sprint settings, the current sprint and recent sprints.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_sprint",
+          "title": "Get sprint",
+          "summary": "Returns a sprint of an agile board (the current one by default): name, goal, dates, archived flag and its issues with board-relevant custom fields.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_sprint",
+          "title": "Create sprint",
+          "summary": "Creates a sprint on an agile board that uses sprints.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_sprint",
+          "title": "Update sprint",
+          "summary": "Changes a sprint's name, goal or dates, or archives and restores it.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "add_issue_to_sprint",
+          "title": "Add issue to sprint",
+          "summary": "Adds an issue to a sprint (the current one by default) of an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "remove_issue_from_sprint",
+          "title": "Remove issue from sprint",
+          "summary": "Removes an issue from a sprint (the current one by default) of an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_sprint",
+          "title": "Delete sprint",
+          "summary": "Permanently deletes a sprint from an agile board.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "projects",
+      "title": "Projects",
+      "tools": [
+        {
+          "name": "find_projects",
+          "title": "Find projects",
+          "summary": "Finds projects whose name or key contains a substring (case-insensitive).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_project",
+          "title": "Get project",
+          "summary": "Returns project details: key, name, description, leader, custom field names and time tracking settings including work types and work item attributes (for log_work).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "people",
+      "title": "Users and groups",
+      "tools": [
+        {
+          "name": "get_current_user",
+          "title": "Get current user",
+          "summary": "Returns login, email, full name and time zone of the current user.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "find_user",
+          "title": "Find user",
+          "summary": "Finds a user by login or email.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "find_user_groups",
+          "title": "Find user groups",
+          "summary": "Finds user groups and project teams whose name contains a substring (case-insensitive).",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "get_user_group_members",
+          "title": "Get user group members",
+          "summary": "Returns members of a user group or project team: login, full name and email.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        }
+      ]
+    },
+    {
+      "name": "tags",
+      "title": "Tags",
+      "tools": [
+        {
+          "name": "manage_issue_tags",
+          "title": "Manage issue tags",
+          "summary": "Adds a tag to an issue or removes it.",
+          "builtIn": true,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "find_tags",
+          "title": "Find tags",
+          "summary": "Finds tags visible to the current user by name substring.",
+          "builtIn": false,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_tag",
+          "title": "Create tag",
+          "summary": "Creates a tag owned by the current user.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_tag",
+          "title": "Update tag",
+          "summary": "Renames a tag.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_tag",
+          "title": "Delete tag",
+          "summary": "Permanently deletes a tag and removes it from all issues.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "searches",
+      "title": "Saved searches",
+      "tools": [
+        {
+          "name": "get_saved_issue_searches",
+          "title": "Get saved issue searches",
+          "summary": "Returns the current user's favorite saved issue searches.",
+          "builtIn": true,
+          "readOnly": true,
+          "destructive": false
+        },
+        {
+          "name": "create_saved_search",
+          "title": "Create saved search",
+          "summary": "Saves a search query under a name.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "update_saved_search",
+          "title": "Update saved search",
+          "summary": "Renames a saved search or changes its query.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": false
+        },
+        {
+          "name": "delete_saved_search",
+          "title": "Delete saved search",
+          "summary": "Permanently deletes a saved search.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    },
+    {
+      "name": "api",
+      "title": "Raw REST calls (call_api)",
+      "tools": [
+        {
+          "name": "call_api",
+          "title": "Call YouTrack REST API",
+          "summary": "Calls any YouTrack (or Hub) REST endpoint as the current user, for what no other tool covers.",
+          "builtIn": false,
+          "readOnly": false,
+          "destructive": true
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "name": "issue_brief",
+      "title": "Issue brief",
+      "description": "Catch up on an issue: what it is about, where it stands, what was decided and what's open.",
+      "arguments": [
+        "issue"
+      ]
+    },
+    {
+      "name": "sprint_report",
+      "title": "Sprint report",
+      "description": "Status of a sprint on an agile board: done and open work, who has what, scope changes, time and risks.",
+      "arguments": [
+        "board",
+        "sprint"
+      ]
+    },
+    {
+      "name": "standup",
+      "title": "Stand-up update",
+      "description": "My stand-up from YouTrack: what I did since the last working day, what's next, what blocks me.",
+      "arguments": [
+        "days"
+      ]
+    },
+    {
+      "name": "triage",
+      "title": "Triage issues",
+      "description": "Go through untriaged issues of a project and propose type, priority, assignee and duplicates; applies only what I approve.",
+      "arguments": [
+        "project",
+        "query"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "id": "claude-code",
+      "name": "Claude Code"
+    },
+    {
+      "id": "claude-desktop",
+      "name": "Claude Desktop"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor"
+    },
+    {
+      "id": "vscode",
+      "name": "VS Code (Copilot)"
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf"
+    },
+    {
+      "id": "devin",
+      "name": "Devin Desktop"
+    },
+    {
+      "id": "zed",
+      "name": "Zed"
+    },
+    {
+      "id": "codex",
+      "name": "Codex"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI"
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity"
+    },
+    {
+      "id": "junie",
+      "name": "JetBrains Junie"
+    },
+    {
+      "id": "cline",
+      "name": "Cline"
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio"
+    },
+    {
+      "id": "opencode",
+      "name": "opencode"
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi Code"
+    }
+  ],
+  "agents": [
+    {
+      "name": "claude",
+      "about": "Claude Code CLI"
+    },
+    {
+      "name": "kimi",
+      "about": "Kimi CLI over ACP"
+    },
+    {
+      "name": "opencode",
+      "about": "opencode over ACP"
+    },
+    {
+      "name": "acp",
+      "about": "another ACP agent"
+    }
+  ],
+  "strategies": [
+    {
+      "name": "branch",
+      "about": "push the branch; you open pull or merge requests yourself"
+    },
+    {
+      "name": "github-pr",
+      "about": "push and open a GitHub pull request"
+    },
+    {
+      "name": "github-issue-pr",
+      "about": "also open a GitHub issue the pull request closes"
+    },
+    {
+      "name": "gitlab-mr",
+      "about": "push and open a GitLab merge request"
+    }
+  ]
+}
