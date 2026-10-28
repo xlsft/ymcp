@@ -138,6 +138,9 @@ func (it threadItem) lines(w int, now time.Time, frame int, pics *pictures) []st
 	if len(body) == 0 {
 		body = []string{theme.Dim.Render("(empty)")}
 	}
+	if drawn(body[0]) { // a picture first: a line of air under the header
+		out = append(out, "")
+	}
 	for _, l := range body {
 		out = append(out, gutter+l)
 	}

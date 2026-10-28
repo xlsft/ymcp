@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/kitty"
 
 	"github.com/xlsft/ymcp/internal/pipeline/text"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/termimg"
@@ -137,6 +138,12 @@ func (p *pictures) lines(alt, src string, w, maxRows int) []string {
 		}
 	}
 	return []string{p.linkLine("image", alt, src, w)}
+}
+
+// drawn reports whether a line is the first row of a picture drawn in
+// place.
+func drawn(line string) bool {
+	return strings.HasPrefix(line, "\x1b_G") || strings.ContainsRune(line, kitty.Placeholder)
 }
 
 // linkLine is a picture or another file as a link: what it is, its name,

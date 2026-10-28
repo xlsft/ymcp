@@ -102,6 +102,19 @@ func TestPicturesInPlace(t *testing.T) {
 		t.Error("the picture is not sent")
 	}
 	d.hasNot("image button.png", "image pasted.png", "(empty)")
+	// The pasted picture is the whole comment: a blank line under its header.
+	lines, found := strings.Split(view, "\n"), false
+	for i, l := range lines {
+		if strings.Contains(ansi.Strip(l), "Anna Petrova @anna · just now") {
+			found = true
+			if i+2 >= len(lines) || strings.TrimSpace(strings.Trim(ansi.Strip(lines[i+1]), "│ ")) != "" || !strings.ContainsRune(lines[i+2], kitty.Placeholder) {
+				t.Errorf("no air between the header and the picture:\n%s\n%s", ansi.Strip(lines[i+1]), ansi.Strip(lines[i+2]))
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the pasted picture's comment is not on screen:\n%s", ansi.Strip(view))
+	}
 	d.has("file log.txt") // not a picture: still a link
 	d.tick()
 	d.tick()
