@@ -4,8 +4,9 @@
 #   docker compose up -d
 #
 # nginx serves the page the Site workflow last published on the site branch,
-# fetched at start and then every 10 minutes, so it follows main on its own.
-# YMCP_SITE_PAGE points it at another copy of the page.
+# with its robots.txt, sitemap, icons and Open Graph picture, fetched at start
+# and then every 10 minutes, so it follows main on its own. YMCP_SITE points
+# it at another copy of the branch.
 # The page loads its data and TUI screens from the same branch, and fonts from
 # Google Fonts.
 services:
@@ -14,14 +15,21 @@ services:
     ports:
       - "13453:80"
     environment:
-      PAGE: ${YMCP_SITE_PAGE:-https://raw.githubusercontent.com/xlsft/ymcp/site/index.html}
+      SITE: ${YMCP_SITE:-https://raw.githubusercontent.com/xlsft/ymcp/site}
+      FILES: index.html robots.txt sitemap.xml favicon.svg favicon-48.png apple-touch-icon.png og.png
       EVERY: "600"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        page=/usr/share/nginx/html/index.html
-        fetch() { curl -fsSL "$$PAGE" -o "$$page.new" && mv "$$page.new" "$$page"; }
-        fetch || echo "site: can't fetch $$PAGE yet; retrying in $$EVERY s" >&2
-        (while sleep "$$EVERY"; do fetch || echo "site: fetching $$PAGE failed" >&2; done) &
+        dir=/usr/share/nginx/html
+        fetch() {
+          ok=0
+          for f in $$FILES; do
+            curl -fsSL "$$SITE/$$f" -o "$$dir/$$f.new" && mv "$$dir/$$f.new" "$$dir/$$f" || ok=1
+          done
+          return $$ok
+        }
+        fetch || echo "site: can't fetch everything from $$SITE yet; retrying in $$EVERY s" >&2
+        (while sleep "$$EVERY"; do fetch || echo "site: fetching from $$SITE failed" >&2; done) &
         exec nginx -g 'daemon off;'
     restart: unless-stopped

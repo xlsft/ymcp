@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- The page's Open Graph picture, 1200×630. .github/scripts/site.py fills in
+     the figures from the site's data and draws it with headless Chrome. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=block">
+<style>
+html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+body {
+  background: radial-gradient(120% 90% at 50% 40%, #D5372D, #C62A22 55%, #A11C17);
+  color: #fff; font-family: "Archivo", "Arial Black", Arial, sans-serif;
+  display: grid; grid-template-rows: auto 1fr auto; padding: 64px 72px; box-sizing: border-box;
+}
+.lockup { display: flex; align-items: center; gap: 36px; }
+.ysq { position: relative; width: 190px; height: 190px; background: #0E0E0E; flex: none; }
+.ysq b { position: absolute; left: 19px; top: 13px; font: 800 44px/1 "Archivo", sans-serif; }
+.ysq i { position: absolute; left: 21px; bottom: 21px; width: 71px; height: 12px; background: #fff; }
+.mcp { margin: 0; font: 900 232px/.8 "Archivo", sans-serif; font-stretch: 112%; letter-spacing: -.02em; }
+.lead { align-self: end; margin: 0; max-width: 980px; font: 700 46px/1.15 "Archivo", sans-serif; }
+.foot { display: flex; justify-content: space-between; margin-top: 34px; font: 400 26px/1 "JetBrains Mono", monospace; opacity: .92; }
+</style>
+</head>
+<body>
+  <div class="lockup"><div class="ysq"><b>Y</b><i></i></div><p class="mcp">MCP</p></div>
+  <p class="lead">YouTrack for any AI client, with your own login. And pipelines that hand issues to coding agents.</p>
+  <div class="foot"><span>__TOOLS__ tools · __CLIENTS__ clients · Go, MIT</span><span>ymcp.su</span></div>
+</body>
+</html>

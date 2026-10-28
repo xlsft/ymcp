@@ -15,7 +15,66 @@ body { margin: 0; font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; }
 img { max-width: 100%; }
 [hidden] { display: none !important; }
 </style>
-<title>ymcp</title>
+<title>ymcp: YouTrack MCP server and pipelines for coding agents</title>
+<meta name="description" content="A local YouTrack MCP server for Claude, Cursor, VS Code, Zed, Codex and more: every built-in YouTrack tool plus __EXTRAS__ extras, signed in with your own login and password. Pipelines hand YouTrack issues to coding agents and open the pull requests.">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#C62A22">
+<link rel="canonical" href="https://ymcp.su/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ymcp">
+<meta property="og:url" content="https://ymcp.su/">
+<meta property="og:title" content="ymcp: YouTrack MCP server and pipelines for coding agents">
+<meta property="og:description" content="__TOOLS__ YouTrack tools for any AI client, signed in with your own login and password, and pipelines that hand issues to coding agents.">
+<meta property="og:image" content="https://ymcp.su/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="ymcp: It’s fun to fetch with the YMCP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://ymcp.su/og.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://ymcp.su/#site",
+      "url": "https://ymcp.su/",
+      "name": "ymcp",
+      "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://ymcp.su/#app",
+      "name": "ymcp",
+      "alternateName": "YouTrack MCP",
+      "url": "https://ymcp.su/",
+      "description": "A local YouTrack MCP server with every built-in YouTrack MCP tool plus deletes, sprints, attachments, history and reports, signed in with your own login and password, and pipelines that hand YouTrack issues to coding agents.",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "MCP server",
+      "operatingSystem": "macOS, Linux, Windows",
+      "image": "https://ymcp.su/og.png",
+      "screenshot": "https://raw.githubusercontent.com/xlsft/ymcp/site/screens/board.png",
+      "downloadUrl": "https://github.com/xlsft/ymcp/releases/latest",
+      "installUrl": "https://github.com/xlsft/ymcp#install",
+      "softwareHelp": "https://github.com/xlsft/ymcp#readme",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": __FEATURES__,
+      "author": { "@type": "Person", "name": "xlsft", "url": "https://github.com/xlsft" },
+      "sameAs": [
+        "https://github.com/xlsft/ymcp",
+        "https://hub.docker.com/r/xlsoftware/ymcp",
+        "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.xlsft/ymcp"
+      ],
+      "isPartOf": { "@id": "https://ymcp.su/#site" }
+    }
+  ]
+}
+</script>
 <script>
 // Dark unless the viewer picked light here before.
 (function () {
@@ -288,7 +347,7 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
     </div>
 
     <div class="hero-grid">
-      <p class="lead">YouTrack for any AI client, signed in with your own login and password. And pipelines that hand issues to coding agents.</p>
+      <h1 class="lead">YouTrack for any AI client, signed in with your own login and password. And pipelines that hand issues to coding agents.</h1>
 
       <div class="install" id="install">
         <div class="tabs" role="tablist" aria-label="Install with">
@@ -540,14 +599,33 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) { if (d && d.tools) render(d); })
     .catch(function () {});
-  // The screenshots replace the text copies once they load.
-  document.querySelectorAll('pre.shot').forEach(function (pre) {
-    var name = pre.id.replace('shot-', ''), img = new Image();
+  // The screenshots replace the text copies once they load, lazily: the
+  // open tab's when the terminal comes near the screen, the others when
+  // their tab is opened.
+  function shot(name) {
+    var pre = document.getElementById('shot-' + name);
+    if (!pre || pre.dataset.asked) return;
+    pre.dataset.asked = '1';
+    var img = new Image();
     img.alt = document.getElementById('tt-' + name).textContent + ' screen of the pipeline TUI';
     img.width = 1056; img.height = 603;
+    img.decoding = 'async'; // no loading=lazy: a lazy image outside the DOM never loads
     img.onload = function () { pre.textContent = ''; pre.appendChild(img); pre.classList.add('pic'); };
     img.src = RAW + 'screens/' + name + '.png';
+  }
+  function open() {
+    var tab = document.querySelector('.term-tabs [aria-selected="true"]');
+    if (tab) shot(tab.getAttribute('aria-controls').replace('shot-', ''));
+  }
+  var term = document.querySelector('.term'), near = !window.IntersectionObserver;
+  document.querySelectorAll('.term-tabs button').forEach(function (b) {
+    b.addEventListener('click', function () { if (near) open(); });
+    b.addEventListener('keyup', function () { if (near) open(); });
   });
+  if (near) open();
+  else new IntersectionObserver(function (seen, io) {
+    if (seen.some(function (e) { return e.isIntersecting; })) { near = true; open(); io.disconnect(); }
+  }, { rootMargin: '400px 0px' }).observe(term);
   fetch('https://api.github.com/repos/xlsft/ymcp/releases/latest')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (r) {
