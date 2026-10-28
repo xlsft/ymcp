@@ -1,0 +1,49 @@
+name: Pipeline bug
+description: Something in `ymcp pipeline` doesn't work as expected
+labels: [bug, area/pipeline]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the run did, what you expected and what happened instead. Say which stage the issue was in.
+    validations:
+      required: true
+  - type: textarea
+    id: pipeline
+    attributes:
+      label: Pipeline
+      description: The pipeline's JSON (`<config dir>/ymcp/pipelines/<name>.json`). Remove anything private.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Run log
+      description: The part of `ymcp pipeline <name> logs` around the problem, and of the agent's log in the run's card.
+      render: text
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options: [claude, kimi, opencode, acp (other)]
+    validations:
+      required: true
+  - type: dropdown
+    id: strategy
+    attributes:
+      label: Strategy
+      options: [branch, github-pr, github-issue-pr, gitlab-mr]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ymcp and agent versions
+      placeholder: output of `ymcp version` and the agent's own `--version`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and terminal
+      placeholder: e.g. macOS 26, Ghostty; workspace on an SSH host or not
