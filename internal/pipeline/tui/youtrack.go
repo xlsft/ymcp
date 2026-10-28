@@ -215,3 +215,31 @@ func (h *CodeHost) Comments(ctx context.Context, run store.Run) ([]vcs.Comment, 
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].Created.Before(cs[j].Created) })
 	return cs, nil
 }
+
+// Users lists the active users of profile's YouTrack whose name, login or
+// email match query, for @mentions.
+func (y *YouTrack) Users(ctx context.Context, profile, query string) ([]views.Person, error) {
+	c, err := y.client(profile)
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Login    string `json:"login"`
+		FullName string `json:"fullName"`
+		Email    string `json:"email"`
+		Banned   bool   `json:"banned"`
+	}
+	q := youtrack.Fields("login,fullName,email,banned")
+	q.Set("query", query)
+	q.Set("$top", "10")
+	if err := c.Get(ctx, "users", q, &raw); err != nil {
+		return nil, fmt.Errorf("users: %w", err)
+	}
+	out := make([]views.Person, 0, len(raw))
+	for _, u := range raw {
+		if !u.Banned && u.Login != "" {
+			out = append(out, views.Person{Login: u.Login, FullName: u.FullName, Email: u.Email})
+		}
+	}
+	return out, nil
+}

@@ -61,6 +61,17 @@ type IssueComment struct {
 	Updated    time.Time // zero when never edited
 }
 
+// People finds the YouTrack users a comment can mention, as the profile's
+// user.
+type People interface {
+	// Users lists the active users whose name, login or email match
+	// query, a short page of them; an empty query lists the first ones.
+	Users(ctx context.Context, profile, query string) ([]Person, error)
+}
+
+// Person is a YouTrack user a comment can mention.
+type Person struct{ Login, FullName, Email string }
+
 // Changes reads the conversation of a run's pull or merge request.
 type Changes interface {
 	Comments(ctx context.Context, run store.Run) ([]vcs.Comment, error)
@@ -106,6 +117,8 @@ type Deps struct {
 	// Changes reads the pull request conversation of a run card; nil
 	// leaves the card without the pull request tab.
 	Changes Changes
+	// People completes @mentions in the comment box; nil turns that off.
+	People People
 	// OpenURL opens a link in the browser; nil disables o and p.
 	OpenURL func(url string) error
 	// Now is the clock of the elapsed times. Default: time.Now.

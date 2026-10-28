@@ -1,6 +1,7 @@
 package views
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/config"
@@ -100,6 +102,10 @@ type Run struct {
 	wantReply bool
 	acSel     int    // the suggestion under the cursor
 	acOff     string // the text the suggestions were closed for
+
+	people      map[string][]Person // who YouTrack found, by mention query
+	peopleLast  []Person            // the last answer shown
+	peopleAsked map[string]bool     // the queries looked up
 }
 
 // pendingComment is a comment posted from the card that YouTrack has not
@@ -355,6 +361,14 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadChange())
 		}
 		return m, tea.Batch(cmds...)
+	case peopleFound:
+		if msg.to == m.id {
+			if m.people == nil {
+				m.people = map[string][]Person{}
+			}
+			m.people[msg.query] = msg.people // an error finds nobody
+		}
+		return m, nil
 	case tea.KeyMsg:
 		if m.reply.focused {
 			if m.suggestKey(msg.String()) {
@@ -366,7 +380,7 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reply.blur()
 				return m, m.post(text)
 			}
-			return m, cmd
+			return m, tea.Batch(cmd, m.askPeople())
 		}
 		return m, m.key(keys.Of(msg))
 	default:
@@ -550,7 +564,11 @@ const wideFrom = 70
 // gutter is what separates the issue from the log, and its width.
 const gutterWidth = 5
 
-func gutter() string { return "  " + theme.Dim.Render("│") + "  " }
+func gutter() string { return "  " + modalBorder.Render("│") + "  " }
+
+// footIndent puts the help and status lines under the issue in line with
+// the text of the comment box.
+const footIndent = "  "
 
 // modalPad is the padding inside the card's frame: two cells left and
 // right and a row above and below, less on small screens.
@@ -610,12 +628,20 @@ func (m *Run) Overlay(under string) string {
 // the comment box beside the run's log, and the status and help lines.
 func (m *Run) box(bw, bh int) []string {
 	cw, ih, border := m.inner()
+	// Side by side, the gutter runs down to the frame and the help and
+	// status lines sit under the issue.
+	lw, rw := split(cw)
+	beside := border && rw > 0 && m.loaded
+	footW := cw
+	if beside {
+		footW = max(lw-len(footIndent), 1)
+	}
 	// The comment box shows its own keys while it has the focus. The
 	// status line shows only when it says something; on tiny screens it
 	// takes the help's place.
 	var foot []string
 	if !m.reply.focused {
-		foot = m.helpLines(m.help(), cw)
+		foot = m.helpLines(m.help(), footW)
 		if ih < 8 {
 			foot = foot[:1]
 		}
@@ -624,7 +650,16 @@ func (m *Run) box(bw, bh int) []string {
 		if ih < 8 {
 			foot = nil
 		}
-		foot = append([]string{s}, foot...)
+		status := []string{s}
+		if beside { // narrower under the issue: wrap rather than cut
+			status = wrap(s, footW)
+		}
+		foot = append(status, foot...)
+	}
+	if beside {
+		for i, l := range foot {
+			foot[i] = footIndent + cut(l, footW)
+		}
 	}
 	gap := 0
 	if len(foot) > 0 && ih >= 16 {
@@ -661,13 +696,21 @@ func (m *Run) box(bw, bh int) []string {
 	}
 	inner := make([]string, 0, ih)
 	inner = append(inner, body[:min(len(body), max(ih-len(foot)-gap, 0))]...)
+	panesEnd := len(inner)
 	for len(inner) < ih-len(foot) {
 		inner = append(inner, "")
 	}
 	inner = append(inner, foot...)
 	if len(inner) > ih {
 		ruleAt -= len(inner) - ih
+		panesEnd -= len(inner) - ih
 		inner = inner[len(inner)-ih:]
+	}
+	beside = beside && ruleAt >= 0
+	if beside {
+		for i := max(panesEnd, ruleAt+1); i < len(inner); i++ {
+			inner[i] = pad(inner[i], lw) + gutter()
+		}
 	}
 	if !border {
 		for i, l := range inner {
@@ -689,9 +732,22 @@ func (m *Run) box(bw, bh int) []string {
 		padded = append(padded, side+pad(l, cw)+side)
 	}
 	for range py {
-		padded = append(padded, "")
+		if beside {
+			padded = append(padded, side+pad("", lw)+gutter())
+		} else {
+			padded = append(padded, "")
+		}
 	}
-	return frameBox(padded, bw-2, "", "")
+	out := frameBox(padded, bw-2, "", "")
+	b := lipgloss.RoundedBorder()
+	if ruleAt >= 0 { // the rule meets the frame
+		out[1+py+ruleAt] = modalBorder.Render("├") + m.ruleLine(cw, px) + modalBorder.Render("┤")
+	}
+	if beside { // so does the gutter, at the bottom
+		at := px + lw + 2
+		out[len(out)-1] = modalBorder.Render(b.BottomLeft + strings.Repeat(b.Bottom, at) + "┴" + strings.Repeat(b.Bottom, max(bw-3-at, 0)) + b.BottomRight)
+	}
+	return out
 }
 
 // heading is the title of the card: the pipeline and the run number, the
@@ -873,16 +929,17 @@ func (m *Run) ruleLine(cw, extra int) string {
 	}
 	thread := m.focus == paneThread && !m.reply.focused
 	log := m.focus == paneLog && !m.reply.focused
-	return rule(lw+extra, thread) + theme.Dim.Render("──┬──") + rule(rw+extra, log)
+	return rule(lw+extra, thread) + modalBorder.Render("──┬──") + rule(rw+extra, log)
 }
 
-// rule is a horizontal line, in the brand colour on the focused pane.
+// rule is a horizontal line in the colour of the frame, bold over the
+// focused pane.
 func rule(w int, focused bool) string {
 	line := strings.Repeat("─", max(w, 1))
 	if focused {
 		return theme.Accent.Render(line)
 	}
-	return theme.Dim.Render(line)
+	return modalBorder.Render(line)
 }
 
 // issuePane is the left side: the thread, then the comment box at the
@@ -929,8 +986,8 @@ func (m *Run) issuePane(w, rows int, wide bool) []string {
 	if len(out) > rows {
 		out = out[:rows]
 	}
-	if items := m.suggestions(); len(items) > 0 && at > 0 {
-		pop := m.suggestBox(items, w)
+	if title, items := m.suggestions(); len(items) > 0 && at > 0 {
+		pop := m.suggestBox(title, items, w)
 		out = popOver(out, pop, 0, max(at-len(pop), 0))
 		if len(out) > rows {
 			out = out[:rows]
@@ -1062,29 +1119,106 @@ func (m *Run) commands() []replyCommand {
 	return out
 }
 
-// suggestions are the commands that complete what is typed in the comment
-// box: shown while the text is the start of one that applies now.
-func (m *Run) suggestions() []replyCommand {
+// suggestion is what the comment box offers to complete: a command after
+// a leading "/", a person after "@".
+type suggestion struct {
+	label, right, sub string // sub is a second, dim line
+	insert            string // what replaces the word being typed
+}
+
+// suggestions are what completes the text in the comment box, under a
+// title: the commands that apply now while the text is the start of one,
+// the people matching the word after "@" being typed.
+func (m *Run) suggestions() (title string, items []suggestion) {
 	if !m.reply.focused {
-		return nil
+		return "", nil
 	}
 	v := m.reply.ta.Value()
-	if v == m.acOff || !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \n") {
-		return nil
+	if v == m.acOff {
+		return "", nil
 	}
-	var out []replyCommand
+	if q, ok := m.mention(); ok {
+		for _, p := range m.peopleFor(q) {
+			items = append(items, suggestion{label: cmp.Or(p.FullName, p.Login), right: p.Login, sub: p.Email, insert: "@" + p.Login})
+		}
+		return "People", items
+	}
+	if !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \n") {
+		return "", nil
+	}
 	for _, c := range m.commands() {
 		if strings.HasPrefix(c.cmd, v) && c.cmd != v {
-			out = append(out, c)
+			items = append(items, suggestion{label: c.cmd, right: c.desc, insert: c.cmd})
+		}
+	}
+	return "Commands", items
+}
+
+// mention is the word after "@" being typed at the end of the comment.
+func (m *Run) mention() (string, bool) {
+	if m.d.People == nil || !m.reply.focused {
+		return "", false
+	}
+	v := m.reply.ta.Value()
+	word := v[strings.LastIndexAny(v, " \t\n")+1:]
+	if !strings.HasPrefix(word, "@") {
+		return "", false
+	}
+	return word[1:], true
+}
+
+// peopleFor are the people YouTrack found for query; until it answers,
+// those of the last answer that still match.
+func (m *Run) peopleFor(query string) []Person {
+	if found, ok := m.people[query]; ok {
+		m.peopleLast = found
+		return found
+	}
+	q := strings.ToLower(query)
+	var out []Person
+	for _, p := range m.peopleLast {
+		if strings.Contains(strings.ToLower(p.Login+" "+p.FullName+" "+p.Email), q) {
+			out = append(out, p)
 		}
 	}
 	return out
 }
 
+// askPeople looks up the people for the mention being typed, once per
+// query.
+func (m *Run) askPeople() tea.Cmd {
+	q, ok := m.mention()
+	if !ok {
+		return nil
+	}
+	if m.peopleAsked[q] {
+		return nil
+	}
+	if m.peopleAsked == nil {
+		m.peopleAsked = map[string]bool{}
+	}
+	m.peopleAsked[q] = true
+	people, profile, to := m.d.People, m.run.Profile, m.id
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
+		defer cancel()
+		found, err := people.Users(ctx, profile, q)
+		return peopleFound{to: to, query: q, people: found, err: err}
+	}
+}
+
+// peopleFound is YouTrack's answer to a mention lookup.
+type peopleFound struct {
+	to     int64
+	query  string
+	people []Person
+	err    error
+}
+
 // suggestKey handles a key while suggestions show; used reports whether
 // it took the key.
 func (m *Run) suggestKey(k string) (used bool) {
-	items := m.suggestions()
+	_, items := m.suggestions()
 	n := len(items)
 	if n == 0 {
 		return false
@@ -1096,7 +1230,7 @@ func (m *Run) suggestKey(k string) (used bool) {
 	case "down":
 		m.acSel = (m.acSel + 1) % n
 	case "tab", "enter":
-		m.reply.set(items[m.acSel].cmd)
+		m.complete(items[m.acSel])
 		m.acSel = 0
 	case "esc":
 		m.acOff = m.reply.ta.Value()
@@ -1106,25 +1240,54 @@ func (m *Run) suggestKey(k string) (used bool) {
 	return true
 }
 
-// suggestBox is the popup of suggestions over the thread.
-func (m *Run) suggestBox(items []replyCommand, w int) []string {
+// complete puts a suggestion in the comment: a command replaces the text,
+// a person the word after "@", followed by a space.
+func (m *Run) complete(s suggestion) {
+	if strings.HasPrefix(s.insert, "/") {
+		m.reply.set(s.insert)
+		return
+	}
+	v := m.reply.ta.Value()
+	m.reply.set(v[:strings.LastIndexAny(v, " \t\n")+1] + s.insert + " ")
+}
+
+// suggestBox is the popup of suggestions over the thread, drawn like the
+// pipelines' menu.
+func (m *Run) suggestBox(title string, items []suggestion, w int) []string {
 	sel := clamp(m.acSel, len(items))
-	cmdW := 0
+	labelW, rightW := 0, 0
 	for _, it := range items {
-		cmdW = max(cmdW, len(it.cmd))
+		labelW = max(labelW, ansi.StringWidth(it.label))
+		rightW = max(rightW, ansi.StringWidth(it.right))
 	}
-	inner := 0
-	lines := make([]string, len(items))
+	inner := min(max(2+labelW+3+rightW, ansi.StringWidth(title)+1, menuMinWidth), max(w-4, 8))
+	var lines []string
 	for i, it := range items {
-		c := pad(it.cmd, cmdW)
+		label := it.label
 		if i == sel {
-			c = theme.Bold.Render(c)
+			label = theme.Bold.Render(label)
 		}
-		lines[i] = marker(i == sel) + c + "  " + theme.Dim.Render(it.desc)
-		inner = max(inner, ansi.StringWidth(lines[i]))
+		lines = append(lines, spread(marker(i == sel)+label, theme.Dim.Render(it.right), inner))
+		if it.sub != "" {
+			lines = append(lines, cut("  "+theme.Dim.Render(it.sub), inner))
+		}
 	}
-	inner = min(inner, max(w-4, 4))
-	return box(lines, inner+4, solidEdges, theme.Accent, "", "")
+	return box(lines, inner+4, solidEdges, theme.Accent, theme.Bold.Render(title), "")
+}
+
+// placeholder is what the empty comment box says: what it completes.
+func (m *Run) placeholder() string {
+	var can []string
+	if len(m.commands()) > 0 {
+		can = append(can, "/command")
+	}
+	if m.d.People != nil {
+		can = append(can, "@mention people")
+	}
+	if len(can) == 0 {
+		return replyPlaceholder
+	}
+	return "Write a comment, " + strings.Join(can, ", ")
 }
 
 // replyArea is the bottom of the issue pane: a small chip with what the
@@ -1137,7 +1300,8 @@ func (m *Run) replyArea(w, rows int) (out []string) {
 	case r.Status == store.StatusNeedsInput:
 		out = append(out, cut(theme.Badge.Render("⚑ needs input")+theme.Dim.Render(" · waiting "+short(m.d.Now().Sub(waitingSince(r)))), w))
 	}
-	hint := replyPlaceholder
+	hint := m.placeholder()
+	m.reply.ta.Placeholder = hint
 	if r.Status.Final() {
 		hint = "The run has ended; a comment goes to " + r.IssueKey + " only"
 	}
@@ -1151,14 +1315,14 @@ func (m *Run) replyArea(w, rows int) (out []string) {
 	out = append(out, m.reply.lines(w, height, hint)...)
 	if m.reply.focused {
 		keys := []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
-		if len(m.suggestions()) > 0 {
+		if _, items := m.suggestions(); len(items) > 0 {
 			keys = []binding{{"↑↓", "choose"}, {"tab", "complete"}, {"esc", "close"}}
 		}
 		parts := make([]string, len(keys))
 		for i, k := range keys {
 			parts[i] = theme.Key.Render(k.key) + " " + theme.Dim.Render(k.desc)
 		}
-		out = append(out, cut(strings.Join(parts, "  "), w))
+		out = append(out, cut(footIndent+strings.Join(parts, "  "), w)) // in line with the text in the box
 	}
 	return out
 }
@@ -1277,12 +1441,13 @@ func (m *Run) help() []binding {
 		return []binding{{"enter", "send"}, {"alt+enter", "new line"}, {"esc", "leave the box"}}
 	}
 	if m.backlog {
-		return []binding{{"r", "comment"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"esc", "close"}, {"q", "quit"}}
+		return []binding{{"enter/r", "comment"}, {"esc", "close"}, {"↑↓", "scroll"}, {"o", "issue"}, {"i", "inbox"}, {"q", "quit"}}
 	}
-	h := []binding{{"r", "reply"}}
+	h := []binding{{"enter/r", "reply"}}
 	if m.waitsOnPermission() {
 		h = append(h, binding{"a", "approve"}, binding{"x", "reject"})
 	}
+	h = append(h, binding{"esc", "close"})
 	other := "log"
 	if m.focus == paneLog {
 		other = "issue"
@@ -1295,7 +1460,7 @@ func (m *Run) help() []binding {
 	if m.run.PRURL != "" {
 		h = append(h, binding{"p", "PR"})
 	}
-	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"esc", "close"}, binding{"q", "quit"})
+	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"q", "quit"})
 }
 
 // feedKinds are the labels and colours of the event kinds in the log.

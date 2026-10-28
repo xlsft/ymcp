@@ -26,6 +26,7 @@ func Defaults(st *store.Store) views.Deps {
 		RunnerLog: CLIDaemon{}.Log,
 		Backlog:   yt,
 		Issues:    yt,
+		People:    yt,
 		Changes:   &CodeHost{},
 		OpenURL:   OpenURL,
 	}
