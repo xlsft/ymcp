@@ -109,7 +109,7 @@ func credentialsForm(cfg *config.Config) *huh.Form {
 		huh.NewGroup(
 			huh.NewNote().
 				Title("YouTrack connection").
-				Description("ymcp signs in like the YouTrack web UI.\nThe password is kept in your system keychain."),
+				Description("Just your login and password: nothing to set up in YouTrack.\nThe password is kept in your system keychain."),
 			huh.NewInput().
 				Title("YouTrack URL").
 				Placeholder("https://youtrack.example.com").
