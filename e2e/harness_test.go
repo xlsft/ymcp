@@ -113,7 +113,16 @@ func TestMain(m *testing.M) {
 	sweepUsers()
 	code := m.Run()
 	sweep(func(name string) bool { return ours(name) || stale(name) })
-	if left := leftovers(); len(left) > 0 {
+	// YouTrack removes a deleted project's boards and their backlog
+	// searches in the background; what a listing missed meanwhile is swept
+	// again before it counts as left behind.
+	left := leftovers()
+	for i := 0; len(left) > 0 && i < 3; i++ {
+		time.Sleep(2 * time.Second)
+		sweep(ours)
+		left = leftovers()
+	}
+	if len(left) > 0 {
 		fmt.Println("e2e: objects left behind:", left)
 		code = 1
 	}
@@ -275,7 +284,7 @@ func marked() map[string][]string {
 	}
 	for _, path := range []string{"admin/projects", "agiles", "tags", "savedQueries"} {
 		var items []struct{ ID, Name string }
-		r := call(t, "call_api", map[string]any{"method": "GET", "path": path, "query": map[string]any{"fields": "id,name", "$top": -1}})
+		r := listing(t, path)
 		if r.isError {
 			fmt.Printf("e2e: listing %s: %s\n", path, r.text)
 			continue
@@ -288,6 +297,19 @@ func marked() map[string][]string {
 		}
 	}
 	return found
+}
+
+// listing reads the id and name of everything at an API path. YouTrack
+// fails a listing with "… was removed" while it removes objects of a
+// deleted project in the background, so a failed one is tried again.
+func listing(t *sweepT, path string) result {
+	for try := 1; ; try++ {
+		r := call(t, "call_api", map[string]any{"method": "GET", "path": path, "query": map[string]any{"fields": "id,name", "$top": -1}})
+		if !r.isError || try == 3 {
+			return r
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // sweep deletes the marked objects whose names match: this run's, or
