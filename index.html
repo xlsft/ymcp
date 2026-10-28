@@ -63,7 +63,7 @@ img { max-width: 100%; }
       "license": "https://opensource.org/licenses/MIT",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "featureList": ["58 MCP tools: the 23 of YouTrack's own MCP server, same names, and 35 extras", "Signs in with a YouTrack login and password; no admin token or OAuth client", "Works without admin rights", "Installs into 15 MCP clients: Claude Code, Claude Desktop, Cursor, VS Code (Copilot), Windsurf, Devin Desktop, Zed, Codex, Gemini CLI, Antigravity, JetBrains Junie, Cline, LM Studio, opencode, Kimi Code", "Prompts: issue_brief, sprint_report, standup, triage", "Pipelines hand YouTrack issues to coding agents: Claude Code CLI, Kimi CLI over ACP, opencode over ACP, another ACP agent", "Publishes work as branch, github-pr, github-issue-pr, gitlab-mr"],
+      "featureList": ["58 MCP tools: the 23 of YouTrack's own MCP server, same names, and 35 extras", "Signs in with a YouTrack login and password: nothing to set up in YouTrack, no webhooks, OAuth client or API keys", "Works without admin rights", "Installs into 15 MCP clients: Claude Code, Claude Desktop, Cursor, VS Code (Copilot), Windsurf, Devin Desktop, Zed, Codex, Gemini CLI, Antigravity, JetBrains Junie, Cline, LM Studio, opencode, Kimi Code", "Prompts: issue_brief, sprint_report, standup, triage", "Pipelines hand YouTrack issues to coding agents: Claude Code CLI, Kimi CLI over ACP, opencode over ACP, another ACP agent", "Publishes work as branch, github-pr, github-issue-pr, gitlab-mr"],
       "author": { "@type": "Person", "name": "xlsft", "url": "https://github.com/xlsft" },
       "sameAs": [
         "https://github.com/xlsft/ymcp",
@@ -380,7 +380,7 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
         <div>
           <h3>Why it is easy to run</h3>
           <ul class="points">
-            <li><b>Signs in like the web UI.</b> No admin-issued token or OAuth client. The password lives in your system keychain.</li>
+            <li><b>Just a login and password.</b> Nothing to set up in YouTrack: no webhooks, OAuth client or API keys. The password lives in your system keychain.</li>
             <li><b>Works without admin rights.</b> Field schemas, groups and comments fall back to what a regular user can read.</li>
             <li><b>One-command install.</b> <code>ymcp setup</code> registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and more.</li>
             <li><b>A single static binary</b> for macOS, Linux and Windows, with <code>ymcp update</code> built in.</li>
@@ -650,8 +650,8 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
   <section id="signin">
     <div class="wrap">
       <p class="eyebrow">Sign-in</p>
-      <h2>The same way the YouTrack web app does</h2>
-      <p class="prose">YouTrack’s OAuth password grant needs a service secret that regular users don’t have, so ymcp goes through the web login instead.</p>
+      <h2>A login and password, nothing to set up</h2>
+      <p class="prose">YouTrack’s OAuth password grant needs a service secret that regular users don’t have, so ymcp signs in through Hub instead.</p>
       <ol class="steps">
         <li>Read the Hub location and YouTrack service ID from the public <code>/api/config</code>.</li>
         <li>Submit the Hub login form and keep the session cookie.</li>
