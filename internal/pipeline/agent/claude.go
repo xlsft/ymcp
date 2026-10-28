@@ -242,7 +242,7 @@ func (s *claudeSession) Prompt(ctx context.Context, text string) (Result, error)
 		if waitErr != nil {
 			msg += " (" + waitErr.Error() + ")"
 		}
-		msg = withStderr(msg, &stderr)
+		msg = notFound(withStderr(msg, &stderr), waitErr, s.agent.command)
 		if resume && strings.Contains(msg, "No conversation found") {
 			return failed(msg), fmt.Errorf("claude: %w: %s", ErrNoResume, msg)
 		}

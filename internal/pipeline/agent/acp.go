@@ -58,6 +58,7 @@ func (a *acpAgent) Start(ctx context.Context, opts StartOptions) (Session, error
 	argv := append(append([]string{a.command}, a.args...), opts.Args...)
 	s := &acpSession{
 		provider: a.provider,
+		command:  a.command,
 		events:   newEventQueue(),
 		pending:  map[string]*pendingPermission{},
 		tools:    map[string]ToolCall{},
@@ -190,6 +191,7 @@ func acpServers(servers []MCPServer) []acp.McpServer {
 
 type acpSession struct {
 	provider     string
+	command      string // the executable, named when it is not found
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
 	stdout       *os.File
@@ -265,7 +267,7 @@ func (s *acpSession) fail(step string, err error) error {
 			}
 		default:
 		}
-		return fmt.Errorf("%s: %s: %s", s.provider, step, withStderr(msg, &s.stderr))
+		return fmt.Errorf("%s: %s: %s", s.provider, step, notFound(withStderr(msg, &s.stderr), s.waitErr, s.command))
 	}
 	return fmt.Errorf("%s: %s: %w", s.provider, step, err)
 }

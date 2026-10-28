@@ -137,6 +137,8 @@ func TestClaudeErrors(t *testing.T) {
 			wantErr: "There's an issue with the selected model (no-such-model-xyz)"},
 		{name: "sign-in failure", steps: []agenttest.Step{{Error: "Invalid API key · Please run /login"}}, wantErr: "Invalid API key"},
 		{name: "crash without result", steps: []agenttest.Step{{Text: "half"}, {Stderr: "panic: boom"}, {Exit: 3}}, wantErr: "panic: boom", fails: true},
+		{name: "not found by the host's shell", steps: []agenttest.Step{{Stderr: "env: 'claude': No such file or directory"}, {Exit: 127}},
+			wantErr: "No such file or directory. ", fails: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -147,6 +149,9 @@ func TestClaudeErrors(t *testing.T) {
 			}
 			if !res.IsError || res.StopReason != StopError || !strings.Contains(res.Err, tt.wantErr) {
 				t.Errorf("result = %+v, want error with %q", res, tt.wantErr)
+			}
+			if hint := strings.Contains(res.Err, "is not in the PATH of the agent's shell"); hint != strings.Contains(tt.name, "not found") {
+				t.Errorf("PATH hint %v in %q", hint, res.Err)
 			}
 			if !tt.fails {
 				s.wait(t, EventError, nil)
