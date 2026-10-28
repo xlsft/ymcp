@@ -156,6 +156,44 @@ func (s *Store) RunByNumber(ctx context.Context, pipeline string, number int) (R
 	return r, nil
 }
 
+// LastRun returns the run of an issue a pipeline started last, or
+// ErrNotFound.
+func (s *Store) LastRun(ctx context.Context, pipeline, issueID string) (Run, error) {
+	r, err := scanRun(s.q.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE pipeline = ? AND issue_id = ?
+		ORDER BY number DESC LIMIT 1`, pipeline, issueID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Run{}, ErrNotFound
+	}
+	if err != nil {
+		return Run{}, fmt.Errorf("reading the last run of %s/%s: %w", pipeline, issueID, err)
+	}
+	return r, nil
+}
+
+// DeleteRun removes a run that has ended together with its events,
+// messages, inbox, invocations and state. Its number is not given out
+// again. It is ErrNotFound for an unknown run and ErrRunActive for one that
+// has not ended.
+func (s *Store) DeleteRun(ctx context.Context, id int64) error {
+	return s.Tx(ctx, func(tx *Store) error {
+		run, err := tx.Run(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !run.Status.Final() {
+			return ErrRunActive
+		}
+		// events has no foreign key; the other tables go by cascade.
+		if _, err := tx.q.ExecContext(ctx, `DELETE FROM events WHERE run_id = ?`, id); err != nil {
+			return fmt.Errorf("deleting run %d: %w", id, err)
+		}
+		if _, err := tx.q.ExecContext(ctx, `DELETE FROM runs WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("deleting run %d: %w", id, err)
+		}
+		return nil
+	})
+}
+
 // BranchUsed reports whether a run other than except, of any pipeline and
 // in any status, has the branch.
 func (s *Store) BranchUsed(ctx context.Context, branch string, except int64) (bool, error) {

@@ -202,7 +202,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.Notice:
 		return a, a.toTop(msg)
 	case views.Back:
-		return a, a.pop()
+		cmd := a.pop()
+		if msg.Note != "" {
+			cmd = tea.Batch(cmd, a.toTop(views.Notice{Text: msg.Note}))
+		}
+		return a, cmd
 	case views.OpenPipelines:
 		return a, a.push(views.NewPipelines(a.d, msg.Profile))
 	case views.OpenBoard:

@@ -766,30 +766,35 @@ func TestForcePushWithLease(t *testing.T) {
 	}
 }
 
-func TestCheckedOut(t *testing.T) {
+func TestBranchExists(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	h := Local()
-	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != "" {
-		t.Errorf("before = %q, %v", p, err)
+	if ok, err := BranchExists(ctx, h, f.repo, "BE-13"); err != nil || ok {
+		t.Errorf("before = %v, %v", ok, err)
 	}
 	wt, err := Create(ctx, h, f.repo, filepath.Join(t.TempDir(), "other-pipeline"), "BE-13", "", testIdentity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != wt.Path {
-		t.Errorf("CheckedOut = %q, %v; want %q", p, err, wt.Path)
-	}
-	if p, _ := CheckedOut(ctx, h, f.repo, "main"); realPath(t, p) != realPath(t, f.repo) {
-		t.Errorf("main is checked out at %q", p)
+	if ok, err := BranchExists(ctx, h, f.repo, "BE-13"); err != nil || !ok {
+		t.Errorf("checked out = %v, %v", ok, err)
 	}
 	if err := Remove(ctx, h, f.repo, wt); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := CheckedOut(ctx, h, f.repo, "BE-13"); err != nil || p != "" {
-		t.Errorf("after removal = %q, %v", p, err)
+	if ok, err := BranchExists(ctx, h, f.repo, "BE-13"); err != nil || !ok {
+		t.Errorf("after the worktree removal = %v, %v", ok, err)
 	}
-	if _, err := CheckedOut(ctx, h, t.TempDir(), "x"); err == nil {
+	git(t, f.repo, "push", "-q", "origin", "main:refs/heads/BE-14")
+	git(t, f.repo, "fetch", "-q", "origin")
+	if ok, err := BranchExists(ctx, h, f.repo, "BE-14"); err != nil || !ok {
+		t.Errorf("only on origin = %v, %v", ok, err)
+	}
+	if ok, err := BranchExists(ctx, h, f.repo, "BE-15"); err != nil || ok {
+		t.Errorf("nowhere = %v, %v", ok, err)
+	}
+	if _, err := BranchExists(ctx, h, t.TempDir(), "x"); err == nil {
 		t.Error("not a repository: no error")
 	}
 }

@@ -16,8 +16,19 @@ import (
 // starts.
 const stateCanceled = "cancel_cleanup"
 
-// reasonDeleted is the reason of a run canceled because its issue is gone.
-const reasonDeleted = "The issue was deleted."
+// Reasons of the runs the runner cancels because of where their issue is.
+const (
+	reasonDeleted = "The issue was deleted."
+	// reasonBacklog: a human moved the issue back to the source to stop
+	// the run, so the issue is not captured again while it stays there.
+	reasonBacklog = "The issue was moved back to the backlog."
+)
+
+// backlogCanceled reports whether a run was canceled because its issue was
+// moved back to the backlog.
+func backlogCanceled(run store.Run) bool {
+	return run.Status == store.StatusCanceled && run.NeedsInputReason == reasonBacklog
+}
 
 // cancelRecord is what the cleanup of a canceled run needs.
 type cancelRecord struct {
@@ -146,9 +157,10 @@ func (r *Runner) removeCanceledWorktree(ctx context.Context, run store.Run) bool
 
 // freshBranch is the branch of a run that has none yet: name, or name-2,
 // name-3, … when another run, of this pipeline or another one and in any
-// status, has used it, or a worktree has it checked out. A run so never
-// takes over the branch, the worktree or the change of another run, such
-// as a canceled run of the same issue in another pipeline.
+// status, has used it, or the repository has it already, locally or on
+// origin. A run so never takes over the branch, the worktree or the change
+// of another run, such as a canceled run of the same issue in another
+// pipeline or a run deleted from the store.
 func (r *Runner) freshBranch(ctx context.Context, run store.Run, name string) (string, error) {
 	for i := 1; i <= 100; i++ {
 		b := name
@@ -162,11 +174,11 @@ func (r *Runner) freshBranch(ctx context.Context, run store.Run, name string) (s
 		if used {
 			continue
 		}
-		path, err := workspace.CheckedOut(ctx, r.host, r.p.Workspace.Dir, b)
+		exists, err := workspace.BranchExists(ctx, r.host, r.p.Workspace.Dir, b)
 		if err != nil {
 			return "", err
 		}
-		if path == "" {
+		if !exists {
 			if b != name {
 				r.log.Info("the branch is taken; using another", "run", run.Number, "taken", name, "branch", b)
 			}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -114,3 +115,37 @@ func TestPipelineRunAndCheckRefuseBadPipelines(t *testing.T) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestPipelineDelete(t *testing.T) {
+	isolatePipelines(t)
+	newPipeline(t, "api")
+	st := openTestStore(t)
+	ctx := context.Background()
+	active := newRun(t, st, "api", "A-1", store.StatusWorking)
+	done := newRun(t, st, "api", "A-2", store.StatusDone)
+
+	if _, err := pipelineOut(t, "api", "delete", "1", "-y"); err == nil || !strings.Contains(err.Error(), "cancel it first") {
+		t.Errorf("deleting an active run: %v", err)
+	}
+	if _, err := pipelineOut(t, "api", "delete", "2"); err == nil || !strings.Contains(err.Error(), "pass -y") {
+		t.Errorf("deleting without -y and no terminal: %v", err)
+	}
+	if _, err := st.Run(ctx, done.ID); err != nil {
+		t.Fatalf("deleted without asking: %v", err)
+	}
+	if out := mustPipeline(t, "api", "delete", "2", "-y"); !strings.Contains(out, "Deleted run #2") {
+		t.Errorf("delete output: %q", out)
+	}
+	if _, err := st.Run(ctx, done.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("run #2 is still there: %v", err)
+	}
+	if _, err := st.Run(ctx, active.ID); err != nil {
+		t.Errorf("run #1 is gone: %v", err)
+	}
+	if _, err := pipelineOut(t, "api", "delete", "2", "-y"); err == nil || !strings.Contains(err.Error(), "no run #2") {
+		t.Errorf("deleting it again: %v", err)
+	}
+	if _, err := pipelineOut(t, "api", "delete"); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Errorf("no run: %v", err)
+	}
+}

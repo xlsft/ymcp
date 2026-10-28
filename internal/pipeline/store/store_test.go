@@ -303,6 +303,93 @@ func TestBranchUsed(t *testing.T) {
 	}
 }
 
+func TestLastRun(t *testing.T) {
+	s := open(t)
+	if _, err := s.LastRun(ctx, "p", "1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("LastRun of a new issue: %v", err)
+	}
+	a, _ := s.CreateRun(ctx, "p", "yt", "1", "BE-1")
+	a.Status = StatusCanceled
+	if err := s.UpdateRun(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	s.CreateRun(ctx, "q", "other", "1", "BE-1") // another pipeline's
+	b, _ := s.CreateRun(ctx, "p", "yt", "1", "BE-1")
+	if got, err := s.LastRun(ctx, "p", "1"); err != nil || got.ID != b.ID {
+		t.Errorf("LastRun = #%d, %v; want #%d", got.Number, err, b.Number)
+	}
+}
+
+func TestDeleteRun(t *testing.T) {
+	s := open(t)
+	r, _ := s.CreateRun(ctx, "p", "yt", "1", "BE-1")
+	other, _ := s.CreateRun(ctx, "p", "yt", "2", "BE-2")
+	inv, err := s.StartInvocation(ctx, r.ID, "start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddInbox(ctx, InboxItem{RunID: r.ID, Source: "youtrack", ExternalID: "c1", Author: "alice", Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := s.PendingInbox(ctx, r.ID)
+	if err := s.ConsumeInbox(ctx, []int64{items[0].ID}, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddMessage(ctx, Message{RunID: r.ID, Source: "youtrack", ExternalID: "m1", Kind: "answer", State: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{r.ID, other.ID} {
+		if err := s.AddEvent(ctx, id, "run.captured", nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetRunState(ctx, id, "k", "v"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := s.DeleteRun(ctx, r.ID); !errors.Is(err, ErrRunActive) {
+		t.Fatalf("deleting an active run: %v", err)
+	}
+	r.Status = StatusCanceled
+	if err := s.UpdateRun(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRun(ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Run(ctx, r.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the run is still there: %v", err)
+	}
+	if err := s.DeleteRun(ctx, r.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("deleting it again: %v", err)
+	}
+	if list, _ := s.Messages(ctx, r.ID); len(list) != 0 {
+		t.Errorf("messages left: %+v", list)
+	}
+	if list, _ := s.Invocations(ctx, r.ID); len(list) != 0 {
+		t.Errorf("invocations left: %+v", list)
+	}
+	if list, _ := s.PendingInbox(ctx, r.ID); len(list) != 0 {
+		t.Errorf("inbox left: %+v", list)
+	}
+	if list, _ := s.Events(ctx, r.ID, 0, 10); len(list) != 0 {
+		t.Errorf("events left: %+v", list)
+	}
+	if _, ok, _ := s.RunState(ctx, r.ID, "k"); ok {
+		t.Error("run state left")
+	}
+	// The other run keeps everything, and numbers are not given out again.
+	if list, _ := s.Events(ctx, other.ID, 0, 10); len(list) != 1 {
+		t.Errorf("the other run's events = %+v", list)
+	}
+	if v, ok, _ := s.RunState(ctx, other.ID, "k"); !ok || v != "v" {
+		t.Errorf("the other run's state = %q, %v", v, ok)
+	}
+	if next, _ := s.CreateRun(ctx, "p", "yt", "1", "BE-1"); next.Number != 3 {
+		t.Errorf("next run number = %d, want 3", next.Number)
+	}
+}
+
 func TestMessages(t *testing.T) {
 	s := open(t)
 	r, _ := s.CreateRun(ctx, "p", "yt", "1", "")

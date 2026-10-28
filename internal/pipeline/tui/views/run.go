@@ -533,7 +533,7 @@ func (m *Run) key(k string) tea.Cmd {
 		switch k {
 		case "tab", "shift+tab": // no log to switch to
 			return nil
-		case "a", "x", "c", "t", "[", "]", "p":
+		case "a", "x", "c", "d", "t", "[", "]", "p":
 			m.fail(fmt.Errorf("%s is not taken yet, so it has no run", m.run.IssueKey))
 			return nil
 		}
@@ -592,6 +592,18 @@ func (m *Run) key(k string) tea.Cmd {
 			return nil
 		}
 		return cancelRun(&m.base, m.pipeline, m.run, m.reload)
+	case "d":
+		if !m.loaded {
+			return nil
+		}
+		if !m.run.Status.Final() {
+			m.fail(fmt.Errorf("run #%d is still %s; cancel it first", m.number, statusLabel(m.run.Status)))
+			return nil
+		}
+		n := m.number
+		return deleteRun(&m.base, m.pipeline, m.run, func() tea.Cmd {
+			return navigate(Back{Note: fmt.Sprintf("Deleted run #%d.", n)})
+		})
 	case "o":
 		url := m.issue.URL
 		if url == "" {
@@ -1528,7 +1540,12 @@ func (m *Run) help() []binding {
 	if m.run.PRURL != "" {
 		h = append(h, binding{"p", "PR"})
 	}
-	return append(h, binding{"c", "cancel"}, binding{"i", "inbox"}, binding{"q", "quit"})
+	if m.run.Status.Final() {
+		h = append(h, binding{"d", "delete"})
+	} else {
+		h = append(h, binding{"c", "cancel"})
+	}
+	return append(h, binding{"i", "inbox"}, binding{"q", "quit"})
 }
 
 // feedKinds are the labels and colours of the event kinds in the log.

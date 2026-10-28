@@ -221,7 +221,7 @@ ymcp pipeline backend check    # profile, query, stages, git and agent
 ymcp pipeline backend run -d   # run in the background; `stop` stops it
 ```
 
-`ymcp pipeline --help` lists every command, including `status`, `runs`, `logs`, `answer` and `cancel`. Each
+`ymcp pipeline --help` lists every command, including `status`, `runs`, `logs`, `answer`, `cancel` and `delete`. Each
 pipeline is a JSON file in `<config dir>/ymcp/pipelines/`, and runs are kept in `<config dir>/ymcp/state.db`.
 
 ### Stages
@@ -240,8 +240,14 @@ The source query uses the same syntax as a saved search. Each issue it finds mov
 Each stage has an `enter` command, as typed in YouTrack's command dialog, and a `match` query that recognizes issues
 in it. The working command should take the issue out of the source query: moving it back there cancels the run. A
 canceled run (also `ymcp pipeline NAME cancel N`) closes its pull or merge request with a comment, keeps its branch and
-removes its worktree unless `workspace.keepWorktree` is set; a later run of the issue starts on a new branch. A
-change closed without a merge ends the run as closed. `workspace.parallel` sets how many issues run at once (1).
+removes its worktree unless `workspace.keepWorktree` is set; a later run of the issue starts on a new branch. An issue
+moved back to the backlog to cancel its run is not taken again until it leaves the source; one canceled otherwise is
+taken again once it is back in the source. A change closed without a merge ends the run as closed.
+`workspace.parallel` sets how many issues run at once (1).
+
+A run that has ended can be deleted from the local store with `d` on the board or the run's card, or with
+`ymcp pipeline NAME delete N`: its log goes, the issue, branch and change stay, and an issue the backlog held is taken
+again. A canceled run can be deleted once a runner has closed its change and removed its worktree.
 
 The agent commits as the repository's `user.name` and `user.email`. With `workspace.identity.enabled` it gets an author
 of its own in each worktree instead, written to the worktree's config only. `workspace.identity.name` is a template of

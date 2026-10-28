@@ -64,6 +64,38 @@ func Cancel(ctx context.Context, st *store.Store, pipeline string, run int) erro
 	return err
 }
 
+// Delete removes a run that has ended from the local store, with its log,
+// messages and inbox. The issue, the branch and the pull request stay as
+// they are. A canceled run is kept until a runner has closed its change
+// and removed its worktree. An issue held after its run was canceled by
+// moving it back to the backlog is free to be captured again.
+func Delete(ctx context.Context, st *store.Store, pipeline string, run int) error {
+	r, err := st.RunByNumber(ctx, pipeline, run)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("pipeline %s has no run #%d", pipeline, run)
+		}
+		return err
+	}
+	if !r.Status.Final() {
+		return fmt.Errorf("run #%d of %s is still %s; cancel it first", run, pipeline, r.Status)
+	}
+	due, _, err := st.RunState(ctx, r.ID, stateCanceled)
+	if err != nil {
+		return err
+	}
+	if due != "" {
+		return fmt.Errorf("run #%d of %s is not cleaned up yet (its pull request closed, its worktree removed); delete it once a runner has done that", run, pipeline)
+	}
+	if err := st.DeleteRun(ctx, r.ID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("pipeline %s has no run #%d", pipeline, run)
+		}
+		return err
+	}
+	return nil
+}
+
 // localUser names the person at this machine.
 func localUser() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {

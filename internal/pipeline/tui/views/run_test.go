@@ -197,6 +197,16 @@ func TestRunModal(t *testing.T) {
 	d.has("Cancel run #6 (BE-127)?")
 	d.keys("y")
 	d.has("Canceled run #6.", "canceled")
+	// Canceled, the run is deleted once a runner has cleaned it up.
+	d.has("d delete")
+	d.hasNot("c cancel")
+	d.keys("d")
+	d.has("Delete run #6 (BE-127) from the local store?")
+	d.keys("y")
+	d.has("not cleaned up yet")
+	if _, err := f.st.Run(context.Background(), f.runs["BE-127"].ID); err != nil {
+		t.Errorf("the run is gone before its cleanup: %v", err)
+	}
 	d.keys("esc")
 	if got := d.lastNav(); got != (Back{}) {
 		t.Errorf("esc: %#v", got)
@@ -732,5 +742,25 @@ func TestRunModalReload(t *testing.T) {
 	d.keys("enter")
 	if !d.m.(*Run).reply.focused {
 		t.Error("enter didn't open the comment box")
+	}
+}
+
+// TestRunDelete: d on a run that has ended deletes it after asking and
+// closes the card; the board under it says so.
+func TestRunDelete(t *testing.T) {
+	f := newFixture(t)
+	r := f.runs["BE-110"]
+	d := drive(t, NewRun(&f.d, "backend", r.Number, false), 100, 30)
+	d.keys("?")
+	d.has("d delete")
+	d.hasNot("c cancel")
+	d.keys("?", "d")
+	d.has(fmt.Sprintf("Delete run #%d (BE-110) from the local store?", r.Number))
+	d.keys("y")
+	if got := d.lastNav(); got != (Back{Note: fmt.Sprintf("Deleted run #%d.", r.Number)}) {
+		t.Errorf("after the delete: %#v", got)
+	}
+	if _, err := f.st.Run(context.Background(), r.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("the run is still there: %v", err)
 	}
 }
