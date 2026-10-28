@@ -112,6 +112,7 @@ type Run struct {
 	peopleAsked map[string]bool     // the queries looked up
 
 	fe fieldEditor // the Fields menu, from Deps.Fields
+	tr transcript  // the detailed log over the card
 }
 
 // pendingComment is a comment posted from the card that YouTrack has not
@@ -315,6 +316,9 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.events = m.events[len(m.events)-feedKeep:]
 			}
 			m.logDirty = true
+			if m.tr.open {
+				m.transcriptAdd(msg.events)
+			}
 		}
 		if first {
 			cmds := []tea.Cmd{m.loadIssue(false)}
@@ -323,6 +327,10 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.focusReply())
 			}
 			return m, tea.Batch(cmds...)
+		}
+	case transcriptLoaded:
+		if msg.to == m.id {
+			m.transcriptRead(msg)
 		}
 	case issueLoaded:
 		if msg.to != m.id {
@@ -524,6 +532,9 @@ func (m *Run) quick(command string) tea.Cmd {
 }
 
 func (m *Run) key(k string) tea.Cmd {
+	if m.tr.open {
+		return m.transcriptKey(k)
+	}
 	page := max(m.docRows-1, 1)
 	scroll := &m.docScroll
 	if m.focus == paneLog {
@@ -573,7 +584,12 @@ func (m *Run) key(k string) tea.Cmd {
 			return m.quick("/reject")
 		}
 		m.fail(errors.New("the run does not wait for a permission"))
-	case "t", "[", "]":
+	case "t":
+		if !m.loaded {
+			return nil
+		}
+		return m.openTranscript()
+	case "[", "]":
 		if !m.hasChange() {
 			m.fail(fmt.Errorf("run #%d has no pull request to show", m.number))
 			return nil
@@ -689,7 +705,12 @@ func (m *Run) View() string { return m.Overlay("") }
 func (m *Run) Overlay(under string) string {
 	w, h := max(m.width, 1), max(m.height, 1)
 	x, y, bw, bh := modalRect(w, h)
-	return modalOver(under, m.box(bw, bh), x, y, w, h)
+	v := modalOver(under, m.box(bw, bh), x, y, w, h)
+	if m.tr.open { // the transcript, over the card
+		tx, ty, tw, th := transcriptRect(x, y, bw, bh)
+		v = modalOver(v, m.transcriptBox(tw, th), tx, ty, w, h)
+	}
+	return v
 }
 
 // box is the card: bw×bh with its frame. Inside, padded: the top bar
@@ -1529,9 +1550,9 @@ func (m *Run) help() []binding {
 	if m.focus == paneLog {
 		other = "issue"
 	}
-	h = append(h, binding{"tab", other}, binding{"↑↓", "scroll"}, binding{"r", "reload"})
+	h = append(h, binding{"tab", other}, binding{"t", "transcript"}, binding{"↑↓", "scroll"}, binding{"r", "reload"})
 	if m.hasChange() {
-		h = append(h, binding{"t", "PR thread"})
+		h = append(h, binding{"[ ]", "PR thread"})
 	}
 	if m.d.Fields != nil {
 		h = append(h, binding{"e", "fields"})

@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -198,9 +199,10 @@ func TestRunModal(t *testing.T) {
 	d.keys("y")
 	d.has("Canceled run #6.", "canceled")
 	// Canceled, the run is deleted once a runner has cleaned it up.
+	d.keys("?")
 	d.has("d delete")
 	d.hasNot("c cancel")
-	d.keys("d")
+	d.keys("?", "d")
 	d.has("Delete run #6 (BE-127) from the local store?")
 	d.keys("y")
 	d.has("not cleaned up yet")
@@ -472,13 +474,14 @@ func TestRunModalPullRequestTab(t *testing.T) {
 	}}
 	f.issuesFor("2-118", "BE-118", "Cache keys")
 	d := drive(t, NewRun(&f.d, "backend", f.runs["BE-118"].Number, false), 160, 45)
-	d.has("YouTrack     Pull request #40", "PR #40", "t PR thread", "p PR")
-	d.keys("t")
+	d.keys("?")
+	d.has("YouTrack     Pull request #40", "PR #40", "[ ] PR thread", "p PR")
+	d.keys("?", "]")
 	d.has("Read-only", "octocat · 1h ago · review", "Looks good, one nit.",
 		"octocat · 50m ago · cache/keys.go:12", "Rename this.",
 		"@xlsft's agent #3 (backend) · 40m ago", "Renamed.")
 	d.hasNot("ymcp:agent")
-	d.keys("t")
+	d.keys("[")
 	d.has("No comments yet.")
 }
 
@@ -762,5 +765,64 @@ func TestRunDelete(t *testing.T) {
 	}
 	if _, err := f.st.Run(context.Background(), r.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("the run is still there: %v", err)
+	}
+}
+
+// TestRunTranscript: t opens the transcript over the card: the agent's
+// thoughts, answers and tools with what they looked at, the replies it
+// got, followed live; esc closes it.
+func TestRunTranscript(t *testing.T) {
+	f := newFixture(t)
+	r := f.runs["BE-123"]
+	f.event(r, 50*time.Second, "agent.thought", map[string]string{"text": "Where is the login "})
+	f.event(r, 49*time.Second, "agent.thought", map[string]string{"text": "handler?"})
+	f.event(r, 48*time.Second, "agent.tool_call", map[string]any{"tool": map[string]any{"id": "t1", "title": "Grep", "status": "in_progress",
+		"input": map[string]string{"pattern": "func Login", "path": "internal/auth"}}})
+	f.event(r, 47*time.Second, "agent.tool_update", map[string]any{"tool": map[string]any{"id": "t1", "title": "Grep", "status": "completed"}})
+	f.event(r, 46*time.Second, "agent.tool_call", map[string]any{"tool": map[string]any{"id": "t2", "title": "Bash", "status": "in_progress",
+		"input": map[string]string{"command": "go test ./internal/auth/..."}}})
+	f.event(r, 45*time.Second, "agent.tool_update", map[string]any{"tool": map[string]any{"id": "t2", "title": "Bash", "status": "failed"}})
+	f.event(r, 44*time.Second, "agent.text", map[string]string{"text": "The handler is in auth.go; "})
+	f.event(r, 43*time.Second, "agent.text", map[string]string{"text": "fixing the redirect."})
+	f.event(r, 42*time.Second, "inbox", map[string]string{"author": "alice", "text": "Keep the old URL working."})
+
+	d := drive(t, NewRun(&f.d, "backend", r.Number, false), 140, 45)
+	d.keys("?")
+	d.has("t transcript")
+	d.keys("?", "t")
+	d.has("Transcript · run #5 · BE-123", "thinks", "Where is the login handler?",
+		"▸ Grep ✓", "func Login  in internal/auth", "▸ Bash ✗ failed", "go test ./internal/auth/...",
+		"says", "The handler is in auth.go; fixing the redirect.", "← alice", "Keep the old URL working.",
+		"esc close")
+
+	// Live: a new answer shows on the next tick, or at once on r.
+	f.event(r, 0, "agent.text", map[string]string{"text": "Pushed the fix."})
+	d.tick()
+	d.has("Pushed the fix.")
+	f.event(r, 0, "agent.thought", map[string]string{"text": "Should I rebase?"})
+	d.keys("r")
+	d.has("Should I rebase?")
+
+	// Keys go to the transcript while it is open; esc closes it.
+	d.keys("c")
+	d.hasNot("Cancel run")
+	d.keys("esc")
+	d.hasNot("Transcript · run #5")
+	d.has("4m12s")
+}
+
+func TestTranscriptToolDetail(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{`{"file_path":"/src/a.go","limit":20}`, "/src/a.go"},
+		{`{"pattern":"TODO","glob":"*.go"}`, "TODO  in *.go"},
+		{`{"command":"make test","description":"Run tests"}`, "make test"},
+		{`{"url":"https://example.com"}`, "https://example.com"},
+		{`{"a":1}`, `{"a":1}`},
+		{`"just text"`, "just text"},
+		{``, ""},
+	} {
+		if got := toolDetail(json.RawMessage(tt.in)); got != tt.want {
+			t.Errorf("toolDetail(%s) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
