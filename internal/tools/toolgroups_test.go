@@ -56,6 +56,19 @@ func TestGroupsCoverEveryToolOnce(t *testing.T) {
 	}
 }
 
+// TestBuiltIn: the 23 tools of YouTrack's own server are all served.
+func TestBuiltIn(t *testing.T) {
+	all := listed(t, nil)
+	if n := len(slices.Compact(slices.Sorted(slices.Values(BuiltIn)))); n != 23 || len(BuiltIn) != 23 {
+		t.Errorf("%d built-in tools, %d distinct, want 23", len(BuiltIn), n)
+	}
+	for _, name := range BuiltIn {
+		if !slices.Contains(all, name) {
+			t.Errorf("built-in %s is not served", name)
+		}
+	}
+}
+
 func TestSelect(t *testing.T) {
 	if got, err := Select(nil); got != nil || err != nil {
 		t.Errorf("empty = %v, %v", got, err)

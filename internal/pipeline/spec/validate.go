@@ -45,11 +45,40 @@ func (e *ValidationError) Error() string {
 	return b.String()
 }
 
+// Choice is an allowed value of an enum field and what it means.
+type Choice struct{ Name, About string }
+
+// Providers are the values of agent.provider, in the order the wizard
+// offers them.
+var Providers = []Choice{
+	{"claude", "Claude Code CLI"},
+	{"kimi", "Kimi CLI over ACP"},
+	{"opencode", "opencode over ACP"},
+	{"acp", "another ACP agent"},
+}
+
+// StrategyKinds are the values of strategy.kind, in the order the wizard
+// offers them.
+var StrategyKinds = []Choice{
+	{"branch", "push the branch; you open pull or merge requests yourself"},
+	{"github-pr", "push and open a GitHub pull request"},
+	{"github-issue-pr", "also open a GitHub issue the pull request closes"},
+	{"gitlab-mr", "push and open a GitLab merge request"},
+}
+
 var (
 	permissionModes = []string{"ask", "allow", "deny"}
-	providers       = []string{"claude", "kimi", "opencode", "acp"}
-	strategyKinds   = []string{"branch", "github-pr", "github-issue-pr", "gitlab-mr"}
+	providers       = names(Providers)
+	strategyKinds   = names(StrategyKinds)
 )
+
+func names(cs []Choice) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.Name
+	}
+	return out
+}
 
 // Validate checks the pipeline without touching the network: the name,
 // required fields, known enum values and sane numbers. The only file it

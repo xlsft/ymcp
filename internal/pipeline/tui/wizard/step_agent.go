@@ -17,13 +17,6 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
-var providerAbout = map[string]string{
-	"claude":   "Claude Code CLI",
-	"kimi":     "Kimi CLI over ACP",
-	"opencode": "opencode over ACP",
-	"acp":      "another ACP agent",
-}
-
 // modeHints are the known modes per provider; others take free text.
 var modeHints = map[string][]string{
 	"claude": {"acceptEdits", "default", "plan", "dontAsk", "bypassPermissions"},
@@ -333,9 +326,10 @@ func (s *agentStep) switchTo(provider string) {
 
 func (s *agentStep) providerOptions() []option {
 	var out []option
-	for _, p := range agent.Providers {
+	for _, c := range spec.Providers {
+		p := c.Name
 		r := s.results[p]
-		title, desc := p, providerAbout[p]
+		title, desc := p, c.About
 		switch {
 		case r.pending:
 			title, desc = p+" …", desc+" · checking"
