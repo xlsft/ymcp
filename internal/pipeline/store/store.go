@@ -36,6 +36,8 @@ var (
 	ErrRunnerBusy = errors.New("store: another runner holds the pipeline")
 	// ErrRunFinished means the run has a final status and cannot be changed.
 	ErrRunFinished = errors.New("store: the run has ended")
+	// ErrRunActive means the run has not ended, so it cannot be deleted.
+	ErrRunActive = errors.New("store: the run has not ended")
 	// ErrRunnerLost means the caller no longer holds the runner lock, e.g.
 	// because another runner took it over after a missed heartbeat.
 	ErrRunnerLost = errors.New("store: the runner lock is not held")
