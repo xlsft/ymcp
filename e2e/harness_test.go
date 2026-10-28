@@ -6,8 +6,9 @@
 //
 //	go test -tags e2e -count=1 -v ./e2e
 //
-// Everything the tests create carries the marker prefix and is deleted when
-// they finish; leftovers from crashed runs are swept at start and end.
+// Everything the tests create carries the marker prefix and the run's ID and
+// is deleted when they finish. Runs may overlap: each sweeps only its own
+// objects and those of runs long over, and fails only for its own leftovers.
 package e2e
 
 import (
@@ -17,7 +18,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,9 +38,38 @@ var (
 	bin, workDir string
 	// endpoint is the YouTrack under test.
 	endpoint string
-	// runID tells this run's objects apart from other runs'.
-	runID = fmt.Sprintf("%d", time.Now().Unix()%1_000_000)
+	// runID tells this run's objects apart from other runs': the Unix
+	// time in seconds, its last six digits. Every marked name carries it.
+	runID = fmt.Sprintf("%06d", time.Now().Unix()%runIDs)
 )
+
+const (
+	runIDs = 1_000_000
+	// staleAfter is when a run's objects count as left behind: far past
+	// the job's timeout, so no run still working loses them.
+	staleAfter = 2 * time.Hour
+)
+
+// runIDIn finds the run ID in a marked name: six digits on their own.
+var runIDIn = regexp.MustCompile(`(?:^|[^0-9])([0-9]{6})(?:[^0-9]|$)`)
+
+// stale reports whether a marked object belongs to a run that is long
+// over, judged by the run ID in its name; one without an ID is stale.
+func stale(name string) bool {
+	m := runIDIn.FindStringSubmatch(name)
+	if m == nil {
+		return true
+	}
+	then, _ := strconv.Atoi(m[1])
+	age := (int(time.Now().Unix()%runIDs) - then + runIDs) % runIDs
+	return time.Duration(age)*time.Second > staleAfter
+}
+
+// ours reports whether a marked object is this run's.
+func ours(name string) bool {
+	m := runIDIn.FindStringSubmatch(name)
+	return m != nil && m[1] == runID
+}
 
 // server is a ymcp process serving one account over stdio.
 type server struct {
@@ -77,10 +109,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	sweep()
+	sweep(stale)
 	sweepUsers()
 	code := m.Run()
-	sweep()
+	sweep(func(name string) bool { return ours(name) || stale(name) })
 	if left := leftovers(); len(left) > 0 {
 		fmt.Println("e2e: objects left behind:", left)
 		code = 1
@@ -258,12 +290,16 @@ func marked() map[string][]string {
 	return found
 }
 
-// sweep deletes marked objects left by any run, this one included.
-func sweep() {
+// sweep deletes the marked objects whose names match: this run's, or
+// those of runs long over (see stale), never those of a run still going.
+func sweep(match func(name string) bool) {
 	t := &sweepT{}
 	for path, items := range marked() {
 		for _, it := range items {
 			id, name, _ := strings.Cut(it, " ")
+			if !match(name) {
+				continue
+			}
 			args := map[string]any{"method": "DELETE", "path": path + "/" + id}
 			if p, ok := strings.CutPrefix(path, "hub:"); ok {
 				args["api"], args["path"] = "hub", p+"/"+id
@@ -331,8 +367,18 @@ func scrub(s string) string {
 	return s
 }
 
-// leftovers is what sweeping couldn't remove.
-func leftovers() map[string][]string { return marked() }
+// leftovers is what sweeping couldn't remove of this run's objects.
+func leftovers() map[string][]string {
+	left := map[string][]string{}
+	for path, items := range marked() {
+		for _, it := range items {
+			if _, name, _ := strings.Cut(it, " "); ours(name) {
+				left[path] = append(left[path], it)
+			}
+		}
+	}
+	return left
+}
 
 // sweepT lets sweep use the test helpers outside a test.
 type sweepT struct{ testing.TB }
