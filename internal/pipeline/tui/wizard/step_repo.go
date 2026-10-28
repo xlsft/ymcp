@@ -135,6 +135,26 @@ func newRepoStep(sh *shared) *repoStep {
 			},
 		},
 		{
+			id: "squash", inline: true,
+			desc:   "GitLab squashes the merge request's commits into one when it is merged.",
+			hidden: func() bool { return sh.p.Strategy.Kind != "gitlab-mr" },
+			ctl: &toggleCtl{
+				label: "Squash commits when the merge request is accepted",
+				get:   func() bool { return sh.p.Strategy.Squash },
+				set:   func(v bool) tea.Cmd { sh.p.Strategy.Squash = v; return nil },
+			},
+		},
+		{
+			id: "deleteBranch", inline: true,
+			desc:   "GitLab deletes the run's branch once the merge request is merged.",
+			hidden: func() bool { return sh.p.Strategy.Kind != "gitlab-mr" },
+			ctl: &toggleCtl{
+				label: "Delete the source branch when the merge request is accepted",
+				get:   func() bool { return sh.p.Strategy.DeleteBranch },
+				set:   func(v bool) tea.Cmd { sh.p.Strategy.DeleteBranch = v; return nil },
+			},
+		},
+		{
 			id: "advanced", inline: true,
 			ctl: &disclosureCtl{label: "Advanced: host, base branch, issues at once, names", open: &s.advanced, force: s.advErr, note: func() string {
 				if s.advErr() {

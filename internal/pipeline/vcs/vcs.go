@@ -96,6 +96,11 @@ type OpenOptions struct {
 	Title  string
 	Body   string
 	Draft  bool
+	// Squash and DeleteBranch are a merge request's merge options: squash
+	// the commits and delete the source branch when it is merged. GitHub
+	// sets them per repository, not per pull request.
+	Squash       bool
+	DeleteBranch bool
 	// IssueTitle and IssueBody are the mirror issue of github-issue-pr;
 	// an empty title falls back to Title.
 	IssueTitle string

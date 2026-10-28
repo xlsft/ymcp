@@ -117,6 +117,28 @@ type Timeouts struct {
 type Strategy struct {
 	Kind  string `json:"kind"` // branch | github-pr | github-issue-pr | gitlab-mr
 	Draft bool   `json:"draft,omitempty"`
+	// Squash and DeleteBranch tick the merge options of a GitLab merge
+	// request: squash the commits, delete the source branch once merged.
+	Squash       bool `json:"squash,omitempty"`
+	DeleteBranch bool `json:"deleteBranch,omitempty"`
+}
+
+// Options names the strategy's options that apply to its kind, for
+// people: draft, squash, delete branch.
+func (s Strategy) Options() []string {
+	var out []string
+	if s.Draft && s.Kind != "branch" && s.Kind != "" {
+		out = append(out, "draft")
+	}
+	if s.Kind == "gitlab-mr" {
+		if s.Squash {
+			out = append(out, "squash")
+		}
+		if s.DeleteBranch {
+			out = append(out, "delete branch")
+		}
+	}
+	return out
 }
 
 // Feedback says whose messages the agent reacts to and how long to wait for

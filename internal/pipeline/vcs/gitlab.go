@@ -157,7 +157,10 @@ func (l *gitlab) Open(ctx context.Context, o OpenOptions) (Change, error) {
 	}
 	in := map[string]any{
 		"source_branch": o.Branch, "target_branch": base, "title": title,
-		"description": clip(o.Body, gitlabMaxBody), "remove_source_branch": false,
+		"description": clip(o.Body, gitlabMaxBody), "remove_source_branch": o.DeleteBranch,
+	}
+	if o.Squash {
+		in["squash"] = true
 	}
 	var mr glMR
 	if err := l.write(ctx, http.MethodPost, l.path("/merge_requests"), in, &mr); err != nil {
