@@ -14,9 +14,35 @@ permissions:
   contents: read
 
 jobs:
+  # Whether the pull request touches anything but documentation (see
+  # .github/scripts/code-changed.sh). Without code the jobs below skip,
+  # which counts as passing for the checks the main ruleset requires.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            .github/scripts/code-changed.sh "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   e2e:
+    needs: changes
     # Secrets aren't available to pull requests from forks.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      needs.changes.outputs.code == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # Runs share one YouTrack instance but keep to their own objects (see
     # e2e/harness_test.go), so they may overlap. A shared group would hold a
     # single pending run and cancel it for the next one, a release's

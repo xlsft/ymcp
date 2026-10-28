@@ -14,10 +14,35 @@ permissions:
   contents: read
 
 jobs:
+  # Whether anything but documentation changed since the last release (see
+  # .github/scripts/code-changed.sh). Without code, CI and E2E don't run,
+  # and nothing is released.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            .github/scripts/code-changed.sh >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   ci:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/ci.yml
 
   e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/e2e.yml
     secrets: inherit
 
