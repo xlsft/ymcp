@@ -69,6 +69,8 @@ The installer downloads the latest release and checks its SHA-256. It then runs 
 
 Run `ymcp setup` again at any time to edit a profile, add or remove clients, or add another YouTrack.
 
+An agent setting ymcp up for you (Cline and the like) has its own steps in [llms-install.md](llms-install.md).
+
 ### Several YouTrack instances
 
 Each YouTrack instance is a profile, and each profile is its own MCP server. The profile's display name gives the
