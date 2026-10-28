@@ -109,7 +109,8 @@ func (w *Watcher) issue(a apiIssue) Issue {
 }
 
 // Search returns every issue matching query, paging through the whole
-// result set, with id, key, summary, URL and updated only.
+// result set, with id, key, summary, URL and updated only. A query by a tag
+// that doesn't exist yet fails with *NewTagError.
 func (w *Watcher) Search(ctx context.Context, query string) ([]Issue, error) {
 	var out []Issue
 	seen := map[string]bool{}
@@ -122,6 +123,9 @@ func (w *Watcher) Search(ctx context.Context, query string) ([]Issue, error) {
 			"$top":   {strconv.Itoa(w.pageSize)},
 		}
 		if err := w.yt.Get(ctx, "issues", q, &batch); err != nil {
+			if tags := w.newTags(ctx, query, err); len(tags) > 0 {
+				return nil, &NewTagError{Tags: tags}
+			}
 			return nil, fmt.Errorf("search %q: %w", query, err)
 		}
 		for _, a := range batch {
@@ -167,7 +171,8 @@ func (w *Watcher) Exists(ctx context.Context, idOrKey string) (bool, error) {
 
 // Members reports which of ids match stageQuery. It runs the query once,
 // parenthesised, and intersects locally; ids may be database or readable
-// ids. Every id is in the result, true when it matched.
+// ids. Every id is in the result, true when it matched. A query by a tag
+// that doesn't exist yet matches none.
 func (w *Watcher) Members(ctx context.Context, stageQuery string, ids []string) (map[string]bool, error) {
 	if strings.TrimSpace(stageQuery) == "" {
 		return nil, errors.New("stage query is empty")
@@ -180,6 +185,10 @@ func (w *Watcher) Members(ctx context.Context, stageQuery string, ids []string) 
 		return out, nil
 	}
 	found, err := w.Search(ctx, "("+stageQuery+")")
+	var nt *NewTagError
+	if errors.As(err, &nt) {
+		return out, nil // e.g. the needs-input tag before anyone asked
+	}
 	if err != nil {
 		return nil, err
 	}

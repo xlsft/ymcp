@@ -348,6 +348,8 @@ func sampleView(sh *shared, width int) string {
 		return markOff + styleDim.Render(" type a query to see matching issues")
 	case smp.pending:
 		return markPending + styleDim.Render(" searching…")
+	case newTagErr(smp.err):
+		return markWarn + " " + oneLine(smp.err.Error(), width-2)
 	case smp.err != nil:
 		return errLine(smp.err.Error(), width)
 	case !smp.done:
@@ -391,7 +393,7 @@ func (s *basicsStep) blockers() []problem {
 func (s *basicsStep) mark() string {
 	smp := s.sh.sample
 	switch {
-	case len(s.blockers()) > 0 || s.sh.conn.err != nil || smp.err != nil:
+	case len(s.blockers()) > 0 || s.sh.conn.err != nil || (smp.err != nil && !newTagErr(smp.err)):
 		return markBad
 	case s.sh.conn.pending || smp.pending:
 		return markPending

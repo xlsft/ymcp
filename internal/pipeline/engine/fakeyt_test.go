@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,7 +21,8 @@ import (
 // fakeYT is an in-memory YouTrack: issues with a State, comments with ids,
 // the comment activity feed with cursors, and commands that set the State.
 // Queries understand "State: X", "State: {X Y}", "project: P", parentheses
-// and "and".
+// and "and". No issue has a tag, and a query by a tag missing from tags is
+// refused as YouTrack refuses it.
 type fakeYT struct {
 	srv *youtracktest.Server
 
@@ -30,6 +32,7 @@ type fakeYT struct {
 	activities []fakeActivity
 	commands   []string          // "KEY: command"
 	failing    map[string]string // command -> YouTrack's error description
+	tags       map[string]bool   // tags that exist
 	nextID     int
 }
 
@@ -52,7 +55,7 @@ type fakeActivity struct {
 }
 
 func newFakeYT(t *testing.T) *fakeYT {
-	f := &fakeYT{failing: map[string]string{}, nextID: 100}
+	f := &fakeYT{failing: map[string]string{}, tags: map[string]bool{}, nextID: 100}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/users/me", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, 200, map[string]string{"id": "1-1", "login": youtracktest.Login})
@@ -65,6 +68,7 @@ func newFakeYT(t *testing.T) *fakeYT {
 	mux.HandleFunc("POST /api/commands", f.command)
 	mux.HandleFunc("POST /api/commands/assist", f.assist)
 	mux.HandleFunc("GET /api/activitiesPage", f.activitiesPage)
+	mux.HandleFunc("GET /api/tags", f.listTags)
 	f.srv = youtracktest.New(t, mux)
 	return f
 }
@@ -292,9 +296,18 @@ func issueJSON(is *fakeIssue, full bool) map[string]any {
 	return m
 }
 
+var queryTag = regexp.MustCompile(`(?i)tag:\s*(\{[^}]*\}|[^\s()]+)`)
+
 func (f *fakeYT) search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f.mu.Lock()
+	for _, m := range queryTag.FindAllStringSubmatch(q.Get("query"), -1) {
+		if !f.tags[strings.Trim(m[1], "{}")] {
+			f.mu.Unlock()
+			reply(w, 400, map[string]string{"error": "invalid_query", "error_description": "Can't parse search query, please check and update query syntax"})
+			return
+		}
+	}
 	var all []map[string]any
 	for _, is := range f.issues {
 		if !is.Deleted && matches(q.Get("query"), is) {
@@ -315,6 +328,16 @@ func (f *fakeYT) search(w http.ResponseWriter, r *http.Request) {
 		all = []map[string]any{}
 	}
 	reply(w, 200, all)
+}
+
+func (f *fakeYT) listTags(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []map[string]string{}
+	for name := range f.tags {
+		out = append(out, map[string]string{"name": name})
+	}
+	reply(w, 200, out)
 }
 
 func (f *fakeYT) getIssue(w http.ResponseWriter, r *http.Request) {

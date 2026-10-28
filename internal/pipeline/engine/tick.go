@@ -61,6 +61,10 @@ func (r *Runner) reapFinished(ctx context.Context) {
 // now; ok is false when the source could not be read.
 func (r *Runner) pollSource(ctx context.Context) (source map[string]ytwatch.Issue, captured map[int64]bool, ok bool) {
 	issues, err := r.watch.Search(ctx, r.p.Source.Query)
+	var nt *ytwatch.NewTagError
+	if errors.As(err, &nt) {
+		err = nil // nothing has the tag yet
+	}
 	if err != nil {
 		if ctx.Err() == nil {
 			r.log.Warn("reading the source failed", "err", err)
