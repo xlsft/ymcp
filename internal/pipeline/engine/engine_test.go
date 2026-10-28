@@ -1100,6 +1100,64 @@ func TestApprovalSurvivesRestart(t *testing.T) {
 
 // TestFakeClockStampsStore: with a fake clock set on both the engine and
 // the store, what the store writes follows it, inbox items included.
+// TestTranscriptEvents: thoughts and text are recorded while they stream,
+// and tool calls keep their input, long input cut.
+func TestTranscriptEvents(t *testing.T) {
+	// Restored after the harness stops: cleanups run last first.
+	prev := textEvery
+	t.Cleanup(func() { textEvery = prev })
+	textEvery = 50 * time.Millisecond
+	h := newHarness(t, nil)
+	is := h.yt.addIssue("Talk", "Open")
+	long := strings.Repeat("x", 5000)
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		t.s.emit(agent.Event{Kind: agent.EventThought, Text: "Where is the login handler?"})
+		t.s.emit(agent.Event{Kind: agent.EventToolCall, Tool: &agent.ToolCall{ID: "1", Title: "Read", Kind: "read", Status: "in_progress", Input: json.RawMessage(`{"file_path":"/src/login.go"}`)}})
+		t.s.emit(agent.Event{Kind: agent.EventToolCall, Tool: &agent.ToolCall{ID: "2", Title: "Write", Kind: "edit", Status: "in_progress", Input: json.RawMessage(`{"file_path":"/src/big.go","content":"` + long + `"}`)}})
+		t.Say("Part one, ")
+		time.Sleep(120 * time.Millisecond)
+		t.Say("part two.")
+		return agent.Result{}
+	})
+	h.start()
+	run := h.waitReview(1, is.Key)
+
+	if th := h.events(run.ID, "agent.thought"); len(th) != 1 || !strings.Contains(string(th[0].Data), "login handler") {
+		t.Errorf("thoughts = %v", th)
+	}
+	var tools []struct {
+		Tool struct {
+			Title string
+			Input map[string]string
+		}
+	}
+	for _, e := range h.events(run.ID, "agent.tool_call") {
+		var v struct {
+			Tool struct {
+				Title string
+				Input map[string]string
+			}
+		}
+		if err := json.Unmarshal(e.Data, &v); err != nil {
+			t.Fatal(err)
+		}
+		tools = append(tools, v)
+	}
+	if len(tools) != 2 || tools[0].Tool.Input["file_path"] != "/src/login.go" || tools[1].Tool.Input["file_path"] != "/src/big.go" {
+		t.Fatalf("tool calls = %+v", tools)
+	}
+	if c := tools[1].Tool.Input["content"]; len(c) > 400 || !strings.HasPrefix(c, "xxx") {
+		t.Errorf("long input kept as %d bytes", len(c))
+	}
+	var text []string
+	for _, e := range h.events(run.ID, "agent.text") {
+		text = append(text, string(e.Data))
+	}
+	if len(text) < 2 || !strings.Contains(text[0], "Part one") {
+		t.Errorf("text recorded at once, not while it streamed: %q", text)
+	}
+}
+
 func TestFakeClockStampsStore(t *testing.T) {
 	// An hour behind the real time: comments carry YouTrack's own (here real)
 	// timestamps, and one written before a run's CreatedAt is not feedback.

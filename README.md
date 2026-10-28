@@ -207,7 +207,9 @@ The [Site workflow](.github/workflows/site.yml) draws these from the TUI's own c
 Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
 runs that wait for you. Press `n` to create a pipeline with the wizard. `enter` on a card of the board, a run or an
 issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
-and the agent's log, with a comment box (`enter`) whose `/` completes the commands below; `r` reloads the board or the card. Every field of the issue that
+(`[` and `]`) and the agent's log, with a comment box (`enter`) whose `/` completes the commands below; `r` reloads the
+board or the card. `t` opens the run's transcript over the card: what the agent thinks and says, every tool it runs
+with the file, command or pattern it looks at, and the replies it gets, followed live. Every field of the issue that
 has a value shows at the top of the card, four to a row, beside the title or under it when it doesn't fit. `e` lists the project's fields to change one: pick a value,
 add or remove one of several, or type a number. A backlog issue the source query no longer finds after the change
 leaves the board. Shortcuts work on Cyrillic keyboard layouts too. In kitty and Ghostty the card shows pictures in place, pasted
