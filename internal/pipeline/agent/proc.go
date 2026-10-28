@@ -81,10 +81,19 @@ func withStderr(msg string, t *tail) string {
 // neither ~/.zshrc nor ~/.bashrc past its interactive check.
 func notFound(msg string, waitErr error, command string) string {
 	var ee *exec.ExitError
-	if !errors.As(waitErr, &ee) || ee.ExitCode() != 127 {
+	if !errors.As(waitErr, &ee) || ee.ExitCode() != 127 || !notFoundSaid(msg) {
 		return msg
 	}
 	return msg + ". " + command + " is not in the PATH of the agent's shell; " + pathFix
+}
+
+// notFoundSaid reports whether the shell said it can't find a command:
+// status 127 is also the remote script's cd failing.
+func notFoundSaid(msg string) bool {
+	if strings.Contains(msg, "can't cd") || strings.Contains(msg, "cd: ") {
+		return false
+	}
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "No such file or directory")
 }
 
 // pathFix says how to put a command in the PATH of a non-interactive ssh
