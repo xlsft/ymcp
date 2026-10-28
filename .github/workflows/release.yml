@@ -101,3 +101,37 @@ jobs:
     with:
       version: ${{ needs.release.outputs.version }}
     secrets: inherit
+
+  # Lists the release in the MCP Registry as io.github.xlsft/ymcp, the image
+  # Docker just pushed run over stdio. The registry checks the image's
+  # io.modelcontextprotocol.server.name label, so this waits for the push.
+  mcp-registry:
+    needs: [release, docker]
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC sign-in to the registry's io.github.xlsft namespace
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.6
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v3
+      - name: Install mcp-publisher
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          base=https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION
+          curl -fsSL -O "$base/$archive" -O "$base/$archive.sigstore.json"
+          cosign verify-blob "$archive" --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$MCP_PUBLISHER_VERSION" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          tar xzf "$archive" mcp-publisher
+      - name: Publish
+        run: |
+          v=${VERSION#v}
+          jq --arg v "$v" '.version = $v | .packages[0].identifier = "docker.io/xlsoftware/ymcp:\($v)"' server.json > server.tmp
+          mv server.tmp server.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+          echo "Listed io.github.xlsft/ymcp $v in the [MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.xlsft/ymcp)" >> "$GITHUB_STEP_SUMMARY"
