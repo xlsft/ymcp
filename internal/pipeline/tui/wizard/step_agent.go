@@ -63,12 +63,6 @@ type agentMsg struct {
 	err     error
 }
 
-type issueMsg struct {
-	key   string
-	issue ytwatch.Issue
-	err   error
-}
-
 type editedMsg struct {
 	which int
 	text  string
@@ -100,11 +94,7 @@ type agentStep struct {
 	save    *saveForm // "save as preset", while open
 	notice  string    // what the last save did
 
-	issueKey     string
-	issue        *ytwatch.Issue
-	issueErr     error
-	issuePending bool
-	editErr      error
+	editErr error
 }
 
 func newAgentStep(sh *shared) *agentStep {
@@ -378,19 +368,7 @@ func (s *agentStep) enter() tea.Cmd {
 			cmds = append(cmds, s.check(p))
 		}
 	}
-	key := s.sh.sample.key()
-	yt := s.sh.conn.yt
-	if key != "" && yt != nil && key != s.issueKey {
-		s.issueKey, s.issuePending, s.issue, s.issueErr = key, true, nil, nil
-		ctx := s.sh.ctx
-		cmds = append(cmds, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-			defer cancel()
-			is, err := yt.Issue(ctx, key)
-			return issueMsg{key: key, issue: is, err: err}
-		})
-	}
-	return tea.Batch(cmds...)
+	return tea.Batch(append(cmds, s.sh.loadIssue())...)
 }
 
 func (s *agentStep) leave() { s.save = nil }
@@ -455,15 +433,6 @@ func (s *agentStep) msg(msg tea.Msg) tea.Cmd {
 		for _, r := range s.results {
 			if r.deb.current(m.id, m.seq) {
 				r.pending, r.done, r.info, r.err = false, true, m.info, m.err
-			}
-		}
-		return nil
-	case issueMsg:
-		if m.key == s.issueKey {
-			s.issuePending, s.issueErr = false, m.err
-			if m.err == nil {
-				is := m.issue
-				s.issue = &is
 			}
 		}
 		return nil
@@ -635,8 +604,8 @@ func readEdited(which int, path string, runErr error) tea.Msg {
 func (s *agentStep) vars() text.Vars {
 	p := s.sh.p
 	is := ytwatch.Issue{Key: "ABC-1", Summary: "Example issue", URL: "https://youtrack.example/issue/ABC-1"}
-	if s.issue != nil {
-		is = *s.issue
+	if s.sh.full.issue != nil {
+		is = *s.sh.full.issue
 	}
 	v := text.Vars{
 		"issue.id": is.Key, "issue.key": is.Key, "issue.dbid": is.ID, "issue.summary": is.Summary,
@@ -884,12 +853,12 @@ func (c *promptsCtl) below(width int) string {
 	}
 	on := "an example issue"
 	switch {
-	case s.issue != nil:
-		on = s.issue.Key
-	case s.issuePending:
-		on = "an example issue (loading " + s.issueKey + "…)"
-	case s.issueErr != nil:
-		on = "an example issue (" + oneLine(s.issueErr.Error(), 40) + ")"
+	case s.sh.full.issue != nil:
+		on = s.sh.full.issue.Key
+	case s.sh.full.pending:
+		on = "an example issue (loading " + s.sh.full.key + "…)"
+	case s.sh.full.err != nil:
+		on = "an example issue (" + oneLine(s.sh.full.err.Error(), 40) + ")"
 	}
 	lines = append(lines, styleLabel.Render("Preview of "+promptNames[c.cur])+styleDim.Render(" on "+on))
 	rendered, err := text.Render(s.texts()[c.cur], s.vars())

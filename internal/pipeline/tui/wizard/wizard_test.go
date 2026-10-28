@@ -198,6 +198,12 @@ func TestNewPipeline(t *testing.T) {
 	d.focus("branch")
 	d.must("Branch name template", "preview: YPC-3-fix-login-redirect")
 	d.dump("3-repository-advanced")
+	// The preview knows the issue's fields.
+	d.keys("ctrl+u")
+	d.typ("{{issue.fields.Priority | slug}}/{{issue.id}}")
+	d.must("preview: major/YPC-3")
+	d.keys("ctrl+u")
+	d.typ("{{issue.id}}-{{issue.summary | slug}}")
 	d.keys("ctrl+n")
 
 	// Agent: every provider is checked; switching keeps each draft.
