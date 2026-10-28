@@ -84,8 +84,12 @@ func notFound(msg string, waitErr error, command string) string {
 	if !errors.As(waitErr, &ee) || ee.ExitCode() != 127 {
 		return msg
 	}
-	return msg + ". " + command + " is not in the PATH of the agent's shell; on an ssh host, add its directory to the PATH in ~/.zshenv (zsh) or ~/.profile, or set agent.command to its full path"
+	return msg + ". " + command + " is not in the PATH of the agent's shell; " + pathFix
 }
+
+// pathFix says how to put a command in the PATH of a non-interactive ssh
+// session.
+const pathFix = "add its directory to the PATH in ~/.zshenv (zsh) or at the top of ~/.bashrc (bash), or set agent.command to its full path"
 
 // startPiped starts cmd in its own process group with stdout and stderr on
 // pipes of our own, which Wait neither waits for nor closes: children of

@@ -325,7 +325,7 @@ func checkRemoteBinary(ctx context.Context, h Host, command string) (Info, error
 		if errors.As(err, &ee) && ee.ExitCode() == 255 {
 			return Info{}, fmt.Errorf("agent: ssh %s: %s", h.Name(), strings.TrimSpace(string(stderr)))
 		}
-		return Info{}, fmt.Errorf("agent: %s is not found on %s in the PATH of a non-interactive ssh session; install it there or set agent.command to its full path", command, h.Name())
+		return Info{}, fmt.Errorf("agent: %s is not found on %s in the PATH of a non-interactive ssh session; install it there, or "+pathFix, command, h.Name())
 	}
 	info := Info{Path: path}
 	vctx, cancel := context.WithTimeout(ctx, 15*time.Second)
