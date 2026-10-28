@@ -253,7 +253,7 @@ var gitlabSection = regexp.MustCompile(`section_(start|end):\d+:[^\r\n]*\r?`)
 // bytes.
 func cleanLog(s string, limit int) string {
 	s = gitlabSection.ReplaceAllString(s, "")
-	s = ansi.Strip(s)
+	s = strings.ReplaceAll(ansi.Strip(s), "\x1b", "") // a lone ESC Strip leaves after broken UTF-8
 	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 	for i, l := range lines {
 		if k := strings.LastIndexByte(l, '\r'); k >= 0 {

@@ -165,3 +165,25 @@ func TestCleanLog(t *testing.T) {
 		t.Errorf("cut = %q", got)
 	}
 }
+
+// FuzzCleanLog: a cleaned log has no escape sequences or carriage returns
+// and fits its limit.
+func FuzzCleanLog(f *testing.F) {
+	for _, s := range []string{"", "ok\n", "section_start:1:x\r\x1b[0K\x1b[31mred\x1b[0m\r\n10%\r100%\n", strings.Repeat("line\n", 300)} {
+		f.Add(s, 100)
+	}
+	f.Fuzz(func(t *testing.T, log string, limit int) {
+		limit = 1 + abs(limit)%5000
+		out := cleanLog(log, limit)
+		if len(out) > limit || strings.ContainsAny(out, "\x1b\r") {
+			t.Errorf("cleanLog(%q, %d) = %q", log, limit, out)
+		}
+	})
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
