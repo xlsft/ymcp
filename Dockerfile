@@ -15,6 +15,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 RUN mkdir -p /out/config
 
 FROM gcr.io/distroless/static-debian12:nonroot
+# The MCP Registry checks that the image belongs to the server it lists.
+LABEL io.modelcontextprotocol.server.name="io.github.xlsft/ymcp"
 COPY --from=build /out/ymcp /usr/local/bin/ymcp
 COPY --from=build --chown=nonroot:nonroot /out/config /config
 ENV YMCP_CONFIG=/config/config.json \
