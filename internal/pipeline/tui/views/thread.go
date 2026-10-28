@@ -1,12 +1,14 @@
 package views
 
 import (
+	"cmp"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/text"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/termimg"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 )
@@ -23,6 +25,7 @@ type threadItem struct {
 	edited  bool
 	where   string // file:line of a line comment, "review" for a review
 	pending bool   // posted by us, not confirmed yet
+	files   []Attachment
 }
 
 // agentHeader recognises an agent's message by its marker and returns the
@@ -51,7 +54,7 @@ func isWorking(body string) bool {
 }
 
 func issueItem(c IssueComment) threadItem {
-	it := threadItem{author: c.Author, name: c.AuthorName, at: c.Created, edited: !c.Updated.IsZero() && c.Updated.After(c.Created.Add(time.Second))}
+	it := threadItem{author: c.Author, name: c.AuthorName, at: c.Created, edited: !c.Updated.IsZero() && c.Updated.After(c.Created.Add(time.Second)), files: c.Files}
 	it.label, it.body, _ = agentHeader(c.Text, c.Author)
 	it.working = it.label != "" && isWorking(it.body)
 	return it
@@ -75,8 +78,10 @@ func changeItem(c vcs.Comment) threadItem {
 	return it
 }
 
-// lines renders an item at width w: a header line, then the body indented.
-func (it threadItem) lines(w int, now time.Time, frame int) []string {
+// lines renders an item at width w: a header line, then the body indented,
+// then the pictures attached to it. pics draws pictures; nil reduces them
+// to their names.
+func (it threadItem) lines(w int, now time.Time, frame int, pics *pictures) []string {
 	when := agoText(now, it.at)
 	var head string
 	switch {
@@ -103,17 +108,47 @@ func (it threadItem) lines(w int, now time.Time, frame int) []string {
 		gutter = theme.Dim.Render("│ ")
 	}
 	if it.working {
+		if pics != nil && pics.mode == termimg.Kitty {
+			for _, l := range pics.lines("", workingURL, max(w-2, 1), loaderRows) {
+				out = append(out, gutter+l)
+			}
+			return out
+		}
 		return append(out, gutter+theme.Accent.Render(spinner[frame%len(spinner)])+" "+theme.Dim.Render("working…"))
 	}
-	body := mdLines(it.body, max(w-2, 1))
+	var draw pictureLines
+	if pics != nil {
+		draw = func(alt, src string, w int) []string {
+			return pics.lines(cmp.Or(alt, pictureName("", src)), resolve(src, it.files, pics.files), w, pictureRows)
+		}
+	}
+	body := mdLinesWith(it.body, max(w-2, 1), draw)
+	shown := map[string]bool{}
+	for _, src := range pictureRefs(it.body, it.files) {
+		shown[src] = true
+	}
+	for _, f := range it.files {
+		if !shown[f.URL] {
+			if len(body) > 0 {
+				body = append(body, "")
+			}
+			body = append(body, pics.file(f, max(w-2, 1))...)
+		}
+	}
 	if len(body) == 0 {
 		body = []string{theme.Dim.Render("(empty)")}
+	}
+	if drawn(body[0]) { // a picture first: a line of air under the header
+		out = append(out, "")
 	}
 	for _, l := range body {
 		out = append(out, gutter+l)
 	}
 	return out
 }
+
+// pictureLines draws a picture of a text, w cells wide at most.
+type pictureLines func(alt, src string, w int) []string
 
 // ago is a relative time: "just now", "12m ago", "3h ago", or a date for
 // anything older than a week.
@@ -134,21 +169,27 @@ func agoText(now, t time.Time) string {
 }
 
 var (
-	mdImage   = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]*)[^)]*\)`)
-	mdLink    = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)[^)]*\)`)
-	mdBold    = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
-	mdComment = regexp.MustCompile(`(?s)<!--.*?-->`)
-	mdOwnLine = regexp.MustCompile(`(?ms)^[ \t]*<!--.*?-->[ \t]*(?:\n|\z)`)
-	mdHeading = regexp.MustCompile(`^#{1,6}\s+`)
-	mdList    = regexp.MustCompile(`^(\s*)(?:[-*+]|\d+[.)])\s+`)
-	mdRule    = regexp.MustCompile(`^\s*(?:-{3,}|\*{3,}|_{3,})\s*$`)
+	mdImage = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]*)[^)]*\)`)
+	// mdImageAttrs is a picture with the attributes YouTrack puts after it.
+	mdImageAttrs = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)(?:\{[^}\n]*\})?`)
+	mdLink       = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)[^)]*\)`)
+	mdBold       = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
+	mdComment    = regexp.MustCompile(`(?s)<!--.*?-->`)
+	mdOwnLine    = regexp.MustCompile(`(?ms)^[ \t]*<!--.*?-->[ \t]*(?:\n|\z)`)
+	mdHeading    = regexp.MustCompile(`^#{1,6}\s+`)
+	mdList       = regexp.MustCompile(`^(\s*)(?:[-*+]|\d+[.)])\s+`)
+	mdRule       = regexp.MustCompile(`^\s*(?:-{3,}|\*{3,}|_{3,})\s*$`)
 )
 
 // mdLines renders markdown as plain wrapped text: headings and bold in
 // bold, list bullets, quotes and code blocks indented, images and links
 // reduced to their text, HTML comments dropped; runs of blank lines become
 // one.
-func mdLines(s string, w int) []string {
+func mdLines(s string, w int) []string { return mdLinesWith(s, w, nil) }
+
+// mdLinesWith is mdLines with a picture alone on its line drawn by draw
+// when it is not nil.
+func mdLinesWith(s string, w int, draw pictureLines) []string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = mdOwnLine.ReplaceAllString(s, "")
 	s = mdComment.ReplaceAllString(s, "")
@@ -197,6 +238,13 @@ func mdLines(s string, w int) []string {
 					out = append(out, indent+strings.Repeat(" ", len(bullet))+l)
 				}
 			}
+		case draw != nil && mdImageLine(t):
+			for i, m := range mdImage.FindAllStringSubmatch(t, -1) {
+				if i > 0 {
+					out = append(out, "")
+				}
+				out = append(out, draw(m[1], m[2], w)...)
+			}
 		default:
 			out = append(out, wrap(mdInline(line), w)...)
 		}
@@ -215,9 +263,18 @@ func mdLines(s string, w int) []string {
 	return clean
 }
 
+// mdImageLine reports whether a line holds pictures only, each with
+// YouTrack's {width=…} after it if any.
+func mdImageLine(t string) bool {
+	return mdImage.MatchString(t) && strings.TrimSpace(mdImageAttrs.ReplaceAllString(t, "")) == ""
+}
+
 // inline reduces inline markdown: images to [image], links to their text,
 // bold to bold.
 func mdInline(s string) string {
+	s = mdImageAttrs.ReplaceAllStringFunc(s, func(m string) string { // {width=…} is no text
+		return m[:strings.LastIndex(m, ")")+1]
+	})
 	s = mdImage.ReplaceAllStringFunc(s, func(m string) string {
 		alt := strings.TrimSpace(mdImage.FindStringSubmatch(m)[1])
 		if alt == "" {

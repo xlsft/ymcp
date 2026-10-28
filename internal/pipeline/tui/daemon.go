@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/termimg"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/views"
 )
 
@@ -28,8 +29,11 @@ func Defaults(st *store.Store) views.Deps {
 		Issues:    yt,
 		People:    yt,
 		Fields:    yt,
-		Changes:   &CodeHost{},
-		OpenURL:   OpenURL,
+		Pictures:  yt,
+		// Pictures in place where the terminal can, links elsewhere.
+		PictureMode: termimg.Detect(os.Getenv),
+		Changes:     &CodeHost{},
+		OpenURL:     OpenURL,
 	}
 }
 
