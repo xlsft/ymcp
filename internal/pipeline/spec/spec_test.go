@@ -479,6 +479,11 @@ func TestResolvedPrompts(t *testing.T) {
 }
 
 func TestServiceInstruction(t *testing.T) {
+	for _, rule := range []string{"Use gh and glab for whatever else", "Never credit yourself or any other agent", "no Co-Authored-By or other trailers"} {
+		if !strings.Contains(ServiceInstruction, rule) {
+			t.Errorf("ServiceInstruction lacks %q", rule)
+		}
+	}
 	if !strings.Contains(ServiceInstruction, "every commit message starts with {{commit.prefix}}.") {
 		t.Error("the commit line must use {{commit.prefix}}")
 	}
