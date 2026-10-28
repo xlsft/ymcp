@@ -145,7 +145,8 @@ func TestChipGrid(t *testing.T) {
 }
 
 // TestIssueCardFieldsGrid: every field with a value shows as a chip,
-// State, Type and Priority first, then by name, four a row in columns.
+// State, Type and Priority first, then by name, four a row in columns, on
+// the right of the title.
 func TestIssueCardFieldsGrid(t *testing.T) {
 	f := newFixture(t)
 	yt := withIssues(f)
@@ -177,8 +178,10 @@ func TestIssueCardFieldsGrid(t *testing.T) {
 	if a, b := col(lines[first], "Type: Task"), col(lines[second], "flow: frontend"); a != b {
 		t.Errorf("columns do not line up (%d, %d):\n%s", a, b, d.view())
 	}
-	if row("Rate limit the login endpoint") >= first {
-		t.Errorf("the title is not above the grid:\n%s", d.view())
+	// Three rows still fit beside the title, so the grid stays on its right.
+	if title := row("Rate limit the login endpoint"); title != first ||
+		col(lines[title], "Rate limit the login endpoint") >= col(lines[first], "State: Open") {
+		t.Errorf("the grid is not on the right of the title:\n%s", d.view())
 	}
 
 	// Smaller screens keep the card whole.
