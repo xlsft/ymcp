@@ -24,6 +24,7 @@ import (
 type repoStep struct {
 	base
 	host, dir, baseBr, branch, prefix, parallel *assistField
+	titleTmpl                                   *assistField // strategy.title
 	idName, idTag                               *assistField
 	all                                         []*item
 	advanced                                    bool
@@ -71,15 +72,18 @@ func newRepoStep(sh *shared) *repoStep {
 	s.baseBr.set(w.Base)
 	s.branch = newAssist(sh, spec.DefaultBranch, nil)
 	s.branch.set(w.Branch)
-	s.prefix = newAssist(sh, spec.DefaultCommitPrefix, nil)
-	s.prefix.set(w.CommitPrefix)
+	s.prefix = newAssist(sh, "none", nil)
+	s.prefix.set(w.Prefix())
+	s.titleTmpl = newAssist(sh, spec.DefaultTitle, nil)
+	s.titleTmpl.set(cmp.Or(sh.p.Strategy.Title, spec.DefaultTitle))
 	s.parallel = newAssist(sh, "1", staticSuggest([]string{"1", "2", "3", "4"}))
 	s.parallel.set(strconv.Itoa(max(w.Parallel, 1)))
 	s.idName = newAssist(sh, spec.DefaultIdentityName, nil)
 	s.idName.set(w.Identity.Name)
 	s.idTag = newAssist(sh, spec.DefaultIdentityTag, nil)
 	s.idTag.set(w.Identity.Tag)
-	s.advanced = w.Branch != spec.DefaultBranch || w.CommitPrefix != spec.DefaultCommitPrefix ||
+	s.advanced = w.Branch != spec.DefaultBranch || w.Prefix() != spec.DefaultCommitPrefix ||
+		cmp.Or(sh.p.Strategy.Title, spec.DefaultTitle) != spec.DefaultTitle ||
 		w.Host != "" || w.Base != "" || w.Parallel > 1 || w.Identity.Enabled
 
 	store := func() tea.Cmd {
@@ -199,10 +203,18 @@ func newRepoStep(sh *shared) *repoStep {
 		},
 		{
 			id: "prefix", label: "Commit message prefix", hidden: adv,
-			desc:    "Put in front of the agent's commit messages.",
+			desc:    "Put in front of the agent's commit messages; empty for none, e.g. for commitlint.",
 			ctl:     newText(s.prefix, func() tea.Cmd { s.store(); return nil }),
-			problem: func() string { return s.tmplErr(sh.p.Workspace.CommitPrefix) },
-			below:   func(int) string { return s.preview(sh.p.Workspace.CommitPrefix) },
+			problem: func() string { return s.tmplErr(sh.p.Workspace.Prefix()) },
+			below:   func(int) string { return s.preview(sh.p.Workspace.Prefix()) },
+		},
+		{
+			id: "title", label: "PR/MR title template",
+			hidden:  func() bool { return adv() || sh.p.Strategy.Kind == "branch" },
+			desc:    "{{commit.subject}} is the branch's first commit, e.g. for a conventional title.",
+			ctl:     newText(s.titleTmpl, func() tea.Cmd { s.store(); return nil }),
+			problem: func() string { return s.tmplErr(sh.p.Strategy.Title) },
+			below:   func(int) string { return s.preview(sh.p.Strategy.Title) },
 		},
 		{
 			id: "identity", inline: true, hidden: adv,
@@ -277,8 +289,8 @@ func (s *repoStep) title() string { return "Repository" }
 // advErr reports whether a field under Advanced is wrong.
 func (s *repoStep) advErr() bool {
 	w := s.sh.p.Workspace
-	return strings.ContainsAny(w.Host, " \t") || w.Parallel < 1 || s.tmplErr(w.Branch) != "" || s.tmplErr(w.CommitPrefix) != "" ||
-		s.tmplErr(w.Identity.Name) != "" || s.tmplErr(w.Identity.Tag) != ""
+	return strings.ContainsAny(w.Host, " \t") || w.Parallel < 1 || s.tmplErr(w.Branch) != "" || s.tmplErr(w.Prefix()) != "" ||
+		s.tmplErr(s.sh.p.Strategy.Title) != "" || s.tmplErr(w.Identity.Name) != "" || s.tmplErr(w.Identity.Tag) != ""
 }
 
 // advOpen reports whether the Advanced fields show.
@@ -482,7 +494,9 @@ func (s *repoStep) store() {
 	w.Dir = normalizeDir(w.Host, s.dir.value())
 	w.Base = s.baseBr.value()
 	w.Branch = s.branch.value()
-	w.CommitPrefix = s.prefix.value()
+	prefix := s.prefix.value()
+	w.CommitPrefix = &prefix
+	s.sh.p.Strategy.Title = s.titleTmpl.value()
 	w.Identity.Name, w.Identity.Tag = s.idName.value(), s.idTag.value()
 	if n, err := strconv.Atoi(s.parallel.value()); err == nil {
 		w.Parallel = n
@@ -536,7 +550,7 @@ func (s *repoStep) msg(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	for _, f := range []*assistField{s.host, s.dir, s.baseBr, s.branch, s.prefix, s.parallel} {
+	for _, f := range []*assistField{s.host, s.dir, s.baseBr, s.branch, s.prefix, s.titleTmpl, s.parallel} {
 		cmds = append(cmds, f.msg(msg))
 	}
 	return tea.Batch(cmds...)
@@ -659,7 +673,8 @@ func (s *repoStep) preview(tmpl string) string {
 	if full := s.sh.full.issue; full != nil && full.Key == sample.Key {
 		sample = *full
 	}
-	v := text.Vars{"issue.id": sample.Key, "issue.key": sample.Key, "issue.summary": sample.Summary, "issue.dbid": sample.ID}
+	v := text.Vars{"issue.id": sample.Key, "issue.key": sample.Key, "issue.summary": sample.Summary, "issue.dbid": sample.ID,
+		"commit.subject": "fix: the first commit's subject"}
 	for k, f := range sample.Fields {
 		v["issue.fields."+k] = f
 	}
@@ -686,7 +701,7 @@ func (s *repoStep) blockers() []problem {
 	if w.Parallel < 1 {
 		out = append(out, problem{"parallel", "issues at once of at least 1"})
 	}
-	for _, t := range []struct{ id, v, what string }{{"branch", w.Branch, "a valid branch template"}, {"prefix", w.CommitPrefix, "a valid commit prefix"}} {
+	for _, t := range []struct{ id, v, what string }{{"branch", w.Branch, "a valid branch template"}, {"prefix", w.Prefix(), "a valid commit prefix"}, {"title", s.sh.p.Strategy.Title, "a valid PR/MR title template"}} {
 		if s.tmplErr(t.v) != "" {
 			out = append(out, problem{t.id, t.what})
 		}

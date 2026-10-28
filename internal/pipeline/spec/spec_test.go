@@ -64,7 +64,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		{"Done.On", p.Stages.Done.On(), false},
 		{"Working.On", p.Stages.Working.On(), true},
 		{"Branch", p.Workspace.Branch, "{{issue.id}}-{{issue.summary | slug}}"},
-		{"CommitPrefix", p.Workspace.CommitPrefix, "{{issue.id}}"},
+		{"CommitPrefix", p.Workspace.Prefix(), "{{issue.id}}"},
+		{"Title", p.Strategy.Title, "{{issue.key}} {{issue.summary}}"},
 		{"Parallel", p.Workspace.Parallel, 1},
 		{"Provider", p.Agent.Provider, "claude"},
 		{"AgentName", p.Agent.Name, "Claude"},
@@ -484,8 +485,14 @@ func TestServiceInstruction(t *testing.T) {
 			t.Errorf("ServiceInstruction lacks %q", rule)
 		}
 	}
-	if !strings.Contains(ServiceInstruction, "every commit message starts with {{commit.prefix}}.") {
-		t.Error("the commit line must use {{commit.prefix}}")
+	if !strings.Contains(ServiceInstruction, "Commit your changes yourself; {{commit.rule}}") {
+		t.Error("the commit line must use {{commit.rule}}")
+	}
+	if got := CommitRule("BE-1"); got != "every commit message starts with BE-1." {
+		t.Errorf("CommitRule(BE-1) = %q", got)
+	}
+	if got := CommitRule(" "); !strings.Contains(got, "commitlint") || strings.Contains(got, "starts with") {
+		t.Errorf("CommitRule without a prefix = %q", got)
 	}
 	if strings.Contains(ServiceInstruction, "starts with {{issue.id}}") {
 		t.Error("the commit line still uses {{issue.id}}")
@@ -497,6 +504,31 @@ func TestServiceInstruction(t *testing.T) {
 	}
 	if !strings.Contains(LanguageRule, "{{language}}") || !strings.Contains(ServiceInstruction, LanguageRule) {
 		t.Error("LanguageRule is not the language line of the service instruction")
+	}
+}
+
+// TestEmptyCommitPrefixStays: an empty commitPrefix means none and
+// survives a save and a load; a missing one is the default.
+func TestEmptyCommitPrefixStays(t *testing.T) {
+	var p Pipeline
+	if err := json.Unmarshal([]byte(`{"workspace":{"commitPrefix":""}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	p = p.WithDefaults()
+	if got := p.Workspace.Prefix(); got != "" {
+		t.Errorf("empty prefix became %q", got)
+	}
+	b, _ := json.Marshal(p)
+	var back Pipeline
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if got := back.WithDefaults().Workspace.Prefix(); got != "" {
+		t.Errorf("after a round trip the prefix is %q", got)
+	}
+	var unset Pipeline
+	if got := unset.WithDefaults().Workspace.Prefix(); got != DefaultCommitPrefix {
+		t.Errorf("unset prefix = %q", got)
 	}
 }
 

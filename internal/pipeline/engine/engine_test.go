@@ -404,7 +404,7 @@ func TestCaptureWorkPushReviewFeedback(t *testing.T) {
 	}
 	// The branch was committed as the repository's user and pushed.
 	log := git(t, h.origin, "log", "-1", "--format=%an <%ae>|%s", run.Branch)
-	if log != "Dev <dev@xlsft.ru>|"+is.Key+" Fixed the login page." {
+	if log != "Dev <dev@xlsft.ru>|"+is.Key+" Fixed the login page" {
 		t.Errorf("origin log = %q", log)
 	}
 	if len(h.events(run.ID, "git.push")) != 1 || len(h.events(run.ID, "agent.text")) == 0 {
@@ -1938,13 +1938,13 @@ func TestRunnerBusy(t *testing.T) {
 func TestCommitMessage(t *testing.T) {
 	long := "The README edit is made but `git add`/`git commit` were denied, so the change is left uncommitted in the working tree."
 	for _, tc := range []struct{ prefix, answer, want string }{
-		{"YPC-5", "Fixed the login page.\nAdded login.go.", "YPC-5 Fixed the login page."},
-		{"YPC-5", "Fixed the login page. Added login.go and a test for it.", "YPC-5 Fixed the login page."},
+		{"YPC-5", "Fixed the login page.\nAdded login.go.", "YPC-5 Fixed the login page"},
+		{"YPC-5", "Fixed the login page. Added login.go and a test for it.", "YPC-5 Fixed the login page"},
 		{"YPC-5", "## Summary\n\nDone.", "YPC-5 Summary"},
-		{"YPC-5", "**Renamed** login.go, e.g. to auth.go. Tests pass.", "YPC-5 Renamed login.go, e.g. to auth.go."},
+		{"YPC-5", "**Renamed** login.go, e.g. to auth.go. Tests pass.", "YPC-5 Renamed login.go, e.g. to auth.go"},
 		{"YPC-5", long, "YPC-5 The README edit is made but `git add`/`git commit` were denied, so"},
 		{"YPC-5", "", "YPC-5 agent changes"},
-		{"", "Привет, мир. Ещё одно предложение.", "Привет, мир."},
+		{"", "Привет, мир. Ещё одно предложение.", "Привет, мир"},
 		{"X-1", strings.Repeat("a", 100), "X-1 agent changes"},
 	} {
 		got := commitMessage(tc.prefix, tc.answer)

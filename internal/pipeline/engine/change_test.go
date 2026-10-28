@@ -177,6 +177,32 @@ func TestIssuePROpensMirrorIssue(t *testing.T) {
 	}
 }
 
+// TestNoPrefixAndTitleFromCommit: with no commit prefix the agent is told
+// to follow the repository's commit rules, ymcp's own commit has no prefix,
+// and a title of {{commit.subject}} names the change after the branch's
+// first commit.
+func TestNoPrefixAndTitleFromCommit(t *testing.T) {
+	none := ""
+	h := vcsHarness(t, vcs.KindGitLabMR, func(p *spec.Pipeline) {
+		p.Workspace.CommitPrefix = &none
+		p.Strategy.Title = "{{commit.subject}}"
+	})
+	is := h.yt.addIssue("Мелкие баги модуля", "Open")
+	h.ag.script(fixTurn("fix(registry): build the pull command from the image prefix. Then more."))
+	h.start()
+	run := h.waitReview(1, is.Key)
+	if sys := h.ag.startLog()[0].SystemPrompt; !strings.Contains(sys, "commitlint") || strings.Contains(sys, "every commit message starts with") {
+		t.Errorf("system prompt commit rule:\n%s", sys)
+	}
+	if subject := git(t, run.Worktree, "log", "-1", "--format=%s"); subject != "fix(registry): build the pull command from the image prefix" { // no full stop
+		t.Errorf("ymcp's commit = %q", subject)
+	}
+	opens := h.vcs.openLog()
+	if len(opens) != 1 || opens[0].Title != "fix(registry): build the pull command from the image prefix" {
+		t.Errorf("opens = %+v", opens)
+	}
+}
+
 // TestChangeFeedbackRepliesInThreads: comments of allowed authors on the
 // change make a feedback turn; each gets a placeholder in its thread first,
 // edited into its part of the answer. Strangers and agents are skipped and

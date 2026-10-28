@@ -388,6 +388,20 @@ func Ahead(ctx context.Context, h Host, wt Worktree) (int, error) {
 	return n, nil
 }
 
+// FirstSubject is the subject of the first commit of the worktree's branch
+// beyond origin/<base>, or "" when it has none.
+func FirstSubject(ctx context.Context, h Host, wt Worktree) (string, error) {
+	if wt.Base == "" {
+		return "", errors.New("worktree base is empty")
+	}
+	out, err := run(ctx, h, wt.Path, "log", "--reverse", "--no-merges", "--format=%s", "refs/remotes/origin/"+wt.Base+"..HEAD")
+	if err != nil {
+		return "", fmt.Errorf("reading the first commit beyond origin/%s: %w", wt.Base, err)
+	}
+	first, _, _ := strings.Cut(out, "\n")
+	return strings.TrimSpace(first), nil
+}
+
 // Head returns the commit the worktree is at.
 func Head(ctx context.Context, h Host, wt Worktree) (string, error) {
 	sha, err := run(ctx, h, wt.Path, "rev-parse", "HEAD")
