@@ -34,8 +34,10 @@ jobs:
     permissions:
       contents: write # push the site branch
     env:
-      FONT_VERSION: "2.304"
-      FONT_SHA256: 6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf
+      # JetBrains Mono Nerd Font: the braille spinner and other terminal
+      # glyphs plain JetBrains Mono lacks.
+      FONT_VERSION: v3.5.1
+      FONT_SHA256: 04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -46,12 +48,13 @@ jobs:
           mkdir -p ans out
           YMCP_SCREENS="$PWD/ans" go test -count=1 -run TestScreens ./internal/pipeline/tui/views
           YMCP_SITE="$PWD/out" go test -count=1 -run TestSiteData ./internal/site
-      - name: JetBrains Mono
+      - name: JetBrains Mono Nerd Font
         run: |
-          curl -fsSL -o font.zip "https://github.com/JetBrains/JetBrainsMono/releases/download/v$FONT_VERSION/JetBrainsMono-$FONT_VERSION.zip"
-          echo "$FONT_SHA256  font.zip" | sha256sum -c -
-          unzip -q -j font.zip fonts/webfonts/JetBrainsMono-Regular.woff2 fonts/webfonts/JetBrainsMono-Bold.woff2 \
-            fonts/webfonts/JetBrainsMono-Italic.woff2 -d font
+          curl -fsSL -o font.tar.xz "https://github.com/ryanoasis/nerd-fonts/releases/download/$FONT_VERSION/JetBrainsMono.tar.xz"
+          echo "$FONT_SHA256  font.tar.xz" | sha256sum -c -
+          mkdir font
+          tar -xJf font.tar.xz -C font JetBrainsMonoNerdFontMono-Regular.ttf JetBrainsMonoNerdFontMono-Bold.ttf \
+            JetBrainsMonoNerdFontMono-Italic.ttf
       - name: Pictures
         run: python3 .github/scripts/screens.py ans font out/screens
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

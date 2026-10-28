@@ -5,9 +5,9 @@
     python3 .github/scripts/screens.py screens FONT_DIR OUT_DIR
 
 Each NAME.ans becomes OUT_DIR/NAME.png, drawn by headless Chrome ($CHROME,
-google-chrome by default) at twice the size, in JetBrains Mono from
-FONT_DIR (JetBrainsMono-{Regular,Bold,Italic}.woff2), and OUT_DIR/NAME.html,
-the same screen as text.
+google-chrome by default) at twice the size, in JetBrains Mono Nerd Font
+from FONT_DIR (JetBrainsMonoNerdFontMono-{Regular,Bold,Italic}.ttf), and
+OUT_DIR/NAME.html, the same screen as text.
 """
 import html
 import math
@@ -128,13 +128,23 @@ class Pen:
 TOKEN = re.compile(r"\x1b\[([0-9;]*)m|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[A-Za-z]|([^\x1b]+)")
 
 
+# Glyphs even the Nerd Font lacks (⎇, ⚑, ⟳) come from a fallback font of
+# another width and would shift the rest of the line, so every character
+# outside ASCII and box drawing gets a cell of its own, one column wide.
+CELLED = re.compile(r"([^\x00-\x7f\u2500-\u257f])")
+
+
+def cells(chunk):
+    return CELLED.sub(r'<i class="c">\1</i>', html.escape(chunk))
+
+
 def to_html(text):
     pen, out = Pen(), []
     for m in TOKEN.finditer(text):
         if m.group(1) is not None:
             pen.sgr(m.group(1))
         elif m.group(2) is not None:
-            chunk, css = html.escape(m.group(2)), pen.css()
+            chunk, css = cells(m.group(2)), pen.css()
             out.append('<span style="%s">%s</span>' % (css, chunk) if css else chunk)
     return "".join(out)
 
@@ -145,13 +155,15 @@ def visible(line):
 
 def page(body, fonts):
     faces = "".join(
-        "@font-face{font-family:'JetBrains Mono';src:url('%s') format('woff2');font-weight:%s;font-style:%s}"
-        % ((fonts / ("JetBrainsMono-%s.woff2" % name)).resolve().as_uri(), weight, style)
+        "@font-face{font-family:'ymcp mono';src:url('%s') format('truetype');font-weight:%s;font-style:%s}"
+        % ((fonts / ("JetBrainsMonoNerdFontMono-%s.ttf" % name)).resolve().as_uri(), weight, style)
         for name, weight, style in (("Regular", 400, "normal"), ("Bold", 700, "normal"), ("Italic", 400, "italic")))
     return ("<!doctype html><meta charset='utf-8'><style>%s"
             "html,body{margin:0;background:%s}"
-            "pre{margin:0;padding:%dpx;color:%s;font:%dpx/%s 'JetBrains Mono',monospace;"
-            "white-space:pre;font-variant-ligatures:none}</style><pre>%s</pre>"
+            "pre{margin:0;padding:%dpx;color:%s;font:%dpx/%s 'ymcp mono','DejaVu Sans','Apple Symbols',monospace;"
+            "white-space:pre;font-variant-ligatures:none}"
+            "i.c{display:inline-block;width:1ch;font-style:inherit;text-align:center;"
+            "vertical-align:top}</style><pre>%s</pre>"
             % (faces, BG, PAD, FG, FONT_PX, LINE, body))
 
 
