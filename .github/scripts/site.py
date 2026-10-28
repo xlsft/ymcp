@@ -56,7 +56,7 @@ def features(data):
     t = data["tools"]
     return [
         "%d MCP tools: the %d of YouTrack's own MCP server, same names, and %d extras" % (t["total"], t["builtIn"], t["extras"]),
-        "Signs in with a YouTrack login and password; no admin token or OAuth client",
+        "Signs in with a YouTrack login and password: nothing to set up in YouTrack, no webhooks, OAuth client or API keys",
         "Works without admin rights",
         "Installs into %d MCP clients: %s" % (len(data["clients"]), ", ".join(c["name"] for c in data["clients"])),
         "Prompts: " + ", ".join(p["name"] for p in data["prompts"]),

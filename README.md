@@ -24,7 +24,7 @@ of YouTrack’s built-in MCP server under the same names, and adds the ones it l
 attachments, history, time reports, commands and more.
 
 - **58 tools**: the 23 built-in ones, same names, arguments and limits, plus 35 extras
-- **Signs in like the web UI**, so there is no admin-issued token or OAuth client; the password lives in your system keychain
+- **Just a login and password**: nothing to set up in YouTrack, no webhooks, OAuth client or API keys; the password lives in your system keychain
 - **Works without admin rights**: field schemas, groups and comments fall back to what a regular user can read
 - **One-command install** that registers itself in Claude, Cursor, VS Code, Zed, Codex, Gemini and 8 more clients
 - **Single static binary** for macOS, Linux and Windows, with `ymcp update` built in
@@ -525,8 +525,8 @@ ymcp edits each client's config in place and keeps your other servers, keys and 
 
 ## How sign-in works
 
-YouTrack’s OAuth password grant needs a service secret, and regular users don't have one. So ymcp signs in the
-same way the YouTrack web app does:
+YouTrack’s OAuth password grant needs a service secret, and regular users don't have one. So ymcp signs in
+through Hub with the login and password:
 
 1. Read the Hub location and YouTrack service ID from the public `/api/config`.
 2. Submit the Hub login form and keep the session cookie.
