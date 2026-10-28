@@ -39,15 +39,16 @@ YOUTRACK_E2E_ENDPOINT=youtrack.example.com YOUTRACK_E2E_LOGIN=admin YOUTRACK_E2E
   go test -tags e2e -count=1 -v ./e2e
 ```
 
-Without those variables the suite skips. Everything a test creates is named with the `ymcp-e2e` prefix and
-cleaned up:
+Without those variables the suite skips. Everything a test creates is named with the `ymcp-e2e` prefix and the
+run's ID (`runID`, six digits) and cleaned up:
 
 - `t.Cleanup` deletes each object, even when the test fails;
-- a sweep removes marked leftovers before and after the run;
-- the run fails if anything marked is still there at the end.
+- a sweep removes this run's leftovers at the end, and those of runs over two hours old at both ends;
+- the run fails if any of its own marked objects is still there at the end.
 
-Keep it that way when adding scenarios: create through the fixture project or with the marker in the name, and
-delete what you create.
+Runs may overlap, a pull request's with a release's say, since each keeps to its own objects. Keep it that way
+when adding scenarios: create through the fixture project or with the marker and `runID` in the name, keep queries
+to the fixture project, and delete what you create.
 
 Besides the stdio server, the suite runs `ymcp serve --transport http` and a container built from the Dockerfile,
 each serving the admin and the member behind a token; the Docker test skips where Docker isn't running.
