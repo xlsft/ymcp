@@ -1,24 +1,27 @@
 package workspace
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // Identity is the git author an agent commits as.
 type Identity struct{ Name, Email string }
 
-// AgentIdentity derives the commit identity of one run from the user's own
-// address. The plus tag goes after the local part, so dev@xlsft.ru becomes
-// dev+agent_<pipeline>_<run>@xlsft.ru; an existing +tag is replaced. The
-// pipeline name is reduced to lowercase letters, digits and underscores. The
-// name is "<agentName> · <pipeline> #<run>". An address without "@" gives an
-// empty Email.
-func AgentIdentity(userEmail, pipeline string, run int, agentName string) Identity {
-	if strings.TrimSpace(agentName) == "" {
-		agentName = "Agent"
+// AgentIdentity is the commit identity of one run: name, and userEmail
+// with tag after a "+" in its local part, so dev@xlsft.ru becomes
+// dev+<tag>@xlsft.ru; an existing +tag is replaced. The tag is reduced to
+// lowercase letters, digits and underscores, and an empty tag leaves the
+// address without one. Characters git refuses in a name are dropped; an
+// empty name is "Agent". An address without "@" gives an empty Email.
+func AgentIdentity(userEmail, name, tag string) Identity {
+	name = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == '<' || r == '>' || r == '\n' || r == '\r' {
+			return -1
+		}
+		return r
+	}, name))
+	if name == "" {
+		name = "Agent"
 	}
-	id := Identity{Name: fmt.Sprintf("%s · %s #%d", strings.TrimSpace(agentName), pipeline, run)}
+	id := Identity{Name: name}
 	userEmail = strings.TrimSpace(userEmail)
 	at := strings.LastIndex(userEmail, "@")
 	if at <= 0 || at == len(userEmail)-1 {
@@ -31,7 +34,10 @@ func AgentIdentity(userEmail, pipeline string, run int, agentName string) Identi
 	if local == "" {
 		return id
 	}
-	id.Email = fmt.Sprintf("%s+agent_%s_%d@%s", local, tagSlug(pipeline), run, domain)
+	if tag = tagSlug(tag); tag != "" {
+		local += "+" + tag
+	}
+	id.Email = local + "@" + domain
 	return id
 }
 
@@ -51,9 +57,6 @@ func tagSlug(s string) string {
 		default:
 			pendingSep = true
 		}
-	}
-	if b.Len() == 0 {
-		return "pipeline"
 	}
 	return b.String()
 }

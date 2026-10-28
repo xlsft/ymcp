@@ -80,6 +80,19 @@ type Workspace struct {
 	Worktrees    string `json:"worktrees,omitempty"` // empty = <user cache dir>/ymcp/worktrees/<pipeline name> on the host
 	Parallel     int    `json:"parallel"`            // default 1
 	KeepWorktree bool   `json:"keepWorktree,omitempty"`
+	// Identity gives the agent a git author of its own in each worktree.
+	// Off by default: the agent commits as the repository's user.name and
+	// user.email.
+	Identity Identity `json:"identity,omitzero"`
+}
+
+// Identity is the git author the agent commits as when it has its own.
+// The address is the repository's user.email with a tag after "+":
+// dev@example.com becomes dev+<tag>@example.com.
+type Identity struct {
+	Enabled bool   `json:"enabled,omitempty"`
+	Name    string `json:"name,omitempty"` // template, default DefaultIdentityName
+	Tag     string `json:"tag,omitempty"`  // template, default DefaultIdentityTag
 }
 
 // Agent picks and configures the coding agent.
@@ -178,6 +191,8 @@ const (
 
 	DefaultBranch       = "{{issue.id}}-{{issue.summary | slug}}"
 	DefaultCommitPrefix = "{{issue.id}}"
+	DefaultIdentityName = "{{agent.name}} · {{pipeline.name}} #{{run.number}}"
+	DefaultIdentityTag  = "agent_{{pipeline.name}}_{{run.number}}"
 	DefaultLanguage     = "English"
 	DefaultPreset       = "fix"
 	DefaultProvider     = "claude"

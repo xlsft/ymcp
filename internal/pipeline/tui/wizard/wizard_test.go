@@ -1035,3 +1035,32 @@ func TestAutoCompactToggle(t *testing.T) {
 	d.goStep(5)
 	d.must("compact finished runs")
 }
+
+// TestIdentityToggle: the agent's own commit author is off until switched
+// on under Advanced; its templates show then, with previews.
+func TestIdentityToggle(t *testing.T) {
+	f := newFakes()
+	existing := spec.Pipeline{Name: "front", Profile: "youtrack-work", Source: spec.Source{Query: "tag: ai"}, Workspace: spec.Workspace{Dir: "/repo"}}
+	d := start(t, f.deps, &existing)
+	d.goStep(2)
+	d.focus("advanced")
+	d.keys("enter")
+	d.focus("identity")
+	d.must("Give the agent its own commit author", "Off: the agent commits as the repository's user.name")
+	d.mustNot("Author name template", "Email tag template")
+	d.keys("space")
+	if !d.m.sh.p.Workspace.Identity.Enabled {
+		t.Fatal("identity not switched on")
+	}
+	d.focus("idName")
+	d.must("Author name template", "preview: Claude · front #1", "(run #1 on YPC-3)")
+	d.focus("idTag")
+	d.must("Email tag template", "+agent_front_1@")
+	d.typ("ai-{{issue.id}}")
+	d.must("+ai_ypc_3@")
+	if got := d.m.sh.p.Workspace.Identity.Tag; got != "ai-{{issue.id}}" {
+		t.Errorf("tag = %q", got)
+	}
+	d.goStep(5)
+	d.must("agent's own author")
+}

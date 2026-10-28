@@ -116,7 +116,8 @@ func DefaultRoot(ctx context.Context, h Host, pipeline string) (string, error) {
 }
 
 // Create makes the worktree for one run in the repository at repoDir, on
-// branch, and gives it the commit identity id.
+// branch, and gives it the commit identity id; a zero id leaves the
+// repository's own.
 //
 // It fetches origin first. base is the branch to start from; empty means the
 // default branch of origin. root is the directory that holds worktrees; empty
@@ -128,13 +129,15 @@ func DefaultRoot(ctx context.Context, h Host, pipeline string) (string, error) {
 // continues. Only a brand new branch starts from origin/<base>. A branch that
 // is checked out in the main working tree is refused.
 //
-// extensions.worktreeConfig is switched on for the repository, and the identity
-// is written to the worktree's own config, so the user's commits are unaffected.
+// For an identity, extensions.worktreeConfig is switched on for the
+// repository, and the identity is written to the worktree's own config, so
+// the user's commits are unaffected. Without one, an identity an earlier
+// Create left in the worktree's own config is removed.
 func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id Identity) (Worktree, error) {
 	if strings.TrimSpace(branch) == "" {
 		return Worktree{}, errors.New("worktree branch is empty")
 	}
-	if id.Email == "" {
+	if id != (Identity{}) && id.Email == "" {
 		return Worktree{}, errors.New("agent identity has no email")
 	}
 	if _, err := run(ctx, h, repoDir, "check-ref-format", "--branch", branch); err != nil {
@@ -153,9 +156,11 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 	}
 	wt := Worktree{Branch: branch, Base: base}
 
-	// One-time repository switch; the per-worktree identity depends on it.
-	if _, err := run(ctx, h, repoDir, "config", "extensions.worktreeConfig", "true"); err != nil {
-		return Worktree{}, fmt.Errorf("enabling extensions.worktreeConfig: %w", err)
+	if id != (Identity{}) {
+		// One-time repository switch; the per-worktree identity depends on it.
+		if _, err := run(ctx, h, repoDir, "config", "extensions.worktreeConfig", "true"); err != nil {
+			return Worktree{}, fmt.Errorf("enabling extensions.worktreeConfig: %w", err)
+		}
 	}
 
 	existing, err := listWorktrees(ctx, h, repoDir)
@@ -215,12 +220,32 @@ func Create(ctx context.Context, h Host, repoDir, root, branch, base string, id 
 		}
 	}
 
+	if id == (Identity{}) {
+		return wt, dropIdentity(ctx, h, wt.Path)
+	}
 	for _, kv := range [][2]string{{"user.name", id.Name}, {"user.email", id.Email}} {
 		if _, err := run(ctx, h, wt.Path, "config", "--worktree", kv[0], kv[1]); err != nil {
 			return Worktree{}, fmt.Errorf("setting the agent %s: %w", kv[0], err)
 		}
 	}
 	return wt, nil
+}
+
+// dropIdentity removes user.name and user.email from the worktree's own
+// config. Without extensions.worktreeConfig there is none: `config
+// --worktree` would then write the repository's config, so it is not run.
+func dropIdentity(ctx context.Context, h Host, path string) error {
+	if on, _ := run(ctx, h, path, "config", "--bool", "extensions.worktreeConfig"); on != "true" {
+		return nil
+	}
+	for _, key := range []string{"user.name", "user.email"} {
+		_, err := run(ctx, h, path, "config", "--worktree", "--unset-all", key)
+		var ee *exec.ExitError
+		if err != nil && !(errors.As(err, &ee) && ee.ExitCode() == 5) { // 5: the key is not set
+			return fmt.Errorf("removing the agent %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // CheckedOut returns the path of the worktree of the repository at repoDir

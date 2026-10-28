@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -297,11 +299,10 @@ func (t *turn) prepareWorkspace() error {
 		}
 	}
 	if w.wt.Path == "" {
-		email, err := workspace.UserEmail(t.ctx, r.host, r.p.Workspace.Dir)
+		id, err := r.identity(t.ctx, t.vars)
 		if err != nil {
 			return err
 		}
-		id := workspace.AgentIdentity(email, r.p.Name, run.Number, r.p.Agent.Name)
 		base := run.Base
 		if base == "" {
 			base = r.p.Workspace.Base
@@ -1525,4 +1526,29 @@ func oneLineTrim(s string, n int) string {
 		return string(r[:n-1]) + "…"
 	}
 	return s
+}
+
+// identity is the commit identity of the run's worktree: none, so the agent
+// commits as the repository's user, unless the pipeline gives the agent
+// its own. The repository's user.email must be set either way.
+func (r *Runner) identity(ctx context.Context, vars text.Vars) (workspace.Identity, error) {
+	email, err := workspace.UserEmail(ctx, r.host, r.p.Workspace.Dir)
+	if err != nil {
+		return workspace.Identity{}, err
+	}
+	id := r.p.Workspace.Identity
+	if !id.Enabled {
+		return workspace.Identity{}, nil
+	}
+	v := maps.Clone(vars)
+	v["agent.name"] = r.p.Agent.Name
+	name, err := text.Render(cmp.Or(id.Name, spec.DefaultIdentityName), v)
+	if err != nil {
+		return workspace.Identity{}, fmt.Errorf("workspace.identity.name: %w", err)
+	}
+	tag, err := text.Render(cmp.Or(id.Tag, spec.DefaultIdentityTag), v)
+	if err != nil {
+		return workspace.Identity{}, fmt.Errorf("workspace.identity.tag: %w", err)
+	}
+	return workspace.AgentIdentity(email, name, tag), nil
 }

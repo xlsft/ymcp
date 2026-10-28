@@ -138,6 +138,9 @@ func (s *reviewStep) summary(width int) string {
 		where = p.Workspace.Host + ":" + where
 	}
 	rest := fmt.Sprintf(" · %d at once", p.Workspace.Parallel)
+	if p.Workspace.Identity.Enabled {
+		rest += " · agent's own author"
+	}
 	if room := width - 12 - lenRunes(rest); lenRunes(where) > room && room > 10 {
 		// A path matters at its end.
 		r := []rune(where)
