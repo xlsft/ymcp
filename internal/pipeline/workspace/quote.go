@@ -37,18 +37,25 @@ func QuoteArgs(argv []string) string {
 }
 
 // cdScript is the start of a remote script that changes to dir; "" when dir
-// is empty (the login directory). A leading ~ is the remote home; a
-// relative dir is taken from there too, as ssh starts in it.
+// is empty (the login directory).
 func cdScript(dir string) string {
-	switch {
-	case dir == "":
+	if dir == "" {
 		return ""
+	}
+	return "cd " + QuoteDir(dir) + " && "
+}
+
+// QuoteDir quotes a directory for a remote POSIX shell: a leading ~ is the
+// remote home, and a relative dir is taken from there too, as ssh starts
+// in it.
+func QuoteDir(dir string) string {
+	switch {
 	case dir == "~":
-		return `cd "$HOME" && `
+		return `"$HOME"`
 	case strings.HasPrefix(dir, "~/"):
-		return `cd "$HOME"/` + Quote(dir[2:]) + " && "
+		return `"$HOME"/` + Quote(dir[2:])
 	case strings.HasPrefix(dir, "-"):
 		dir = "./" + dir
 	}
-	return "cd " + Quote(dir) + " && "
+	return Quote(dir)
 }

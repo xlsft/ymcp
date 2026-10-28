@@ -139,6 +139,8 @@ func TestClaudeErrors(t *testing.T) {
 		{name: "crash without result", steps: []agenttest.Step{{Text: "half"}, {Stderr: "panic: boom"}, {Exit: 3}}, wantErr: "panic: boom", fails: true},
 		{name: "not found by the host's shell", steps: []agenttest.Step{{Stderr: "env: 'claude': No such file or directory"}, {Exit: 127}},
 			wantErr: "No such file or directory. ", fails: true},
+		{name: "remote cd failed", steps: []agenttest.Step{{Stderr: "sh: 1: cd: can't cd to /srv/gone"}, {Exit: 127}},
+			wantErr: "can't cd to /srv/gone", fails: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

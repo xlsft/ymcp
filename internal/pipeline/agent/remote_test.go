@@ -68,6 +68,30 @@ func TestRemoteScriptRuns(t *testing.T) {
 	}
 }
 
+// TestRemoteScriptHomeDir: a directory under ~ is the remote home's, as
+// workspace.dir is written.
+func TestRemoteScriptHomeDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX sh")
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "it's", "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", remoteScript("~/it's/dist/", nil, []string{"pwd", "-P"}, false))
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%v: %s", err, stderr.String())
+	}
+	real, _ := filepath.EvalSymlinks(filepath.Join(home, "it's", "dist"))
+	if got := strings.TrimSpace(string(out)); got != real {
+		t.Errorf("ran in %q, want %q", got, real)
+	}
+}
+
 func TestPgidWriter(t *testing.T) {
 	var out bytes.Buffer
 	var pg string

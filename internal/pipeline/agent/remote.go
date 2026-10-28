@@ -63,10 +63,7 @@ const pgidMarker = "ymcp-pgid "
 func remoteScript(dir string, env map[string]string, words []string, watch bool) string {
 	var b strings.Builder
 	if dir != "" {
-		if strings.HasPrefix(dir, "-") {
-			dir = "./" + dir
-		}
-		b.WriteString("cd " + workspace.Quote(dir) + " || exit 127\n")
+		b.WriteString("cd " + workspace.QuoteDir(dir) + " || exit 127\n")
 	}
 	b.WriteString(`pg=$(cut -d' ' -f5 /proc/$$/stat 2>/dev/null)` + "\n")
 	b.WriteString(`[ -n "$pg" ] || pg=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')` + "\n")
