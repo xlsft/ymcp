@@ -169,14 +169,16 @@ func agoText(now, t time.Time) string {
 }
 
 var (
-	mdImage   = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]*)[^)]*\)`)
-	mdLink    = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)[^)]*\)`)
-	mdBold    = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
-	mdComment = regexp.MustCompile(`(?s)<!--.*?-->`)
-	mdOwnLine = regexp.MustCompile(`(?ms)^[ \t]*<!--.*?-->[ \t]*(?:\n|\z)`)
-	mdHeading = regexp.MustCompile(`^#{1,6}\s+`)
-	mdList    = regexp.MustCompile(`^(\s*)(?:[-*+]|\d+[.)])\s+`)
-	mdRule    = regexp.MustCompile(`^\s*(?:-{3,}|\*{3,}|_{3,})\s*$`)
+	mdImage = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]*)[^)]*\)`)
+	// mdImageAttrs is a picture with the attributes YouTrack puts after it.
+	mdImageAttrs = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)(?:\{[^}\n]*\})?`)
+	mdLink       = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)[^)]*\)`)
+	mdBold       = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
+	mdComment    = regexp.MustCompile(`(?s)<!--.*?-->`)
+	mdOwnLine    = regexp.MustCompile(`(?ms)^[ \t]*<!--.*?-->[ \t]*(?:\n|\z)`)
+	mdHeading    = regexp.MustCompile(`^#{1,6}\s+`)
+	mdList       = regexp.MustCompile(`^(\s*)(?:[-*+]|\d+[.)])\s+`)
+	mdRule       = regexp.MustCompile(`^\s*(?:-{3,}|\*{3,}|_{3,})\s*$`)
 )
 
 // mdLines renders markdown as plain wrapped text: headings and bold in
@@ -237,8 +239,12 @@ func mdLinesWith(s string, w int, draw pictureLines) []string {
 				}
 			}
 		case draw != nil && mdImageLine(t):
-			m := mdImage.FindStringSubmatch(t)
-			out = append(out, draw(m[1], m[2], w)...)
+			for i, m := range mdImage.FindAllStringSubmatch(t, -1) {
+				if i > 0 {
+					out = append(out, "")
+				}
+				out = append(out, draw(m[1], m[2], w)...)
+			}
 		default:
 			out = append(out, wrap(mdInline(line), w)...)
 		}
@@ -257,20 +263,18 @@ func mdLinesWith(s string, w int, draw pictureLines) []string {
 	return clean
 }
 
-// mdImageLine reports whether a line is a picture alone, with YouTrack's
-// {width=…} after it if any.
+// mdImageLine reports whether a line holds pictures only, each with
+// YouTrack's {width=…} after it if any.
 func mdImageLine(t string) bool {
-	loc := mdImage.FindStringIndex(t)
-	if loc == nil || loc[0] != 0 {
-		return false
-	}
-	rest := strings.TrimSpace(t[loc[1]:])
-	return rest == "" || strings.HasPrefix(rest, "{") && strings.HasSuffix(rest, "}")
+	return mdImage.MatchString(t) && strings.TrimSpace(mdImageAttrs.ReplaceAllString(t, "")) == ""
 }
 
 // inline reduces inline markdown: images to [image], links to their text,
 // bold to bold.
 func mdInline(s string) string {
+	s = mdImageAttrs.ReplaceAllStringFunc(s, func(m string) string { // {width=…} is no text
+		return m[:strings.LastIndex(m, ")")+1]
+	})
 	s = mdImage.ReplaceAllStringFunc(s, func(m string) string {
 		alt := strings.TrimSpace(mdImage.FindStringSubmatch(m)[1])
 		if alt == "" {

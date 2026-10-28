@@ -129,3 +129,22 @@ func TestPicturesInPlace(t *testing.T) {
 	}
 	w.hasNot("working…")
 }
+
+// TestPicturesOnOneLine: a line of pictures only, with YouTrack's
+// {width=…} after any of them, draws each; in text the attributes don't
+// show.
+func TestPicturesOnOneLine(t *testing.T) {
+	var drawn []string
+	draw := func(alt, src string, w int) []string {
+		drawn = append(drawn, src)
+		return []string{"<" + src + ">"}
+	}
+	got := mdLinesWith("Before\n\n![](a.png){width=70%}![](b.png) ![x](c.png){width=10%}\n\nsee ![](d.png){width=5%} here", 80, draw)
+	if strings.Join(drawn, " ") != "a.png b.png c.png" {
+		t.Errorf("drawn = %q", drawn)
+	}
+	text := ansi.Strip(strings.Join(got, "\n"))
+	if !strings.Contains(text, "<a.png>\n\n<b.png>\n\n<c.png>") || !strings.Contains(text, "see [image] here") || strings.Contains(text, "{width") {
+		t.Errorf("lines = %q", text)
+	}
+}
