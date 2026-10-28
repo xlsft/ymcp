@@ -11,8 +11,8 @@ import (
 // providers, and Events, when set, are the events this pipeline notifies
 // about. A provider turned off on the machine stays off.
 type Notifications struct {
-	Providers []string `json:"providers,omitempty"` // e.g. ["toast"]; empty = all enabled
-	Events    []string `json:"events,omitempty"`    // e.g. ["needs_input", "run_failed"]; empty = each provider's own
+	Providers []string `json:"providers,omitempty"` // the providers to use, e.g. ["toast"]; empty for all enabled
+	Events    []string `json:"events,omitempty"`    // the events to tell, e.g. ["needs_input", "run_failed"]; empty for each provider's own
 }
 
 // NotificationEvents are the event names Notifications.Events may use; they

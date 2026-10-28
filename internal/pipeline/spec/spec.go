@@ -17,28 +17,28 @@ import (
 
 // Pipeline is the whole configuration of one pipeline.
 type Pipeline struct {
-	Name        string            `json:"name"`
-	Profile     string            `json:"profile"`
-	Source      Source            `json:"source"`
-	Stages      Stages            `json:"stages"`
-	Workspace   Workspace         `json:"workspace"`
-	Agent       Agent             `json:"agent"`
-	Permissions string            `json:"permissions,omitempty"` // ask (default) | allow | deny
-	Timeouts    Timeouts          `json:"timeouts"`
-	Strategy    Strategy          `json:"strategy"`
-	Feedback    Feedback          `json:"feedback"`
-	Language    string            `json:"language,omitempty"` // default "English"
-	Prompts     Prompts           `json:"prompts"`
-	Messages    map[string]string `json:"messages,omitempty"` // overrides of ymcp's own texts
-	Service     *bool             `json:"service,omitempty"`  // service instruction on (nil = true)
+	Name        string            `json:"name"`                  // the pipeline's name, also its file's
+	Profile     string            `json:"profile"`               // the ymcp profile of the YouTrack instance
+	Source      Source            `json:"source"`                // where issues come from
+	Stages      Stages            `json:"stages"`                // the YouTrack commands and searches of each stage
+	Workspace   Workspace         `json:"workspace"`             // where and on which branch the agent works
+	Agent       Agent             `json:"agent"`                 // the coding agent
+	Permissions string            `json:"permissions,omitempty"` // tool calls the agent wasn't allowed: ask (default), allow or deny
+	Timeouts    Timeouts          `json:"timeouts"`              // limits of a run
+	Strategy    Strategy          `json:"strategy"`              // how finished work is published
+	Feedback    Feedback          `json:"feedback"`              // whose replies the agent reacts to
+	Language    string            `json:"language,omitempty"`    // the language of everything the agent writes in public, default "English"
+	Prompts     Prompts           `json:"prompts"`               // the prompt templates
+	Messages    map[string]string `json:"messages,omitempty"`    // replacements of ymcp's own texts, by key
+	Service     *bool             `json:"service,omitempty"`     // send ymcp's service instruction to the agent; on unless false
 	// AutoCompact compacts a run's comments when it ends as done or
 	// closed, as a /compact reply does: they are hidden and a short
 	// summary is left.
 	AutoCompact bool `json:"autoCompact,omitempty"`
 	// Notifications narrows the machine's notification settings for this
-	// pipeline; nil keeps them as they are.
+	// pipeline; unset keeps them as they are.
 	Notifications *Notifications `json:"notifications,omitempty"`
-	// CI is how the runner watches the CI of what the agent pushes.
+	// How the runner watches the CI of what the agent pushes.
 	CI CI `json:"ci,omitzero"`
 }
 
@@ -46,8 +46,8 @@ type Pipeline struct {
 // gives the agent a turn with the failed jobs and the end of their logs,
 // up to Fixes times in a row; then the run waits for a human.
 type CI struct {
-	Watch *bool `json:"watch,omitempty"` // on when nil
-	Fixes int   `json:"fixes,omitempty"` // default 3
+	Watch *bool `json:"watch,omitempty"` // watch the CI of each push; on unless false
+	Fixes int   `json:"fixes,omitempty"` // turns in a row the agent gets for a failing CI, default 3
 }
 
 // Watched reports whether the runner watches the CI.
@@ -63,19 +63,19 @@ func (c CI) MaxFixes() int {
 
 // Source is the YouTrack search the pipeline takes issues from.
 type Source struct {
-	Query        string   `json:"query"`
-	PollInterval Duration `json:"pollInterval,omitempty"` // default 60s
+	Query        string   `json:"query"`                  // the YouTrack search of the issues to take
+	PollInterval Duration `json:"pollInterval,omitempty"` // how often YouTrack, the code host and the CI are read, default 60s
 }
 
 // Stage is one step of an issue's life in the pipeline: the YouTrack
 // command that moves an issue into it, the search that recognises issues
 // in it and, for needsInput, the command that undoes Enter.
 type Stage struct {
-	Enter string `json:"enter,omitempty"`
-	Match string `json:"match,omitempty"`
-	Exit  string `json:"exit,omitempty"`
-	// Enabled is nil for "on", except for Done, which is off unless set to
-	// true (WithDefaults writes false for it).
+	Enter string `json:"enter,omitempty"` // the YouTrack command that moves an issue into the stage
+	Match string `json:"match,omitempty"` // the YouTrack search that finds issues in the stage
+	Exit  string `json:"exit,omitempty"`  // the command that leaves it (needsInput)
+	// Whether the stage is used: on unless false, except done, which is off
+	// unless true.
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
@@ -93,17 +93,16 @@ type Stages struct {
 
 // Workspace says where and on which branch the agent works.
 type Workspace struct {
-	Host         string  `json:"host,omitempty"`         // empty = local; otherwise an ssh host alias
-	Dir          string  `json:"dir"`                    // the repository
-	Base         string  `json:"base,omitempty"`         // empty = the default branch of origin
-	Branch       string  `json:"branch"`                 // template, default "{{issue.id}}-{{issue.summary | slug}}"
-	CommitPrefix *string `json:"commitPrefix,omitempty"` // template, default "{{issue.id}}"; "" for none
-	Worktrees    string  `json:"worktrees,omitempty"`    // empty = <user cache dir>/ymcp/worktrees/<pipeline name> on the host
-	Parallel     int     `json:"parallel"`               // default 1
-	KeepWorktree bool    `json:"keepWorktree,omitempty"`
-	// Identity gives the agent a git author of its own in each worktree.
-	// Off by default: the agent commits as the repository's user.name and
-	// user.email.
+	Host         string  `json:"host,omitempty"`         // an ssh host alias, or empty for this machine
+	Dir          string  `json:"dir"`                    // the git repository on the host
+	Base         string  `json:"base,omitempty"`         // the branch to start from; empty for origin's default branch
+	Branch       string  `json:"branch"`                 // template of a run's branch, default "{{issue.id}}-{{issue.summary | slug}}"
+	CommitPrefix *string `json:"commitPrefix,omitempty"` // template put in front of the agent's commit messages, default "{{issue.id}}"; "" for none
+	Worktrees    string  `json:"worktrees,omitempty"`    // where the runs' worktrees go; empty for <user cache dir>/ymcp/worktrees/<pipeline> on the host
+	Parallel     int     `json:"parallel"`               // how many issues are worked on at once, default 1
+	KeepWorktree bool    `json:"keepWorktree,omitempty"` // keep a run's worktree after it ends
+	// A git author of the agent's own in each worktree. Off by default: the
+	// agent commits as the repository's user.name and user.email.
 	Identity Identity `json:"identity,omitzero"`
 }
 
@@ -120,44 +119,43 @@ func (w Workspace) Prefix() string {
 // The address is the repository's user.email with a tag after "+":
 // dev@example.com becomes dev+<tag>@example.com.
 type Identity struct {
-	Enabled bool   `json:"enabled,omitempty"`
-	Name    string `json:"name,omitempty"` // template, default DefaultIdentityName
-	Tag     string `json:"tag,omitempty"`  // template, default DefaultIdentityTag
+	Enabled bool   `json:"enabled,omitempty"` // commit as the agent's own author; off by default
+	Name    string `json:"name,omitempty"`    // template of the author's name, default "{{agent.name}} · {{pipeline.name}} #{{run.number}}"
+	Tag     string `json:"tag,omitempty"`     // template of what goes after "+" in the address, default "agent_{{pipeline.name}}_{{run.number}}"
 }
 
 // Agent picks and configures the coding agent.
 type Agent struct {
-	Provider string            `json:"provider"` // claude | kimi | opencode | acp
-	Name     string            `json:"name,omitempty"`
-	Command  string            `json:"command,omitempty"` // the executable; required for acp
-	Model    string            `json:"model,omitempty"`
-	Mode     string            `json:"mode,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
+	Provider string            `json:"provider"`          // one of claude, kimi, opencode or acp
+	Name     string            `json:"name,omitempty"`    // the agent's name in messages; default from the provider
+	Command  string            `json:"command,omitempty"` // the executable or its full path; required for acp
+	Model    string            `json:"model,omitempty"`   // the model, as the agent names it
+	Mode     string            `json:"mode,omitempty"`    // the agent's mode, e.g. a claude permission mode
+	Args     []string          `json:"args,omitempty"`    // more command-line arguments of the agent
+	Env      map[string]string `json:"env,omitempty"`     // environment variables of the agent
 }
 
 // Timeouts bound a run. Zero values mean the defaults on Load.
 type Timeouts struct {
-	Silence    Duration `json:"silence"`    // no agent output for this long: stuck, default 10m
-	Total      Duration `json:"total"`      // one invocation, default 2h
-	Permission Duration `json:"permission"` // waiting for a human to decide, default 30m
+	Silence    Duration `json:"silence"`    // an agent silent this long is stuck, default 10m
+	Total      Duration `json:"total"`      // the longest one turn of the agent may take, default 2h
+	Permission Duration `json:"permission"` // how long a permission request waits for a person, default 30m
 }
 
 // Strategy is how finished work is published.
 type Strategy struct {
-	Kind  string `json:"kind"` // branch | github-pr | github-issue-pr | gitlab-mr
-	Draft bool   `json:"draft,omitempty"`
-	// Squash and DeleteBranch tick the merge options of a GitLab merge
-	// request: squash the commits, delete the source branch once merged.
+	Kind  string `json:"kind"`            // one of branch (default), github-pr, github-issue-pr or gitlab-mr
+	Draft bool   `json:"draft,omitempty"` // open pull and merge requests as drafts
+	// Tick a GitLab merge request's "Squash commits" and "Delete source
+	// branch" options.
 	Squash       bool `json:"squash,omitempty"`
-	DeleteBranch bool `json:"deleteBranch,omitempty"`
+	DeleteBranch bool `json:"deleteBranch,omitempty"` // see squash
 	// Describe asks the agent for the PR/MR's title and description in a
 	// turn of their own after each push (prompts.describe), and updates
-	// the PR/MR with them unless a person edited it. On when nil.
+	// the PR/MR with them unless a person edited it. On unless false.
 	Describe *bool `json:"describe,omitempty"`
-	// Title is the template of the PR/MR title, default
-	// "{{issue.key}} {{issue.summary}}"; {{commit.subject}} is the subject
-	// of the branch's first commit.
+	// Template of the PR/MR title, default "{{issue.key}} {{issue.summary}}";
+	// {{commit.subject}} is the subject of the branch's first commit.
 	Title string `json:"title,omitempty"`
 }
 
@@ -182,22 +180,22 @@ func (s Strategy) Options() []string {
 // Feedback says whose messages the agent reacts to and how long to wait for
 // more of them before starting a turn.
 type Feedback struct {
-	Debounce Duration `json:"debounce"` // default 60s
-	YouTrack []string `json:"youtrack,omitempty"`
-	GitHub   []string `json:"github,omitempty"`
-	GitLab   []string `json:"gitlab,omitempty"`
+	Debounce Duration `json:"debounce"`           // how long to wait for more replies before a turn, default 60s
+	YouTrack []string `json:"youtrack,omitempty"` // YouTrack logins besides yours whose comments are feedback
+	GitHub   []string `json:"github,omitempty"`   // GitHub logins besides yours
+	GitLab   []string `json:"gitlab,omitempty"`   // GitLab usernames besides yours
 }
 
 // Prompts are the three prompt templates. Preset names the preset, built-in
 // or user, they were copied from; an empty text falls back to that preset
 // (see Pipeline.ResolvedPrompts).
 type Prompts struct {
-	Preset   string `json:"preset,omitempty"`
-	Start    string `json:"start,omitempty"`
-	Feedback string `json:"feedback,omitempty"`
-	Answer   string `json:"answer,omitempty"`
-	// Describe asks for the PR/MR's title and description after a push;
-	// default DefaultDescribe.
+	Preset   string `json:"preset,omitempty"`   // the preset an empty prompt comes from, default "fix"
+	Start    string `json:"start,omitempty"`    // template of a run's first turn
+	Feedback string `json:"feedback,omitempty"` // template of a turn on replies
+	Answer   string `json:"answer,omitempty"`   // template of a turn that answers the agent's question
+	// Template of the turn that asks for the PR/MR's title and description
+	// after a push; {{change.noun}} is "pull request" or "merge request".
 	Describe string `json:"describe,omitempty"`
 }
 
