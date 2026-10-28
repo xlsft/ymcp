@@ -36,14 +36,15 @@ func TestScreens(t *testing.T) {
 		}
 	}
 
-	const w = 120
-	write("pipelines", drive(t, NewPipelines(&f.d, "youtrack-work"), w, 20).m.View())
-	write("board", drive(t, NewBoard(&f.d, "backend"), w, 22).m.View())
-	write("inbox", drive(t, NewInbox(&f.d), w, 12).m.View())
+	// One size for every screen, so they line up side by side and in tabs;
+	// tall enough for a card to show its whole issue.
+	const w, h = 120, 33
+	write("pipelines", drive(t, NewPipelines(&f.d, "youtrack-work"), w, h).m.View())
+	board := drive(t, NewBoard(&f.d, "backend"), w, h)
+	write("board", board.m.View())
+	write("inbox", drive(t, NewInbox(&f.d), w, h).m.View())
 
 	// The cards, over the board they open from.
-	const h = 33
-	board := drive(t, NewBoard(&f.d, "backend"), w, h)
 	run := drive(t, NewRun(&f.d, "backend", f.runs["BE-127"].Number, false), w, h)
 	write("run", run.m.(*Run).Overlay(board.m.View()))
 	perm := drive(t, NewRun(&f.d, "frontend", f.runs["FE-9"].Number, true), w, h)
