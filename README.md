@@ -89,6 +89,13 @@ cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
 sha256sum --ignore-missing -c checksums.txt
 ```
 
+Each release also has SLSA build provenance, `ymcp.intoto.jsonl`, for every file in `checksums.txt`:
+
+```sh
+slsa-verifier verify-artifact ymcp_*_linux_amd64.tar.gz --provenance-path ymcp.intoto.jsonl \
+  --source-uri github.com/xlsft/ymcp --source-tag v0.21.0
+```
+
 The Docker image is signed the same way and carries SBOM and provenance attestations:
 
 ```sh
