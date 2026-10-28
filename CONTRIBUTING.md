@@ -1,5 +1,8 @@
 # Contributing
 
+Questions and ideas go to [Discussions](https://github.com/xlsft/ymcp/discussions), vulnerabilities to
+[SECURITY.md](SECURITY.md). Everyone here follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Flow
 
 - `main` is always releasable, and CI must be green on it.
