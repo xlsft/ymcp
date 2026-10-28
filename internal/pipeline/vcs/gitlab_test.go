@@ -261,12 +261,24 @@ func TestGitLabOpenChange(t *testing.T) {
 	if in["title"] != "Draft: BE-1 Fix" || in["target_branch"] != "master" || in["source_branch"] != "BE-1-x" || in["description"] != "b" {
 		t.Errorf("create = %v", in)
 	}
+	if _, squash := in["squash"]; in["remove_source_branch"] != false || squash {
+		t.Errorf("merge options without asking: %v", in)
+	}
 	existing = true
 	if ch, err := l.Open(ctx, OpenOptions{Branch: "BE-1-x", Title: "Draft: x", Draft: true}); err != nil || ch.Number != 3 {
 		t.Errorf("existing = %+v, %v", ch, err)
 	}
 	if n := len(f.find("POST", "/api/v4/projects/team/sub/proj/merge_requests")); n != 1 {
 		t.Errorf("%d creates", n)
+	}
+	// The merge options, asked for.
+	existing = false
+	if _, err := l.Open(ctx, OpenOptions{Branch: "BE-1-x", Title: "BE-1 Fix", Squash: true, DeleteBranch: true}); err != nil {
+		t.Fatal(err)
+	}
+	creates := f.find("POST", "/api/v4/projects/team/sub/proj/merge_requests")
+	if in := creates[len(creates)-1].Body; in["remove_source_branch"] != true || in["squash"] != true {
+		t.Errorf("merge options = %v", in)
 	}
 	for iid, want := range map[int]string{1: StateOpen, 2: StateClosed, 3: StateMerged, 4: StateOpen} {
 		ch, err := l.Change(ctx, iid)

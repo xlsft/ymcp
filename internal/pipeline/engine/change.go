@@ -575,6 +575,7 @@ func (t *turn) openChange(answer string) error {
 	o := vcs.OpenOptions{
 		Branch: t.w.wt.Branch, Base: t.w.wt.Base, Title: title,
 		Body: r.decorateVCS(t.run.Number, body), Draft: r.p.Strategy.Draft,
+		Squash: r.p.Strategy.Squash, DeleteBranch: r.p.Strategy.DeleteBranch,
 	}
 	if r.vcs.Kind() == vcs.KindGitHubIssuePR {
 		o.IssueTitle = strings.TrimSpace(key + " " + summary) // the mirror of the YouTrack issue

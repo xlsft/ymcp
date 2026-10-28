@@ -126,10 +126,32 @@ type Timeouts struct {
 type Strategy struct {
 	Kind  string `json:"kind"` // branch | github-pr | github-issue-pr | gitlab-mr
 	Draft bool   `json:"draft,omitempty"`
+	// Squash and DeleteBranch tick the merge options of a GitLab merge
+	// request: squash the commits, delete the source branch once merged.
+	Squash       bool `json:"squash,omitempty"`
+	DeleteBranch bool `json:"deleteBranch,omitempty"`
 	// Title is the template of the PR/MR title, default
 	// "{{issue.key}} {{issue.summary}}"; {{commit.subject}} is the subject
 	// of the branch's first commit.
 	Title string `json:"title,omitempty"`
+}
+
+// Options names the strategy's options that apply to its kind, for
+// people: draft, squash, delete branch.
+func (s Strategy) Options() []string {
+	var out []string
+	if s.Draft && s.Kind != "branch" && s.Kind != "" {
+		out = append(out, "draft")
+	}
+	if s.Kind == "gitlab-mr" {
+		if s.Squash {
+			out = append(out, "squash")
+		}
+		if s.DeleteBranch {
+			out = append(out, "delete branch")
+		}
+	}
+	return out
 }
 
 // Feedback says whose messages the agent reacts to and how long to wait for
@@ -203,8 +225,8 @@ const (
 	DefaultDebounce     = 60 * time.Second
 
 	DefaultBranch       = "{{issue.id}}-{{issue.summary | slug}}"
-	DefaultCommitPrefix = "{{issue.id}}"
 	DefaultTitle        = "{{issue.key}} {{issue.summary}}"
+	DefaultCommitPrefix = "{{issue.id}}"
 	DefaultIdentityName = "{{agent.name}} · {{pipeline.name}} #{{run.number}}"
 	DefaultIdentityTag  = "agent_{{pipeline.name}}_{{run.number}}"
 	DefaultLanguage     = "English"
