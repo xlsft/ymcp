@@ -5,7 +5,8 @@ name: Site
 # then publishes them on the site branch, where the page, the README and
 # site/docker-compose.yaml read them:
 #
-#   https://raw.githubusercontent.com/xlsft/ymcp/site/index.html
+#   https://raw.githubusercontent.com/xlsft/ymcp/site/index.html (with
+#     robots.txt, sitemap.xml, the icons and og.png next to it)
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/site.json
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/screens/board.png
 #
@@ -79,13 +80,14 @@ jobs:
           else
             git worktree add -q --orphan -b site pub
           fi
-          rm -rf pub/screens pub/site.json pub/index.html
+          rm -rf pub/screens pub/site.json pub/index.html pub/robots.txt pub/sitemap.xml pub/favicon.svg \
+            pub/favicon-48.png pub/apple-touch-icon.png pub/og.png
           cp -R out/. pub/
           cd pub
           git add -A
           # Chrome's pictures differ by a few bytes from run to run; the
           # text they are drawn from doesn't.
-          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html'; then
+          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html' robots.txt sitemap.xml favicon.svg; then
             echo "Site page, data and screens unchanged" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
