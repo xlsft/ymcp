@@ -100,6 +100,20 @@ func (f *fakeVCS) Update(_ context.Context, number int, title, body string) (vcs
 	return f.change, nil
 }
 
+// editChange changes the change's title and body as a person on the host
+// would.
+func (f *fakeVCS) editChange(title, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.change.Title, f.change.Body = title, body
+}
+
+func (f *fakeVCS) updateLog() []vcs.OpenOptions {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]vcs.OpenOptions(nil), f.updates...)
+}
+
 // limitedNow records a call and reports the rate limit in force.
 func (f *fakeVCS) limitedNow(what string) error {
 	now := time.Now()

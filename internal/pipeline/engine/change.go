@@ -557,8 +557,10 @@ func (t *turn) finishVCS(state, body string) {
 }
 
 // openChange opens the run's pull or merge request after its first push.
-// The body links the YouTrack issue and carries the agent's summary.
-func (t *turn) openChange(answer string) error {
+// Its title and description are the ones the agent wrote for it (d, when
+// ok); otherwise strategy.title, and a body that links the YouTrack issue
+// and carries the turn's answer.
+func (t *turn) openChange(answer string, d changeDraft, ok bool) error {
 	r := t.r
 	if r.vcs == nil || t.run.PRNumber > 0 {
 		return nil
@@ -571,6 +573,12 @@ func (t *turn) openChange(answer string) error {
 	body := "YouTrack issue: [" + key + "](" + link + ")"
 	if a := strings.TrimSpace(answer); a != "" {
 		body += "\n\n" + trimText(a, 30000)
+	}
+	if ok {
+		if d.Title != "" {
+			title = d.Title
+		}
+		body = trimText(d.Description, 30000)
 	}
 	o := vcs.OpenOptions{
 		Branch: t.w.wt.Branch, Base: t.w.wt.Base, Title: title,
@@ -606,6 +614,7 @@ func (t *turn) openChange(answer string) error {
 	}
 	t.run = saved
 	t.opened = ch.URL
+	t.rememberChange(ch)
 	t.vars["pr.url"] = ch.URL
 	r.log.Info("opened the change", "run", saved.Number, "issue", saved.IssueKey, "url", ch.URL)
 	data := map[string]any{"url": ch.URL, "number": ch.Number, "draft": ch.Draft}

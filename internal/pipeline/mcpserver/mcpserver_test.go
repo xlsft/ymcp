@@ -23,6 +23,7 @@ type fakeCallbacks struct {
 	mu        sync.Mutex
 	questions []string // "<run>: <question>"
 	reports   []string // "<run>: <text>"
+	changes   []string // "<run>: <title> | <description>"
 	err       error
 }
 
@@ -37,6 +38,13 @@ func (f *fakeCallbacks) Report(_ context.Context, run int64, text string) error 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reports = append(f.reports, fmt.Sprintf("%d: %s", run, text))
+	return f.err
+}
+
+func (f *fakeCallbacks) SetChange(_ context.Context, run int64, title, description string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.changes = append(f.changes, fmt.Sprintf("%d: %s | %s", run, title, description))
 	return f.err
 }
 
@@ -198,14 +206,14 @@ func TestRunsGetTheirOwnAccess(t *testing.T) {
 	var names []string
 	for _, tool := range list.Tools {
 		names = append(names, tool.Name)
-		if tool.Name == "request_input" || tool.Name == "report" {
+		if tool.Name == "request_input" || tool.Name == "report" || tool.Name == "set_change" {
 			h := tool.Annotations
 			if h == nil || h.ReadOnlyHint || h.DestructiveHint == nil || *h.DestructiveHint || h.IdempotentHint || h.OpenWorldHint == nil || !*h.OpenWorldHint {
 				t.Errorf("%s annotations = %+v", tool.Name, h)
 			}
 		}
 	}
-	for _, want := range []string{"request_input", "report", "add_issue_comment", "get_issue"} {
+	for _, want := range []string{"request_input", "report", "set_change", "add_issue_comment", "get_issue"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("tool %s missing from %v", want, names)
 		}
@@ -234,6 +242,18 @@ func TestRunsGetTheirOwnAccess(t *testing.T) {
 	if _, isErr, _ := callTool(a, "report", map[string]any{"text": "  "}); !isErr {
 		t.Error("an empty report should fail")
 	}
+	text, isErr, err = callTool(a, "set_change", map[string]any{"title": " fix(auth):\n keep the  cookie ", "description": "- Keeps it.\n"})
+	if err != nil || isErr || text != ChangeSet {
+		t.Errorf("set_change = %q, isError %v, err %v", text, isErr, err)
+	}
+	if _, isErr, _ := callTool(a, "set_change", map[string]any{"title": "x", "description": " "}); !isErr {
+		t.Error("an empty description should fail")
+	}
+	cb.mu.Lock()
+	if want := []string{"1: fix(auth): keep the cookie | - Keeps it."}; !slices.Equal(cb.changes, want) {
+		t.Errorf("changes = %q, want %q", cb.changes, want)
+	}
+	cb.mu.Unlock()
 	questions, reports := cb.calls()
 	if !slices.Equal(questions, []string{"1: Which DB?"}) || !slices.Equal(reports, []string{"2: tests pass"}) {
 		t.Errorf("questions = %q, reports = %q", questions, reports)
@@ -275,7 +295,7 @@ func TestEnabledToolsKeepPipelineTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	slices.Sort(names)
-	if want := []string{"add_issue_comment", "report", "request_input"}; !slices.Equal(names, want) {
+	if want := []string{"add_issue_comment", "report", "request_input", "set_change"}; !slices.Equal(names, want) {
 		t.Errorf("tools = %v, want %v", names, want)
 	}
 }

@@ -1596,6 +1596,11 @@ var feedKinds = map[string]struct {
 	"git.push":             {"push", theme.Dim.Render},
 	"git.push_skipped":     {"push", theme.Dim.Render},
 	"git.failed":           {"git", theme.Err.Render},
+	"describe.start":       {"describe", theme.Dim.Render},
+	"describe.end":         {"described", theme.Dim.Render},
+	"agent.set_change":     {"PR/MR", theme.OK.Render},
+	"vcs.updated":          {"PR/MR", theme.Dim.Render},
+	"vcs.update_skipped":   {"PR/MR", theme.Warn.Render},
 	"ci.running":           {"ci", theme.Dim.Render},
 	"ci.passed":            {"ci", theme.OK.Render},
 	"ci.failed":            {"ci", theme.Err.Render},
@@ -1651,6 +1656,14 @@ func feedText(e store.Event) string {
 		return "branch " + f["branch"]
 	case "run.finished":
 		return f["status"]
+	case "describe.start":
+		return "asking for the title and description"
+	case "agent.set_change":
+		return f["title"]
+	case "vcs.updated":
+		return "updated: " + f["title"]
+	case "vcs.update_skipped":
+		return "not updated: " + f["reason"]
 	case "ci.running":
 		return "running " + f["url"]
 	case "ci.passed":

@@ -151,6 +151,10 @@ type Strategy struct {
 	// request: squash the commits, delete the source branch once merged.
 	Squash       bool `json:"squash,omitempty"`
 	DeleteBranch bool `json:"deleteBranch,omitempty"`
+	// Describe asks the agent for the PR/MR's title and description in a
+	// turn of their own after each push (prompts.describe), and updates
+	// the PR/MR with them unless a person edited it. On when nil.
+	Describe *bool `json:"describe,omitempty"`
 	// Title is the template of the PR/MR title, default
 	// "{{issue.key}} {{issue.summary}}"; {{commit.subject}} is the subject
 	// of the branch's first commit.
@@ -192,6 +196,9 @@ type Prompts struct {
 	Start    string `json:"start,omitempty"`
 	Feedback string `json:"feedback,omitempty"`
 	Answer   string `json:"answer,omitempty"`
+	// Describe asks for the PR/MR's title and description after a push;
+	// default DefaultDescribe.
+	Describe string `json:"describe,omitempty"`
 }
 
 // Duration is a time.Duration that is written in JSON as a string such as
@@ -337,5 +344,20 @@ func (p Pipeline) ResolvedPrompts() Prompts {
 			out.Answer = pr.Answer
 		}
 	}
+	if out.Describe == "" {
+		out.Describe = DefaultDescribe
+	}
 	return out
 }
+
+// Described reports whether the agent writes the PR/MR's title and
+// description in a turn of their own.
+func (s Strategy) Described() bool { return s.Describe == nil || *s.Describe }
+
+// DefaultDescribe is the prompt of the turn that asks for the PR/MR's
+// title and description. {{change.noun}} is "pull request" or "merge
+// request", {{change.action}} "opens" or "updates".
+const DefaultDescribe = "Your work on branch {{branch}} is pushed, and ymcp {{change.action}} its {{change.noun}}. " +
+	"Write the {{change.noun}}'s title and description for the branch as it is now and pass them to the ymcp tool set_change. " +
+	"Write them in {{language}}, the way this repository's {{change.noun}}s are written: the title on one line, the description " +
+	"what changed and why, for a reviewer. Change, commit and push nothing, and call no other tool."

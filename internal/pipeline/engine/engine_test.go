@@ -120,10 +120,12 @@ type harness struct {
 }
 
 func testPipeline(repo string) spec.Pipeline {
+	noDescribe := false // tests that want the describe turn turn it on
 	return spec.Pipeline{
-		Name:    "backend",
-		Profile: "test",
-		Source:  spec.Source{Query: "State: Open", PollInterval: dur(25 * time.Millisecond)},
+		Strategy: spec.Strategy{Describe: &noDescribe},
+		Name:     "backend",
+		Profile:  "test",
+		Source:   spec.Source{Query: "State: Open", PollInterval: dur(25 * time.Millisecond)},
 		Stages: spec.Stages{
 			Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
 			Review:     spec.Stage{Enter: "State Review", Match: "State: Review"},

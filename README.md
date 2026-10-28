@@ -294,7 +294,12 @@ Before each turn ymcp fetches `origin`, so the agent can rebase onto the base br
 | `github-issue-pr` | A GitHub issue that mirrors the YouTrack issue, and a pull request that closes it |
 | `gitlab-mr` | A merge request on gitlab.com or a self-hosted GitLab, found from the `origin` URL |
 
-`strategy.draft` opens them as drafts. For `gitlab-mr`, `strategy.squash` and `strategy.deleteBranch` tick the merge
+After a push the agent writes the PR/MR's title and description in a short turn of its own: ymcp resumes its session
+with `prompts.describe` and takes what it passes to the `set_change` tool, so nothing it said while working ends up
+there. Put the rules for them (language, format, links) in `prompts.describe`. An agent that doesn't call the tool is
+asked once more, then its answer to that turn is the description. Later pushes update the PR/MR the same way, unless
+someone edited it on the host. `"strategy": {"describe": false}` opens it from `strategy.title` and the turn's answer
+instead. `strategy.draft` opens them as drafts. For `gitlab-mr`, `strategy.squash` and `strategy.deleteBranch` tick the merge
 request's "Squash commits" and "Delete source branch" options. The token comes from `gh` or `glab`, whichever you are signed in to for that
 host, or from the system keychain (service `ymcp`, account `vcs:<host>`).
 
