@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -73,6 +74,22 @@ func withStderr(msg string, t *tail) string {
 	}
 	return msg
 }
+
+// notFound adds how to fix an agent its host's shell could not find to the
+// message of its exit: status 127 comes from env or sh when the command is
+// not in the PATH, typically in a non-interactive ssh session, which reads
+// neither ~/.zshrc nor ~/.bashrc past its interactive check.
+func notFound(msg string, waitErr error, command string) string {
+	var ee *exec.ExitError
+	if !errors.As(waitErr, &ee) || ee.ExitCode() != 127 {
+		return msg
+	}
+	return msg + ". " + command + " is not in the PATH of the agent's shell; " + pathFix
+}
+
+// pathFix says how to put a command in the PATH of a non-interactive ssh
+// session.
+const pathFix = "add its directory to the PATH in ~/.zshenv (zsh) or at the top of ~/.bashrc (bash), or set agent.command to its full path"
 
 // startPiped starts cmd in its own process group with stdout and stderr on
 // pipes of our own, which Wait neither waits for nor closes: children of

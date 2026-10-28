@@ -329,6 +329,15 @@ func TestACPPromptErrors(t *testing.T) {
 	if err == nil || !res.IsError || !strings.Contains(err.Error(), "agent exited") || !strings.Contains(err.Error(), "out of memory") {
 		t.Errorf("crash: %+v, %v", res, err)
 	}
+	if strings.Contains(err.Error(), "not in the PATH") {
+		t.Errorf("a crash told to fix the PATH: %v", err)
+	}
+
+	s, _ = fake(t, "acp", agenttest.Script{Turns: [][]agenttest.Step{{{Stderr: "sh: 1: kimi: not found"}, {Exit: 127}}}}, StartOptions{})
+	_, err = s.Prompt(context.Background(), "x")
+	if err == nil || !strings.Contains(err.Error(), "kimi: not found. ") || !strings.Contains(err.Error(), "is not in the PATH of the agent's shell") {
+		t.Errorf("not found: %v", err)
+	}
 }
 
 func TestACPCloseKillsProcessGroup(t *testing.T) {
