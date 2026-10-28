@@ -35,3 +35,12 @@ jobs:
           YOUTRACK_E2E_LOGIN: ${{ secrets.YOUTRACK_E2E_LOGIN }}
           YOUTRACK_E2E_PASSWORD: ${{ secrets.YOUTRACK_E2E_PASSWORD }}
         run: go test -tags e2e -count=1 -v ./e2e
+      # Dependabot's pull requests get no repository secrets, and the suite
+      # then skips; say so instead of passing quietly.
+      - name: Skipped
+        if: env.ENDPOINT == ''
+        env:
+          ENDPOINT: ${{ secrets.YOUTRACK_E2E_ENDPOINT }}
+        run: |
+          echo "::warning::No YOUTRACK_E2E_* secrets, so the E2E suite skipped; main runs it before releasing"
+          echo "E2E skipped: no YOUTRACK_E2E_* secrets in this run" >> "$GITHUB_STEP_SUMMARY"
