@@ -38,6 +38,15 @@ var Groups = []Group{
 	{"api", "Raw REST calls (call_api)", []string{"call_api"}},
 }
 
+// BuiltIn lists the tools of YouTrack's own MCP server, which ymcp serves
+// under the same names, arguments and limits; the others are its extras.
+var BuiltIn = []string{
+	"search_issues", "get_issue", "create_issue", "create_draft_issue", "update_issue", "change_issue_assignee",
+	"get_issue_fields_schema", "add_issue_comment", "get_issue_comments", "manage_issue_tags", "link_issues", "log_work",
+	"get_saved_issue_searches", "search_articles", "get_article", "create_article", "update_article",
+	"find_projects", "get_project", "find_user", "get_current_user", "find_user_groups", "get_user_group_members",
+}
+
 // GroupNames lists the group names in order.
 func GroupNames() []string {
 	names := make([]string, len(Groups))
