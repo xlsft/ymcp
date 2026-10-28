@@ -1596,6 +1596,9 @@ var feedKinds = map[string]struct {
 	"git.push":             {"push", theme.Dim.Render},
 	"git.push_skipped":     {"push", theme.Dim.Render},
 	"git.failed":           {"git", theme.Err.Render},
+	"ci.running":           {"ci", theme.Dim.Render},
+	"ci.passed":            {"ci", theme.OK.Render},
+	"ci.failed":            {"ci", theme.Err.Render},
 	"permission.answer":    {"permission", theme.Dim.Render},
 	"permission.approved":  {"approved", theme.OK.Render},
 	"permission.rejected":  {"rejected", theme.Err.Render},
@@ -1648,6 +1651,14 @@ func feedText(e store.Event) string {
 		return "branch " + f["branch"]
 	case "run.finished":
 		return f["status"]
+	case "ci.running":
+		return "running " + f["url"]
+	case "ci.passed":
+		return "passed " + f["url"]
+	case "ci.failed":
+		var v struct{ Jobs []string }
+		_ = json.Unmarshal(e.Data, &v)
+		return strings.TrimSpace("failed: " + strings.Join(v.Jobs, ", ") + " " + f["url"])
 	case "feedback.skipped":
 		return f["author"] + ": " + f["reason"]
 	case "worktree", "worktree.missing", "worktree.removed":

@@ -21,6 +21,7 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/agent/agenttest"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
+	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace/sshtest"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
@@ -105,6 +106,8 @@ type harness struct {
 	now func() time.Time
 	// vcs, when set, is the strategy of the pipeline (Options.NewStrategy).
 	vcs *fakeVCS
+	// ci, when set, is the CI of the branch strategy (Options.NewCI).
+	ci *fakeCI
 	// notes records Options.Notify.
 	notes *notes
 	// host, when set, is Options.Host.
@@ -171,6 +174,12 @@ func (h *harness) options() Options {
 	}
 	if h.vcs != nil {
 		o.NewStrategy = h.vcs.newStrategy
+	}
+	o.NewCI = func(context.Context, string) (vcs.CI, error) {
+		if h.ci == nil {
+			return nil, errors.New("no CI in this test")
+		}
+		return h.ci, nil
 	}
 	if h.host != nil {
 		o.Host = h.host

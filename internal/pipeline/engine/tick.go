@@ -35,6 +35,7 @@ func (r *Runner) tick(ctx context.Context) {
 	}
 	r.pollComments(ctx)
 	r.pollVCS(ctx)
+	r.pollCI(ctx)
 	r.controls(ctx)
 	r.schedule(ctx)
 }

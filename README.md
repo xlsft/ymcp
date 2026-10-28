@@ -292,6 +292,15 @@ Before each turn ymcp fetches `origin`, so the agent can rebase onto the base br
 `strategy.draft` opens them as drafts. The token comes from `gh` or `glab`, whichever you are signed in to for that
 host, or from the system keychain (service `ymcp`, account `vcs:<host>`).
 
+### CI
+
+After each push the runner watches the CI of the pushed commit: GitHub's check runs and commit statuses, or the
+GitLab pipeline. That works for every strategy; `branch` reads the CI of the host `origin` points at, with the same
+token. When the CI fails while the run is in review, the agent gets a turn with the failed jobs and the end of their
+logs, and its answer goes to the issue. After `ci.fixes` such turns in a row (3) the next failure puts the run into
+needs input; a turn a person asked for starts the count again. The card's log shows the CI running, passing and
+failing. `"ci": {"watch": false}` turns it off.
+
 ### Agent messages
 
 Everything the agent writes, in YouTrack or on the pull request, starts with a hidden marker and a header:
