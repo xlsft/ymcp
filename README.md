@@ -431,6 +431,14 @@ or in a JSON config:
   "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 
+The image serves stdio too, one instance per client, and that is how the
+[MCP Registry](https://registry.modelcontextprotocol.io) lists it, as `io.github.xlsft/ymcp`. Clients that install from
+the registry run:
+
+```sh
+docker run -i --rm -e YOUTRACK_URL -e YOUTRACK_LOGIN -e YOUTRACK_PASSWORD xlsoftware/ymcp serve
+```
+
 ### Retries
 
 A busy or restarting YouTrack doesn't fail a tool call right away. ymcp retries up to three times, waiting 0.5,
