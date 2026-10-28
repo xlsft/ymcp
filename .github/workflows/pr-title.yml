@@ -1,0 +1,32 @@
+name: PR title
+
+# Merges are squashed with the pull request's title as the commit subject, and
+# the release workflow picks the next version from those subjects. A title
+# that isn't a conventional commit would release nothing, or the wrong thing.
+# No checkout, so pull_request_target can't run code from the pull request.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            docs
+            test
+            refactor
+            build
+            ci
+            chore
+            revert
