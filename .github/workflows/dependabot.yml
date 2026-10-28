@@ -1,0 +1,25 @@
+name: Dependabot
+
+# Minor and patch updates merge themselves once the checks the main ruleset
+# requires pass; major ones wait for a person. A merge made with this
+# workflow's token starts no Release run, which is fine: build(deps) and
+# ci(deps) commits don't release anyway, and the next push to main checks them.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.5.0
+        id: meta
+      - name: Merge when green
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR"
