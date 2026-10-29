@@ -10,9 +10,10 @@ updates:
       go:
         patterns: ["*"]
 
-  # The base images are pinned by digest; this keeps the digests current.
+  # The base images, and the YouTrack the E2E suite starts, are pinned by
+  # digest; this keeps the digests current.
   - package-ecosystem: docker
-    directory: /
+    directories: ["/", "/e2e/youtrack"]
     schedule:
       interval: weekly
     commit-message:
