@@ -2,6 +2,12 @@
 
 What each release of ymcp changed, newest first. The versions follow [Semantic Versioning](https://semver.org); every release, with its binaries and the list of its commits, is on [GitHub](https://github.com/xlsft/ymcp/releases).
 
+## [0.24.0] - 2026-10-29
+
+### Changed
+
+- The pipeline wizard's discard question offers s to save the draft instead.
+
 ## [0.23.0] - 2026-10-29
 
 ### Added
@@ -356,6 +362,7 @@ What each release of ymcp changed, newest first. The versions follow [Semantic V
 - `ymcp auth` saves the connection with the password in the system keychain, and `ymcp setup` registers ymcp in MCP clients such as Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf, Zed, Gemini CLI and others.
 - `ymcp check`, `ymcp call` and `ymcp update`, prebuilt binaries for macOS, Linux and Windows with checksums, and install scripts for each platform.
 
+[0.24.0]: https://github.com/xlsft/ymcp/releases/tag/v0.24.0
 [0.23.0]: https://github.com/xlsft/ymcp/releases/tag/v0.23.0
 [0.22.0]: https://github.com/xlsft/ymcp/releases/tag/v0.22.0
 [0.21.0]: https://github.com/xlsft/ymcp/releases/tag/v0.21.0
