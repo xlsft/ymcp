@@ -1165,3 +1165,36 @@ func TestLocalMark(t *testing.T) {
 		t.Error("ending the run left the mark as it was")
 	}
 }
+
+func TestReopenRun(t *testing.T) {
+	s := open(t)
+	r, _ := s.CreateRun(ctx, "p", "yt", "1", "BE-1")
+	review := func(run *Run) error { run.Status = StatusReview; return nil }
+	if _, err := s.ReopenRun(ctx, r.ID, review); !errors.Is(err, ErrRunNotDone) {
+		t.Fatalf("reopening an active run: %v", err)
+	}
+	if _, err := s.ModifyRun(ctx, r.ID, func(run *Run) error { run.Status = StatusDone; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReopenRun(ctx, r.ID, func(run *Run) error { return nil }); err == nil {
+		t.Error("reopened as done")
+	}
+	got, err := s.ReopenRun(ctx, r.ID, review)
+	if err != nil || got.Status != StatusReview || got.FinishedAt != nil {
+		t.Fatalf("reopened = %+v, %v", got, err)
+	}
+
+	// Another active run of the issue keeps it ended.
+	if _, err := s.ModifyRun(ctx, r.ID, func(run *Run) error { run.Status = StatusDone; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateRun(ctx, "p", "yt", "1", "BE-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReopenRun(ctx, r.ID, review); !errors.Is(err, ErrActiveRun) {
+		t.Errorf("reopened beside an active run: %v", err)
+	}
+	if cur, _ := s.Run(ctx, r.ID); cur.Status != StatusDone {
+		t.Errorf("status = %s", cur.Status)
+	}
+}

@@ -264,6 +264,38 @@ func (s *Store) UpdateRun(ctx context.Context, r Run) error {
 	return nil
 }
 
+// ReopenRun brings back a run that ended as done: fn changes it as for
+// ModifyRun, and it is saved as not finished. fn must leave it with a
+// status that is not final. It is ErrNotFound for an unknown run,
+// ErrRunNotDone for a run that is active or ended otherwise, and
+// ErrActiveRun when its issue has another active run.
+func (s *Store) ReopenRun(ctx context.Context, id int64, fn func(*Run) error) (Run, error) {
+	var out Run
+	err := s.Tx(ctx, func(tx *Store) error {
+		run, err := tx.Run(ctx, id)
+		if err != nil {
+			return err
+		}
+		if run.Status != StatusDone {
+			out = run
+			return ErrRunNotDone
+		}
+		if err := fn(&run); err != nil {
+			return err
+		}
+		if run.Status.Final() {
+			return fmt.Errorf("reopening run %d as %s", id, run.Status)
+		}
+		run.FinishedAt = nil
+		if err := tx.UpdateRun(ctx, run); err != nil {
+			return err
+		}
+		out, err = tx.Run(ctx, id)
+		return err
+	})
+	return out, err
+}
+
 // ModifyRun reads the run, applies fn and saves the result, all in one
 // transaction, so fn sees the run as it is now and not as the caller last
 // read it. A run that already has a final status is never changed: ModifyRun

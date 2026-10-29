@@ -81,30 +81,33 @@ type apiActivity struct {
 	Category struct {
 		ID string `json:"id"`
 	} `json:"category"`
-	Target *struct {
-		ID      string  `json:"id"`
-		Type    string  `json:"$type"`
-		Deleted bool    `json:"deleted"`
-		Text    *string `json:"text"`
-		Created *int64  `json:"created"`
-		Updated *int64  `json:"updated"`
-		Author  *struct {
+	Target *apiComment `json:"target"`
+}
+
+// apiComment is a comment as the feed and the comments of an issue give it.
+type apiComment struct {
+	ID      string  `json:"id"`
+	Type    string  `json:"$type"`
+	Deleted bool    `json:"deleted"`
+	Text    *string `json:"text"`
+	Created *int64  `json:"created"`
+	Updated *int64  `json:"updated"`
+	Author  *struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Issue *struct {
+		ID         string `json:"id"`
+		IDReadable string `json:"idReadable"`
+	} `json:"issue"`
+	Visibility *struct {
+		Type            string `json:"$type"`
+		PermittedGroups []struct {
+			Name string `json:"name"`
+		} `json:"permittedGroups"`
+		PermittedUsers []struct {
 			Login string `json:"login"`
-		} `json:"author"`
-		Issue *struct {
-			ID         string `json:"id"`
-			IDReadable string `json:"idReadable"`
-		} `json:"issue"`
-		Visibility *struct {
-			Type            string `json:"$type"`
-			PermittedGroups []struct {
-				Name string `json:"name"`
-			} `json:"permittedGroups"`
-			PermittedUsers []struct {
-				Login string `json:"login"`
-			} `json:"permittedUsers"`
-		} `json:"visibility"`
-	} `json:"target"`
+		} `json:"permittedUsers"`
+	} `json:"visibility"`
 }
 
 // Comments reads comment creations and text edits in the given projects
@@ -171,7 +174,14 @@ func (w *Watcher) Comments(ctx context.Context, projects []string, cursor string
 }
 
 func (w *Watcher) comment(a apiActivity) (Comment, bool) {
-	t := a.Target
+	c, ok := w.fromAPI(a.Target)
+	c.Edited = a.Category.ID == "CommentTextCategory"
+	return c, ok
+}
+
+// fromAPI makes a Comment of one YouTrack gave; false when it isn't an
+// issue comment.
+func (w *Watcher) fromAPI(t *apiComment) (Comment, bool) {
 	if t == nil || t.ID == "" || (t.Type != "" && t.Type != "IssueComment") {
 		return Comment{}, false
 	}
@@ -180,7 +190,6 @@ func (w *Watcher) comment(a apiActivity) (Comment, bool) {
 		Created: msTime(t.Created),
 		Updated: msTime(t.Updated),
 		Deleted: t.Deleted || t.Text == nil,
-		Edited:  a.Category.ID == "CommentTextCategory",
 	}
 	if t.Text != nil {
 		c.Text = *t.Text
@@ -206,6 +215,43 @@ func (w *Watcher) comment(a apiActivity) (Comment, bool) {
 		}
 	}
 	return c, true
+}
+
+// issueCommentFields are the fields of a comment read from its issue, the
+// same as the feed's target.
+const issueCommentFields = "id,$type,deleted,text,created,updated,author(login),issue(id,idReadable)," +
+	"visibility($type,permittedGroups(name),permittedUsers(login))"
+
+// issueCommentPage and issueCommentPages bound the comments IssueComments
+// reads: pages of issueCommentPage, at most issueCommentPages of them.
+const (
+	issueCommentPage  = 200
+	issueCommentPages = 25
+)
+
+// IssueComments lists the comments of an issue, oldest first, without the
+// deleted ones. Unlike Comments it reads no feed: it is for an issue whose
+// comments no cursor followed.
+func (w *Watcher) IssueComments(ctx context.Context, idOrKey string) ([]Comment, error) {
+	var out []Comment
+	for page := range issueCommentPages {
+		q := youtrack.Fields(issueCommentFields)
+		q.Set("$top", strconv.Itoa(issueCommentPage))
+		q.Set("$skip", strconv.Itoa(page*issueCommentPage))
+		var raw []apiComment
+		if err := w.yt.Get(ctx, "issues/"+url.PathEscape(idOrKey)+"/comments", q, &raw); err != nil {
+			return nil, fmt.Errorf("comments of %s: %w", idOrKey, err)
+		}
+		for i := range raw {
+			if c, ok := w.fromAPI(&raw[i]); ok && !c.Deleted {
+				out = append(out, c)
+			}
+		}
+		if len(raw) < issueCommentPage {
+			break
+		}
+	}
+	return out, nil
 }
 
 // projectQuery builds "project: A, B", bracing names that need it.

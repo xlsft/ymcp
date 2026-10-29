@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -125,7 +126,8 @@ func TestCommentedAndPolledOnce(t *testing.T) {
 	}
 }
 
-// A comment on a run that has ended goes nowhere.
+// A comment on a run that has ended goes nowhere, and says so; a /clear on
+// a run that no runner follows any more is refused too.
 func TestCommentedOnEndedRun(t *testing.T) {
 	h := newHarness(t, nil)
 	ctx := context.Background()
@@ -136,8 +138,29 @@ func TestCommentedOnEndedRun(t *testing.T) {
 	if _, err := h.st.ModifyRun(ctx, r.ID, func(run *store.Run) error { run.Status = store.StatusDone; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := Commented(ctx, h.st, h.p.Name, r.Number, Comment{ID: "4-1", Author: "alice", Text: "late", Created: time.Now()}); err != nil {
+	if err := Commented(ctx, h.st, h.p.Name, r.Number, Comment{ID: "4-1", Author: "alice", Text: "late", Created: time.Now()}); !errors.Is(err, ErrRunEnded) {
+		t.Errorf("a comment on a done run: %v", err)
+	}
+	// Superseded by a later run of the issue: no runner follows it.
+	if _, err := h.st.CreateRun(ctx, h.p.Name, h.p.Profile, "2-1", "BE-1"); err != nil {
 		t.Fatal(err)
+	}
+	if err := Commented(ctx, h.st, h.p.Name, r.Number, Comment{ID: "4-2", Author: "alice", Text: "/clear", Created: time.Now()}); !errors.Is(err, ErrRunEnded) {
+		t.Errorf("a /clear on a superseded run: %v", err)
+	}
+	if err := Answer(ctx, h.st, h.p.Name, r.Number, "/compact"); !errors.Is(err, ErrRunEnded) {
+		t.Errorf("a /compact on a superseded run: %v", err)
+	}
+	// Canceled: never followed.
+	c, err := h.st.CreateRun(ctx, h.p.Name, h.p.Profile, "2-2", "BE-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.st.ModifyRun(ctx, c.ID, func(run *store.Run) error { run.Status = store.StatusCanceled; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := Answer(ctx, h.st, h.p.Name, c.Number, "/clear"); !errors.Is(err, ErrRunEnded) {
+		t.Errorf("a /clear on a canceled run: %v", err)
 	}
 	if items, _ := h.st.PendingInbox(ctx, r.ID); len(items) != 0 {
 		t.Errorf("inbox = %+v", items)

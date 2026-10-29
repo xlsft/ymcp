@@ -38,6 +38,9 @@ var (
 	ErrRunFinished = errors.New("store: the run has ended")
 	// ErrRunActive means the run has not ended, so it cannot be deleted.
 	ErrRunActive = errors.New("store: the run has not ended")
+	// ErrRunNotDone means the run did not end as done, so it can't be
+	// reopened.
+	ErrRunNotDone = errors.New("store: the run did not end as done")
 	// ErrRunnerLost means the caller no longer holds the runner lock, e.g.
 	// because another runner took it over after a missed heartbeat.
 	ErrRunnerLost = errors.New("store: the runner lock is not held")

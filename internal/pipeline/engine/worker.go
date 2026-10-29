@@ -142,7 +142,13 @@ func (w *worker) exit() {
 	r.mcp.Revoke(w.token)
 	r.mu.Lock()
 	delete(r.workers, w.id)
+	r.exiting[w.id] = true // until the cleanup below is over
 	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		delete(r.exiting, w.id)
+		r.mu.Unlock()
+	}()
 	cause := context.Cause(w.ctx)
 	if errors.Is(cause, errCanceled) {
 		r.cleanupCanceled(w.ctx, w.id)

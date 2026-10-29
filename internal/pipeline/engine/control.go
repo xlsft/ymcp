@@ -19,10 +19,30 @@ import (
 // sourceCLI is the inbox source of answers given in the TUI or the CLI.
 const sourceCLI = "cli"
 
+// ErrRunEnded means the run has ended and doesn't take the reply: a run
+// that ended takes only /clear and /compact, and only while a runner
+// follows its issue (see takesEndedCommand).
+var ErrRunEnded = errors.New("the run has ended")
+
+// takesEndedCommand reports whether run, which has ended, takes text: a
+// /clear or /compact, while a runner follows its issue for them, that is
+// while it is among Runner.endedRuns.
+func takesEndedCommand(ctx context.Context, st *store.Store, run store.Run, text string) (bool, error) {
+	if !EndedCommand(text) || !followedAfterEnd(run, time.Now()) {
+		return false, nil
+	}
+	last, err := st.LastRun(ctx, run.Pipeline, run.IssueID)
+	if err != nil {
+		return false, err
+	}
+	return last.ID == run.ID, nil
+}
+
 // Answer queues text as a human reply to the run, as if written in
 // YouTrack by the local user. A running runner picks it up within a
 // second: it answers a question, an open permission request (/approve,
-// /reject) or is feedback on a run in review.
+// /reject) or is feedback on a run in review. A run that ended as done or
+// closed takes only /clear and /compact.
 func Answer(ctx context.Context, st *store.Store, pipeline string, run int, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -36,7 +56,13 @@ func Answer(ctx context.Context, st *store.Store, pipeline string, run int, text
 		return err
 	}
 	if r.Status.Final() {
-		return fmt.Errorf("run #%d of %s has ended (%s)", run, pipeline, r.Status)
+		takes, err := takesEndedCommand(ctx, st, r, text)
+		if err != nil {
+			return err
+		}
+		if !takes {
+			return fmt.Errorf("%w: run #%d of %s (%s)", ErrRunEnded, run, pipeline, r.Status)
+		}
 	}
 	var b [8]byte
 	rand.Read(b[:]) // never fails
@@ -82,7 +108,8 @@ type Comment struct {
 // on its next poll of YouTrack. The comment is queued and marked seen as
 // that poll would do it (see pollComments): whichever of the two comes
 // first queues it, and the other finds it seen. A run that has ended
-// takes no comments.
+// takes only /clear and /compact, and is ErrRunEnded for anything else,
+// which is left to a reopened run (see Runner.queueSince).
 func Commented(ctx context.Context, st *store.Store, pipeline string, run int, c Comment) error {
 	if c.ID == "" {
 		return errors.New("the comment has no id")
@@ -95,7 +122,13 @@ func Commented(ctx context.Context, st *store.Store, pipeline string, run int, c
 		return err
 	}
 	if r.Status.Final() {
-		return nil
+		takes, err := takesEndedCommand(ctx, st, r, c.Text)
+		if err != nil {
+			return err
+		}
+		if !takes {
+			return fmt.Errorf("%w: run #%d of %s (%s)", ErrRunEnded, run, pipeline, r.Status)
+		}
 	}
 	at := c.Created
 	if !c.Updated.IsZero() {
