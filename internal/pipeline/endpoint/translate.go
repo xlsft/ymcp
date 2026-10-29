@@ -234,6 +234,17 @@ func toChat(req msgRequest) (chatRequest, error) {
 			if am, ok := assistantMessage(bs); ok {
 				out.Messages = append(out.Messages, am)
 			}
+		case "system":
+			// Claude Code puts instructions between the turns too.
+			var texts []string
+			for _, b := range bs {
+				if b.Type == "text" && b.Text != "" {
+					texts = append(texts, b.Text)
+				}
+			}
+			if len(texts) > 0 {
+				out.Messages = append(out.Messages, chatMessage{Role: "system", Content: strings.Join(texts, "\n\n")})
+			}
 		default:
 			return out, fmt.Errorf("messages[%d]: unknown role %q", i, m.Role)
 		}

@@ -93,6 +93,7 @@ func TestToChat(t *testing.T) {
 		"system": [{"type": "text", "text": "be brief"}, {"type": "text", "text": "use tools"}],
 		"messages": [
 			{"role": "user", "content": "hi"},
+			{"role": "system", "content": [{"type": "text", "text": "mid"}]},
 			{"role": "assistant", "content": [
 				{"type": "thinking", "thinking": "hmm", "signature": "s"},
 				{"type": "text", "text": "reading"},
@@ -123,6 +124,7 @@ func TestToChat(t *testing.T) {
 	want := `{"model":"m","messages":[` +
 		`{"role":"system","content":"be brief\n\nuse tools"},` +
 		`{"role":"user","content":"hi"},` +
+		`{"role":"system","content":"mid"},` +
 		`{"role":"assistant","content":"reading","tool_calls":[{"id":"t1","type":"function","function":{"name":"Read","arguments":"{\"path\":\"a\"}"}},{"id":"t2","type":"function","function":{"name":"Ls","arguments":"{}"}}]},` +
 		`{"role":"tool","content":"A","tool_call_id":"t1"},` +
 		`{"role":"tool","content":"Error: denied","tool_call_id":"t2"},` +
