@@ -9,6 +9,11 @@ name: Site
 #     robots.txt, sitemap.xml, the icons and og.png next to it)
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/site.json
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/screens/board.png
+#   https://ymcp.su/changelog and https://ymcp.su/CHANGELOG.md, every
+#     release's notes (see .github/scripts/changelog.py)
+#
+# A release adds to the changelog, so the site is built again once the
+# Release workflow has run.
 #
 # The branch holds generated files only. A commit lands there only when
 # the page, the data or a screen's text changed, not on every rebuild of
@@ -16,6 +21,9 @@ name: Site
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   pull_request:
     paths:
       - internal/pipeline/tui/**
@@ -26,6 +34,8 @@ on:
       - docs/promo/poster.jpg
       - .github/scripts/screens.py
       - .github/scripts/site.py
+      - .github/scripts/changelog.py
+      - docs/changelog-history.md
       - .github/workflows/site.yml
   workflow_dispatch:
 
@@ -48,6 +58,8 @@ jobs:
       FONT_SHA256: 04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the changelog reads the tags and the commits between them
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -83,13 +95,15 @@ jobs:
             git worktree add -q --orphan -b site pub
           fi
           rm -rf pub/screens pub/site.json pub/index.html pub/robots.txt pub/sitemap.xml pub/favicon.svg \
-            pub/favicon-48.png pub/apple-touch-icon.png pub/og.png pub/promo.webm pub/promo.mp4 pub/promo.jpg pub/CNAME pub/.nojekyll
+            pub/favicon-48.png pub/apple-touch-icon.png pub/og.png pub/promo.webm pub/promo.mp4 pub/promo.jpg pub/CNAME pub/.nojekyll \
+            pub/changelog.html pub/CHANGELOG.md
           cp -R out/. pub/
           cd pub
           git add -A
           # Chrome's pictures differ by a few bytes from run to run; the
           # text they are drawn from doesn't.
-          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html' robots.txt sitemap.xml favicon.svg promo.webm promo.mp4 promo.jpg CNAME .nojekyll; then
+          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html' robots.txt sitemap.xml favicon.svg promo.webm promo.mp4 promo.jpg CNAME .nojekyll \
+            changelog.html CHANGELOG.md; then
             echo "Site page, data and screens unchanged" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
