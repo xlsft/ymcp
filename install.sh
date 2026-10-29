@@ -35,12 +35,13 @@ while [ $# -gt 0 ]; do
     *) printf '%s\n\n' "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
-# A release tag starts with v; 0.22.0 means v0.22.0.
-case "$VERSION" in
-  latest|v*) ;;
-  [0-9]*) VERSION="v$VERSION" ;;
-  *) printf '%s\n' "Not a version: $VERSION (try 0.22.0)" >&2; exit 2 ;;
-esac
+# A release tag is v and a semantic version; 0.22.0 means v0.22.0.
+if [ "$VERSION" != "latest" ]; then
+  GIVEN="$VERSION"
+  VERSION="v${VERSION#v}"
+  printf '%s\n' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' ||
+    { printf '%s\n' "Not a version: $GIVEN (try 0.22.0)" >&2; exit 2; }
+fi
 
 if [ -t 1 ]; then
   # The brand red #C62A22 (same as the banner and ymcp itself) where the

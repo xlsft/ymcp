@@ -17,12 +17,13 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $Repo = 'xlsft/ymcp'
+if ($PSBoundParameters.ContainsKey('Version') -and -not $Version) { throw 'The version is empty (try 0.22.0)' }
 if (-not $Version) { $Version = 'latest' }
-# A release tag starts with v; 0.22.0 means v0.22.0.
-if ($Version -match '^[0-9]') {
-  $Version = "v$Version"
-} elseif ($Version -ne 'latest' -and $Version -notmatch '^v[0-9]') {
-  throw "Not a version: $Version (try 0.22.0)"
+# A release tag is v and a semantic version; 0.22.0 means v0.22.0.
+if ($Version -ne 'latest') {
+  $Given = $Version
+  $Version = 'v' + ($Version -replace '^v', '')
+  if ($Version -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Not a version: $Given (try 0.22.0)" }
 }
 $InstallDir = if ($env:YMCP_INSTALL_DIR) { $env:YMCP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\ymcp' }
 
