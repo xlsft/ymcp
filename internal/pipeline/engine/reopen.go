@@ -8,6 +8,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
+	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
 // stateLeft marks a run that ended as done whose issue has been outside
@@ -136,7 +137,19 @@ func (r *Runner) endedRuns(ctx context.Context) []store.Run {
 // opens a new one. The comments written on the issue since the run ended
 // are queued as feedback. An issue moved back into the needs-input stage
 // leaves it, as the run is in review.
+//
+// Whatever it can't do yet, it leaves to a later poll before it changes
+// the run: the worker of the run that ended still exiting, the change or
+// the comments not read.
 func (r *Runner) reopen(ctx context.Context, run store.Run, fromNeedsInput bool) {
+	if r.worker(run.ID) != nil {
+		return // its worker is still removing the worktree
+	}
+	comments, err := r.watch.IssueComments(ctx, run.IssueID)
+	if err != nil {
+		r.log.Warn("reading the comments of a reopened run failed", "run", run.Number, "err", err)
+		return
+	}
 	forget, merged := false, false
 	if r.hasChange(run) {
 		ch, err := r.vcs.Change(ctx, run.PRNumber)
@@ -177,7 +190,7 @@ func (r *Runner) reopen(ctx context.Context, run store.Run, fromNeedsInput bool)
 	if fromNeedsInput {
 		r.leaveNeedsInput(ctx, saved)
 	}
-	queued := r.queueSince(ctx, saved, ended)
+	queued := r.queueSince(ctx, saved, ended, comments)
 	w := r.startWorker(saved)
 	w.leftSource = true
 	body := "**Reopened**: the issue was moved back. Comment with what to change, and the agent picks it up."
@@ -204,18 +217,13 @@ func followedAfterEnd(run store.Run, now time.Time) bool {
 		run.FinishedAt != nil && run.FinishedAt.After(now.Add(-reopenWithin))
 }
 
-// queueSince queues the comments written on the issue of run after since,
-// as the poll would have had it been following the issue; it returns how
-// many it queued.
-func (r *Runner) queueSince(ctx context.Context, run store.Run, since time.Time) int {
-	cs, err := r.watch.IssueComments(ctx, run.IssueID)
-	if err != nil {
-		r.log.Warn("reading the comments of a reopened run failed", "run", run.Number, "err", err)
-		return 0
-	}
+// queueSince queues the comments cs of the issue of run written after
+// since, as the poll would have had it been following the issue; it
+// returns how many it queued.
+func (r *Runner) queueSince(ctx context.Context, run store.Run, since time.Time, cs []ytwatch.Comment) int {
 	allowed, own := r.feedbackAuthors(), r.ownComments(ctx, run)
 	n := 0
-	err = r.st.Tx(ctx, func(tx *store.Store) error {
+	err := r.st.Tx(ctx, func(tx *store.Store) error {
 		for _, c := range cs {
 			at := c.Created
 			if !c.Updated.IsZero() {
