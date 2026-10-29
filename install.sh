@@ -39,7 +39,7 @@ done
 if [ "$VERSION" != "latest" ]; then
   GIVEN="$VERSION"
   VERSION="v${VERSION#v}"
-  printf '%s\n' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' ||
+  printf '%s\n' "$VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$' ||
     { printf '%s\n' "Not a version: $GIVEN (try 0.22.0)" >&2; exit 2; }
 fi
 

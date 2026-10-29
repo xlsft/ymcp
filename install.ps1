@@ -23,7 +23,7 @@ if (-not $Version) { $Version = 'latest' }
 if ($Version -ne 'latest') {
   $Given = $Version
   $Version = 'v' + ($Version -replace '^v', '')
-  if ($Version -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Not a version: $Given (try 0.22.0)" }
+  if ($Version -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$') { throw "Not a version: $Given (try 0.22.0)" }
 }
 $InstallDir = if ($env:YMCP_INSTALL_DIR) { $env:YMCP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\ymcp' }
 
