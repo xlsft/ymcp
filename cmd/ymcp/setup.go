@@ -18,7 +18,7 @@ import (
 
 func setup(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
-	reauth := fs.Bool("reauth", false, "ask for credentials even if some are saved")
+	reauth := fs.Bool("reauth", false, "ask for credentials even if some are saved (the TUI always can)")
 	only := fs.String("clients", "", "comma-separated client IDs to register, without asking")
 	all := fs.Bool("all", false, "register in every detected client, without asking")
 	name := fs.String("name", "", `profile display name, e.g. "YouTrack (work)"; its key is the MCP server name`)
@@ -33,8 +33,9 @@ func setup(ctx context.Context, args []string) error {
 		return fmt.Errorf("--confirm: %w", err)
 	}
 	if interactive() && *only == "" && !*all && !*remove {
-		if *name != "" || *toolsFlag != "" || *confirmFlag != "" || *reauth {
-			return errors.New("--name, --tools, --confirm and --reauth go with --clients or --all; without them setup opens its TUI, which has all of these")
+		// The TUI asks for everything; --reauth needs nothing more.
+		if *name != "" || *toolsFlag != "" || *confirmFlag != "" {
+			return errors.New("--name, --tools and --confirm go with --clients or --all; without them setup opens its TUI, which has all of these")
 		}
 		return setupTUI(ctx)
 	}
