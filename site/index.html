@@ -164,10 +164,8 @@ nav a:hover, nav a:focus-visible { opacity: 1; text-decoration: underline; text-
   width: clamp(88px, 15vw, 180px); aspect-ratio: 1; max-width: 100%;
   background: var(--ink);
 }
-.ysq b {
-  position: absolute; left: 10%; top: 8%;
-  font: 800 clamp(20px, 3.4vw, 40px)/1 var(--display); font-stretch: 100%;
-}
+/* The Y and the bar where the banner has them (docs/banner.svg). */
+.ysq .y { position: absolute; left: 10.1%; top: 11%; width: 20.5%; height: 26.3%; fill: var(--on-red); }
 .ysq i { position: absolute; left: 11%; bottom: 11%; width: 37.5%; height: 6.25%; background: var(--on-red); }
 .mcp {
   margin: 0; font: 900 clamp(84px, 17vw, 210px)/.82 var(--display); font-stretch: 112%;
@@ -377,7 +375,7 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
   <div class="wrap">
     <div>
       <div class="lockup" role="img" aria-label="ymcp">
-        <div class="ysq" aria-hidden="true"><b>Y</b><i></i></div>
+        <div class="ysq" aria-hidden="true"><svg class="y" viewBox="491.15 137.81 36.93 47.29" aria-hidden="true"><path d="M504.75 185.10L504.75 168.26L491.15 137.81L501.32 137.81L507.29 152.06Q508.19 154.20 508.83 156.59Q509.55 158.99 509.82 160.48Q510.13 158.99 510.72 156.59Q511.36 154.20 512.21 152.06L517.97 137.81L528.08 137.81L514.47 168.26L514.47 185.10L504.75 185.10Z"/></svg><i></i></div>
         <p class="mcp" aria-hidden="true">MCP</p>
       </div>
       <p class="caption">It’s fun to fetch with the YMCP</p>
