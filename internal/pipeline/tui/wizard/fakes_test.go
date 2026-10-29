@@ -335,6 +335,16 @@ type driver struct {
 	t   *testing.T
 	m   *Model
 	out []tea.Msg
+	// top gets the messages when set: the profile wizard around m.
+	top tea.Model
+}
+
+// model is what gets the messages.
+func (d *driver) model() tea.Model {
+	if d.top != nil {
+		return d.top
+	}
+	return d.m
 }
 
 func start(t *testing.T, deps Deps, existing *spec.Pipeline) *driver {
@@ -369,7 +379,7 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 			d.run(c, depth+1)
 		}
 		return
-	case Done, Cancelled:
+	case Done, Cancelled, ProfileDone:
 		d.out = append(d.out, msg)
 		return
 	}
@@ -379,12 +389,12 @@ func (d *driver) run(cmd tea.Cmd, depth int) {
 		}
 		return
 	}
-	_, next := d.m.Update(msg)
+	_, next := d.model().Update(msg)
 	d.run(next, depth+1)
 }
 
 func (d *driver) send(msg tea.Msg) {
-	_, cmd := d.m.Update(msg)
+	_, cmd := d.model().Update(msg)
 	d.run(cmd, 0)
 }
 
@@ -418,7 +428,7 @@ func (d *driver) typ(s string) {
 	}
 }
 
-func (d *driver) view() string { return d.m.View() }
+func (d *driver) view() string { return d.model().View() }
 
 // must fails unless the view contains every part.
 func (d *driver) must(parts ...string) {

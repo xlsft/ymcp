@@ -239,6 +239,9 @@ type Model struct {
 	initial string
 	// blocked is why the last Next or Save did not go on.
 	blocked string
+	// notice is why the last Save did not go on, shown until the next
+	// key even where the step has nothing to fix.
+	notice string
 }
 
 // New returns the wizard for a new pipeline (existing nil) or for editing
@@ -540,6 +543,7 @@ func (m *Model) forward() {
 func isButton(id string) bool { return strings.HasPrefix(id, "btn:") }
 
 func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
+	m.notice = ""
 	k := keys.Of(msg) // shortcuts only; the focused field gets msg as typed
 	if k == "ctrl+c" {
 		return cancelled
@@ -684,7 +688,7 @@ func (m *Model) jump(i int) tea.Cmd {
 // save ends the wizard, unless what it made is not valid yet.
 func (m *Model) save(run bool) tea.Cmd {
 	cmd, why := m.kind.save(run)
-	m.blocked = why
+	m.blocked, m.notice = why, why
 	return cmd
 }
 
@@ -778,6 +782,8 @@ func (m *Model) buttonRow(focus string, width int, active bool) string {
 	switch {
 	case m.blocked != "" && len(probs) > 0:
 		row += "  " + styleErr.Render("✗ "+oneLine(m.blocked, max(width-lenVisible(row)-4, 10)))
+	case m.notice != "":
+		row += "  " + styleWarn.Render(oneLine(m.notice, max(width-lenVisible(row)-2, 10)))
 	case len(probs) > 0:
 		var texts []string
 		for _, p := range probs {
