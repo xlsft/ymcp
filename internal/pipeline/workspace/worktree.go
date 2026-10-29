@@ -150,6 +150,28 @@ func DefaultRoot(ctx context.Context, h Host, pipeline string) (string, error) {
 	return root, nil
 }
 
+// ExpandRoot turns a leading ~ in a worktrees root into the home directory
+// of the user on h. The root reaches git as an argument, where no shell
+// expands it, and git would make a directory named ~ in the repository.
+func ExpandRoot(ctx context.Context, h Host, root string) (string, error) {
+	rest, ok := strings.CutPrefix(root, "~")
+	if !ok || rest != "" && rest[0] != '/' && rest[0] != '\\' {
+		return root, nil
+	}
+	hf, ok := h.(homeFinder)
+	if !ok {
+		return "", fmt.Errorf("%s: the home directory on %s is unknown", root, h.Name())
+	}
+	home, err := hf.HomeDir(ctx)
+	if err != nil {
+		return "", fmt.Errorf("locating the home directory on %s: %w", h.Name(), err)
+	}
+	if strings.Trim(rest, `/\`) == "" {
+		return home, nil
+	}
+	return joinPath(home, rest), nil
+}
+
 // Create makes the worktree for one run in the repository at repoDir, on
 // branch, and gives it the commit identity id; a zero id leaves the
 // repository's own.

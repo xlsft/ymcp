@@ -301,6 +301,11 @@ func TestSSHIsDirAndCacheDir(t *testing.T) {
 	if root != "/home/dev/.cache/ymcp/worktrees/backend" || err != nil {
 		t.Errorf("DefaultRoot = %q, %v", root, err)
 	}
+	for in, want := range map[string]string{"~": "/home/dev", "~/": "/home/dev", "~/wts": "/home/dev/wts", "~/wts/": "/home/dev/wts", "/srv/wts": "/srv/wts", "~dev/wts": "~dev/wts"} {
+		if got, err := ExpandRoot(ctx, h2, in); got != want || err != nil {
+			t.Errorf("ExpandRoot(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
 }
 
 func TestSSHForwardMultiplexed(t *testing.T) {

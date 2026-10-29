@@ -163,6 +163,12 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 			return nil, fmt.Errorf("pipeline %s: %w", p.Name, err)
 		}
 		p.Workspace.Worktrees = root
+	} else {
+		root, err := workspace.ExpandRoot(ctx, host, strings.TrimSpace(p.Workspace.Worktrees))
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %s: workspace.worktrees: %w", p.Name, err)
+		}
+		p.Workspace.Worktrees = root
 	}
 
 	yt, cfg, err := opts.Connect(ctx, p.Profile, logger)

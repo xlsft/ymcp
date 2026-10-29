@@ -45,6 +45,12 @@ type dirMaker interface {
 	MkdirAll(ctx context.Context, path string) error
 }
 
+// homeFinder is implemented by hosts that know the home directory of their
+// user.
+type homeFinder interface {
+	HomeDir(ctx context.Context) (string, error)
+}
+
 type localHost struct{}
 
 // Local returns the Host that runs commands on this machine with os/exec.
@@ -94,6 +100,14 @@ func isDir(path string) (bool, error) {
 
 func (localHost) CacheDir(context.Context) (string, error) {
 	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(dir), nil
+}
+
+func (localHost) HomeDir(context.Context) (string, error) {
+	dir, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
