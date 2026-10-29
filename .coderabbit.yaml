@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit reviews every pull request, requests changes for blocking
+# findings and approves once they're resolved and the latest commit is
+# reviewed, so each change gets a second look before it merges.
+language: en-US
+reviews:
+  profile: chill
+  poem: false
+  in_progress_fortune: false
+  auto_review:
+    enabled: true
+    # Named outright: without it the first pull request into main was skipped
+    # as "not the default branch".
+    base_branches:
+      - ^main$
+    # Branches get many small commits; keep reviewing all of them, or the
+    # latest commit goes unreviewed and the approval never comes.
+    auto_pause_after_reviewed_commits: 0
+  auto_approvals:
+    enabled: true
+    # The author can't approve their own pull request through the bot either.
+    allow_author_approval: false
