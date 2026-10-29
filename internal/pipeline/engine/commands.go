@@ -46,6 +46,13 @@ func controlCommand(body string) (cmd, rest string) {
 	return c, strings.TrimSpace(strings.TrimSpace(body)[len(f[0]):])
 }
 
+// EndedCommand reports whether a reply is a command a run that ended
+// takes: /clear or /compact.
+func EndedCommand(body string) bool {
+	cmd, _ := controlCommand(body)
+	return cmd == cmdClear || cmd == cmdCompact
+}
+
 // isControl reports whether a reply is a command the runner carries out.
 func isControl(body string) bool {
 	cmd, _ := controlCommand(body)
@@ -86,7 +93,8 @@ func sameText(mark, body string) bool {
 
 // controls carries out the commands in the inbox of each active run:
 // /cancel and /clear at once, /compact once no turn is running, in the
-// background.
+// background; and /clear and /compact for the runs that ended (see
+// endedRuns).
 func (r *Runner) controls(ctx context.Context) {
 	for _, w := range r.liveWorkers() {
 		if ctx.Err() != nil {
@@ -124,6 +132,31 @@ func (r *Runner) controls(ctx context.Context) {
 			if run, err = r.st.Run(ctx, w.id); err != nil || run.Status.Final() {
 				break
 			}
+		}
+	}
+	// A run that ended takes /clear and /compact.
+	for _, run := range r.endedRuns(ctx) {
+		if ctx.Err() != nil {
+			return
+		}
+		items, err := r.st.PendingInbox(ctx, run.ID)
+		if err != nil {
+			continue
+		}
+		for _, it := range items {
+			cmd, _ := controlCommand(it.Body)
+			if !EndedCommand(it.Body) || !r.consumeCommand(ctx, run, it, cmd) {
+				continue
+			}
+			if cmd == cmdClear {
+				r.clearRun(ctx, run, it.Author)
+				continue
+			}
+			r.wg.Add(1)
+			go func(run store.Run, author string) {
+				defer r.wg.Done()
+				r.compactRun(ctx, run, author)
+			}(run, it.Author)
 		}
 	}
 }

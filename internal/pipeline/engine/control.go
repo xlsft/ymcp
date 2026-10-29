@@ -22,7 +22,8 @@ const sourceCLI = "cli"
 // Answer queues text as a human reply to the run, as if written in
 // YouTrack by the local user. A running runner picks it up within a
 // second: it answers a question, an open permission request (/approve,
-// /reject) or is feedback on a run in review.
+// /reject) or is feedback on a run in review. A run that ended as done or
+// closed takes only /clear and /compact.
 func Answer(ctx context.Context, st *store.Store, pipeline string, run int, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -35,7 +36,7 @@ func Answer(ctx context.Context, st *store.Store, pipeline string, run int, text
 		}
 		return err
 	}
-	if r.Status.Final() {
+	if r.Status.Final() && !(EndedCommand(text) && (r.Status == store.StatusDone || r.Status == store.StatusClosed)) {
 		return fmt.Errorf("run #%d of %s has ended (%s)", run, pipeline, r.Status)
 	}
 	var b [8]byte
@@ -82,7 +83,8 @@ type Comment struct {
 // on its next poll of YouTrack. The comment is queued and marked seen as
 // that poll would do it (see pollComments): whichever of the two comes
 // first queues it, and the other finds it seen. A run that has ended
-// takes no comments.
+// takes only /clear and /compact; any other comment is left to a reopened
+// run (see Runner.queueSince).
 func Commented(ctx context.Context, st *store.Store, pipeline string, run int, c Comment) error {
 	if c.ID == "" {
 		return errors.New("the comment has no id")
@@ -94,7 +96,7 @@ func Commented(ctx context.Context, st *store.Store, pipeline string, run int, c
 		}
 		return err
 	}
-	if r.Status.Final() {
+	if r.Status.Final() && !EndedCommand(c.Text) {
 		return nil
 	}
 	at := c.Created

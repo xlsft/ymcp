@@ -275,6 +275,12 @@ moved back to the backlog to cancel its run is not taken again until it leaves t
 taken again once it is back in the source. A change closed without a merge ends the run as closed.
 `workspace.parallel` sets how many issues run at once (1).
 
+A run that ended as done reopens when its issue, having left the working, review and needs-input stages, is moved
+back into one of them within 30 days, say from done to review because it needs more work. The run goes back to
+review with the agent's session and branch; the comments written on the issue since it ended are its feedback, and if
+its change was merged or closed, the next push opens a new one. An issue still in review when its change was merged
+has not left, so it doesn't reopen the run.
+
 A run that has ended can be deleted from the local store with `d` on the board or the run's card, or with
 `ymcp pipeline NAME delete N`: its log goes, the issue, branch and change stay, and an issue the backlog held is taken
 again. A canceled run can be deleted once a runner has closed its change and removed its worktree.
@@ -378,6 +384,7 @@ Three more replies are carried out by ymcp itself, the agent never sees them:
 | `/compact` | Has the agent sum the run up in the pipeline's `language`, then clears it and leaves the summary, with the links to the change and the branch, as the one comment |
 | `/cancel [why]` | Cancels the run as `ymcp pipeline NAME cancel N` does, and closes the issue with the closed stage's command |
 
+`/clear` and `/compact` also work for 30 days after a run ended as done or closed, without moving the issue.
 `"autoCompact": true` compacts every run that ends as done or closed. A command runs once: restoring its comment does
 not run it again.
 

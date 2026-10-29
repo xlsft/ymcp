@@ -127,9 +127,10 @@ type Runner struct {
 	wg         sync.WaitGroup
 
 	// Touched only by the polling loop.
-	suppressed map[string]bool     // issue ids not captured again while they stay in the source
-	held       map[string]bool     // issue ids of the source another pipeline's run has, logged once
-	vcsWait    map[int64]time.Time // runs whose change is not polled until then (rate limits)
+	suppressed  map[string]bool     // issue ids not captured again while they stay in the source
+	held        map[string]bool     // issue ids of the source another pipeline's run has, logged once
+	vcsWait     map[int64]time.Time // runs whose change is not polled until then (rate limits)
+	reopenTicks map[int64]int       // done runs whose issue is back in a working stage: polls in a row
 }
 
 // New prepares a runner: it loads the profile, signs in to YouTrack once
@@ -204,31 +205,32 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 	}
 	ok = true
 	return &Runner{
-		closeFn:    closeHost,
-		vcs:        rem.Strategy,
-		vcsMe:      vcsMe,
-		vcsRepo:    repoName(rem.Repo),
-		vcsSource:  sourceOf(p.Strategy.Kind),
-		ci:         ci,
-		notifyFn:   opts.Notify,
-		vcsWait:    map[int64]time.Time{},
-		p:          p,
-		prompts:    p.ResolvedPrompts(),
-		st:         opts.Store,
-		log:        logger,
-		version:    opts.Version,
-		yt:         yt,
-		watch:      w,
-		profile:    profile,
-		me:         me,
-		enabled:    enabled,
-		agent:      ag,
-		host:       host,
-		now:        opts.Now,
-		workers:    map[int64]*worker{},
-		compacting: map[int64]bool{},
-		suppressed: map[string]bool{},
-		held:       map[string]bool{},
+		closeFn:     closeHost,
+		vcs:         rem.Strategy,
+		vcsMe:       vcsMe,
+		vcsRepo:     repoName(rem.Repo),
+		vcsSource:   sourceOf(p.Strategy.Kind),
+		ci:          ci,
+		notifyFn:    opts.Notify,
+		vcsWait:     map[int64]time.Time{},
+		p:           p,
+		prompts:     p.ResolvedPrompts(),
+		st:          opts.Store,
+		log:         logger,
+		version:     opts.Version,
+		yt:          yt,
+		watch:       w,
+		profile:     profile,
+		me:          me,
+		enabled:     enabled,
+		agent:       ag,
+		host:        host,
+		now:         opts.Now,
+		workers:     map[int64]*worker{},
+		compacting:  map[int64]bool{},
+		suppressed:  map[string]bool{},
+		held:        map[string]bool{},
+		reopenTicks: map[int64]int{},
 	}, nil
 }
 

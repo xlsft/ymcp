@@ -469,15 +469,14 @@ func (m *Run) hasComment(id string) bool {
 func (m *Run) posted(queued bool) string {
 	key := m.run.IssueKey
 	switch {
+	case queued:
+		return fmt.Sprintf("Commented on %s; run #%d has it.", key, m.number)
 	case m.backlog:
 		return fmt.Sprintf("Commented on %s.", key)
 	case m.run.Status.Final():
 		return fmt.Sprintf("Commented on %s. Run #%d has ended, so no agent reads it.", key, m.number)
 	case m.runner.state != runnerRunning:
 		return fmt.Sprintf("Commented on %s. The runner is stopped; it reads the comment when it starts.", key)
-	}
-	if queued {
-		return fmt.Sprintf("Commented on %s; run #%d has it.", key, m.number)
 	}
 	return fmt.Sprintf("Commented on %s. The runner passes it to the agent at its next poll.", key)
 }
@@ -502,7 +501,7 @@ func (m *Run) post(text string) tea.Cmd {
 	m.pending = append(m.pending, pendingComment{seq: m.seq, text: text, at: m.d.Now()})
 	m.docScroll, m.focus = 0, paneThread
 	iss, profile, ref, to, seq := m.d.Issues, m.run.Profile, issueRef(m.run), m.id, m.seq
-	hand := !m.backlog && !m.run.Status.Final() && m.d.Store != nil && m.d.Commented != nil
+	hand := !m.backlog && (!m.run.Status.Final() || engine.EndedCommand(text)) && m.d.Store != nil && m.d.Commented != nil
 	commented, st, pipeline, number := m.d.Commented, m.d.Store, m.pipeline, m.number
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
@@ -1403,7 +1402,7 @@ func (m *Run) replyArea(w, rows int) (out []string) {
 	hint := m.placeholder()
 	m.reply.ta.Placeholder = hint
 	if r.Status.Final() {
-		hint = "The run has ended; a comment goes to " + r.IssueKey + " only"
+		hint = "The run has ended; a comment goes to " + r.IssueKey + " only, but /clear and /compact still work"
 	}
 	if m.d.Issues == nil {
 		hint = "YouTrack is not connected here: no comments"

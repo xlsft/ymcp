@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -33,6 +34,7 @@ func (r *Runner) tick(ctx context.Context) {
 	if ok {
 		r.checkMembership(ctx, source, captured)
 	}
+	r.checkReopened(ctx)
 	r.pollComments(ctx)
 	r.pollVCS(ctx)
 	r.pollCI(ctx)
@@ -353,31 +355,31 @@ func (r *Runner) pauseRun(ctx context.Context, w *worker, run store.Run) {
 // the ones from allowed authors in the inbox of their run. The cursor and
 // the seen marks are saved in one transaction with the inbox items.
 func (r *Runner) pollComments(ctx context.Context) {
-	workers := r.liveWorkers()
-	if len(workers) == 0 || ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return
 	}
 	byIssue := map[string]store.Run{}
 	var projects []string
 	own := map[string]bool{}
-	for _, w := range workers {
-		run, err := r.st.Run(ctx, w.id)
-		if err != nil || run.Status.Final() {
-			continue
-		}
+	follow := func(run store.Run) {
 		byIssue[run.IssueID] = run
 		byIssue[run.IssueKey] = run
 		if p := projectOf(run.IssueKey); p != "" && !slices.Contains(projects, p) {
 			projects = append(projects, p)
 		}
-		msgs, err := r.st.Messages(ctx, run.ID)
-		if err != nil {
-			r.log.Warn("listing messages failed", "run", run.Number, "err", err)
+		maps.Copy(own, r.ownComments(ctx, run))
+	}
+	for _, w := range r.liveWorkers() {
+		run, err := r.st.Run(ctx, w.id)
+		if err != nil || run.Status.Final() {
+			continue
 		}
-		for _, m := range msgs {
-			if m.Source == sourceYouTrack {
-				own[m.ExternalID] = true
-			}
+		follow(run)
+	}
+	// A run that ended still takes /clear and /compact (see queueComment).
+	for _, run := range r.endedRuns(ctx) {
+		if _, live := byIssue[run.IssueID]; !live {
+			follow(run)
 		}
 	}
 	if len(projects) == 0 {
@@ -406,10 +408,7 @@ func (r *Runner) pollComments(ctx context.Context) {
 		return
 	}
 
-	allowed := map[string]bool{r.me: true}
-	for _, l := range r.p.Feedback.YouTrack {
-		allowed[l] = true
-	}
+	allowed := r.feedbackAuthors()
 	var queued []store.Run
 	err = r.st.Tx(context.WithoutCancel(ctx), func(tx *store.Store) error {
 		for _, c := range items {
@@ -422,58 +421,12 @@ func (r *Runner) pollComments(ctx context.Context) {
 					continue
 				}
 			}
-			at := c.Created
-			if !c.Updated.IsZero() {
-				at = c.Updated
-			}
-			stamp := strconv.FormatInt(at.UnixMilli(), 10)
-			prev, seen, err := tx.Seen(ctx, sourceYouTrack, c.ID)
+			queuedOne, err := r.queueComment(ctx, tx, run, c, allowed, own)
 			if err != nil {
 				return err
 			}
-			mark := seenMark(stamp, c.Text)
-			if seen && (prev == stamp || prev == mark) {
-				continue
-			}
-			if seen && sameText(prev, c.Text) {
-				// Restored after a /clear, or touched without an edit: not
-				// a new message, so a command in it doesn't run again.
-				if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
-					return err
-				}
-				continue
-			}
-			skip := ""
-			switch _, marked := text.ParseMarker(c.Text); {
-			case marked || own[c.ID]:
-				skip = "agent message"
-			case !allowed[c.Author]:
-				skip = "author not in feedback.youtrack"
-			case at.Before(run.CreatedAt):
-				skip = "written before the run"
-			}
-			if skip == "" {
-				ext := c.ID
-				if seen {
-					ext = c.ID + "@" + stamp // an edit is a new message
-				}
-				added, err := tx.AddInbox(ctx, store.InboxItem{RunID: run.ID, Source: sourceYouTrack, ExternalID: ext, Author: c.Author, Body: c.Text, URL: c.URL})
-				if err != nil {
-					return err
-				}
-				if added {
-					queued = append(queued, run)
-					if err := tx.AddEvent(ctx, run.ID, "inbox", map[string]string{"source": sourceYouTrack, "author": c.Author, "url": c.URL, "text": trimText(c.Text, 500)}); err != nil {
-						return err
-					}
-				}
-			} else if skip != "agent message" {
-				if err := tx.AddEvent(ctx, run.ID, "feedback.skipped", map[string]string{"author": c.Author, "url": c.URL, "reason": skip}); err != nil {
-					return err
-				}
-			}
-			if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
-				return err
+			if queuedOne {
+				queued = append(queued, run)
 			}
 		}
 		return tx.SetCursor(ctx, r.p.Name, cursorSource, cursorKey, next)
@@ -485,6 +438,99 @@ func (r *Runner) pollComments(ctx context.Context) {
 	for _, run := range queued {
 		r.log.Info("feedback queued", "run", run.Number, "issue", run.IssueKey)
 	}
+}
+
+// queueComment queues a comment on the issue of run for it, unless it was
+// seen with this text, is the agent's or its author may not give
+// feedback, and marks it seen; it reports whether it queued it. allowed
+// are the logins that may give feedback, own the ids of the run's own
+// comments. The caller runs it in a transaction.
+//
+// A run that ended takes only /clear and /compact; other comments on its
+// issue are left unseen, for a reopened run to pick up (see queueSince).
+func (r *Runner) queueComment(ctx context.Context, tx *store.Store, run store.Run, c ytwatch.Comment, allowed, own map[string]bool) (queued bool, err error) {
+	if run.Status.Final() && !EndedCommand(c.Text) {
+		return false, nil
+	}
+	at := c.Created
+	if !c.Updated.IsZero() {
+		at = c.Updated
+	}
+	stamp := strconv.FormatInt(at.UnixMilli(), 10)
+	prev, seen, err := tx.Seen(ctx, sourceYouTrack, c.ID)
+	if err != nil {
+		return false, err
+	}
+	mark := seenMark(stamp, c.Text)
+	if seen && (prev == stamp || prev == mark) {
+		return false, nil
+	}
+	if seen && sameText(prev, c.Text) {
+		// Restored after a /clear, or touched without an edit: not
+		// a new message, so a command in it doesn't run again.
+		if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	skip := ""
+	switch _, marked := text.ParseMarker(c.Text); {
+	case marked || own[c.ID]:
+		skip = "agent message"
+	case !allowed[c.Author]:
+		skip = "author not in feedback.youtrack"
+	case at.Before(run.CreatedAt):
+		skip = "written before the run"
+	}
+	if skip == "" {
+		ext := c.ID
+		if seen {
+			ext = c.ID + "@" + stamp // an edit is a new message
+		}
+		added, err := tx.AddInbox(ctx, store.InboxItem{RunID: run.ID, Source: sourceYouTrack, ExternalID: ext, Author: c.Author, Body: c.Text, URL: c.URL})
+		if err != nil {
+			return false, err
+		}
+		if added {
+			queued = true
+			if err := tx.AddEvent(ctx, run.ID, "inbox", map[string]string{"source": sourceYouTrack, "author": c.Author, "url": c.URL, "text": trimText(c.Text, 500)}); err != nil {
+				return false, err
+			}
+		}
+	} else if skip != "agent message" {
+		if err := tx.AddEvent(ctx, run.ID, "feedback.skipped", map[string]string{"author": c.Author, "url": c.URL, "reason": skip}); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.MarkSeen(ctx, sourceYouTrack, c.ID, mark); err != nil {
+		return false, err
+	}
+	return queued, nil
+}
+
+// feedbackAuthors are the logins whose comments on the issue count as
+// feedback: the pipeline's own and feedback.youtrack.
+func (r *Runner) feedbackAuthors() map[string]bool {
+	allowed := map[string]bool{r.me: true}
+	for _, l := range r.p.Feedback.YouTrack {
+		allowed[l] = true
+	}
+	return allowed
+}
+
+// ownComments are the ids of the YouTrack comments the run posted.
+func (r *Runner) ownComments(ctx context.Context, run store.Run) map[string]bool {
+	own := map[string]bool{}
+	msgs, err := r.st.Messages(ctx, run.ID)
+	if err != nil {
+		r.log.Warn("listing messages failed", "run", run.Number, "err", err)
+	}
+	for _, m := range msgs {
+		if m.Source == sourceYouTrack {
+			own[m.ExternalID] = true
+		}
+	}
+	return own
 }
 
 // schedule wakes the workers of runs with pending inbox items; a worker
