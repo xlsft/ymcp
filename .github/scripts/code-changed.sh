@@ -5,12 +5,13 @@
 #   code-changed.sh BASE HEAD   the files changed from their merge base
 #   code-changed.sh             since the last v* tag (a push to main)
 #
-# Documentation is Markdown anywhere, docs/, site/, LICENSE and the issue
-# and pull request templates. Everything else counts as code, workflows
-# included. Without a base to compare with, the answer is true.
+# Documentation is Markdown anywhere, docs/, site/ and the workflow and
+# script that publish it, LICENSE and the issue and pull request templates.
+# Everything else counts as code, other workflows included. Without a base to
+# compare with, the answer is true.
 set -euo pipefail
 
-docs='(^|/)[^/]+\.md$|^docs/|^site/|^LICENSE$|^\.github/ISSUE_TEMPLATE/|^\.github/pull_request_template\.md$'
+docs='(^|/)[^/]+\.md$|^docs/|^site/|^\.github/workflows/site\.yml$|^\.github/scripts/site\.py$|^LICENSE$|^\.github/ISSUE_TEMPLATE/|^\.github/pull_request_template\.md$'
 
 if [ $# -ge 2 ]; then
   range="$1...$2"
