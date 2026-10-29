@@ -1,9 +1,8 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 #
-# CodeRabbit reviews every pull request and approves it once its blocking
-# threads are resolved and the latest commit is reviewed. The approval is what
-# the main ruleset requires and what OpenSSF Scorecard's Code-Review check
-# counts: a review by someone other than the author.
+# CodeRabbit reviews every pull request, requests changes for blocking
+# findings and approves once they're resolved and the latest commit is
+# reviewed, so each change gets a second look before it merges.
 language: en-US
 reviews:
   profile: chill
