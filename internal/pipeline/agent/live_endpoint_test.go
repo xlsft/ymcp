@@ -140,7 +140,7 @@ func (c *scriptedChat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		args, _ := json.Marshal(map[string]string{"command": "echo gateway-ok", "description": "Print a marker"})
 		chunks = []string{
 			`{"choices":[{"delta":{"role":"assistant","content":"Running it."}}]}`,
-			fmt.Sprintf(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Bash","arguments":""}}]}}]}`),
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Bash","arguments":""}}]}}]}`,
 			fmt.Sprintf(`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":%q}}]}}]}`, string(args)),
 			`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
 		}
