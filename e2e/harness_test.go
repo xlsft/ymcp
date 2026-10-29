@@ -94,6 +94,11 @@ func run(m *testing.M) int {
 	password := os.Getenv("YOUTRACK_E2E_PASSWORD")
 	if endpoint == "" {
 		if exec.Command("docker", "info").Run() != nil {
+			// In CI that would pass a release untested.
+			if os.Getenv("CI") != "" {
+				fmt.Println("e2e: no YOUTRACK_E2E_ENDPOINT and no Docker to start a YouTrack in")
+				return 1
+			}
 			fmt.Println("e2e: no YOUTRACK_E2E_ENDPOINT and no Docker to start a YouTrack in; skipping")
 			return 0
 		}
@@ -149,6 +154,9 @@ func run(m *testing.M) int {
 	sweep(stale)
 	if project, err = newProject(); err != nil {
 		fmt.Println("e2e: creating the run's project:", err)
+		if project != nil && project.projectID != "" {
+			project.delete()
+		}
 		if outageSeen() != "" {
 			return exitUnavailable
 		}
@@ -172,11 +180,12 @@ func run(m *testing.M) int {
 	}
 	if code != 0 {
 		admin.dumpLog()
-		// Failures while the instance was out say nothing about ymcp.
-		if text := outageSeen(); text != "" {
-			fmt.Printf("e2e: YouTrack became unavailable during the run, so its failures don't count: %s\n", shortText(text))
-			return exitUnavailable
-		}
+	}
+	// Results from while the instance was out say nothing about ymcp, and
+	// an outage during the cleanup may have left objects for later runs.
+	if text := outageSeen(); text != "" {
+		fmt.Printf("e2e: YouTrack became unavailable during the run, so its results don't count: %s\n", shortText(text))
+		return exitUnavailable
 	}
 	return code
 }
