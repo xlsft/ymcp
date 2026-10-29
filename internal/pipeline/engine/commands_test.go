@@ -122,6 +122,36 @@ func TestCompactCommand(t *testing.T) {
 	}
 }
 
+// TestCompactTwiceAtOnce: a /compact while the summary of the first is
+// still being written is not carried out again.
+func TestCompactTwiceAtOnce(t *testing.T) {
+	release := make(chan struct{})
+	h, is, run, _ := reviewedRun(t, nil, func(t *fakeTurn) agent.Result {
+		<-release
+		t.Say("The redirect is fixed.")
+		return agent.Result{}
+	})
+	h.yt.addComment(is.Key, "alice", "/compact")
+	h.waitFor("the summary started", func() bool { return len(h.events(run.ID, "command")) == 1 })
+	h.yt.addComment(is.Key, "alice", "/compact")
+	h.waitFor("the second compact skipped", func() bool { return len(h.events(run.ID, "compact.skipped")) == 1 })
+	close(release)
+	h.waitFor("run compacted", func() bool { return len(h.events(run.ID, "run.compacted")) == 1 })
+	time.Sleep(10 * h.p.Source.PollInterval.Duration)
+	if n := len(h.events(run.ID, "run.compacted")); n != 1 {
+		t.Errorf("compacted %d times", n)
+	}
+	summaries := 0
+	for _, c := range h.yt.issueComments(is.Key) {
+		if strings.Contains(c, "**Summary**") {
+			summaries++
+		}
+	}
+	if summaries != 1 {
+		t.Errorf("%d summaries: %q", summaries, h.yt.issueComments(is.Key))
+	}
+}
+
 // TestCancelCommand: /cancel cancels the run, closes its pull request and
 // closes the issue with the closed stage's command.
 func TestCancelCommand(t *testing.T) {

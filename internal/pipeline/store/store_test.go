@@ -1114,3 +1114,54 @@ func TestStopRequest(t *testing.T) {
 		t.Error("the second request is not seen")
 	}
 }
+
+func TestClaimInboxOnce(t *testing.T) {
+	s := open(t)
+	r, _ := s.CreateRun(ctx, "p", "yt", "1", "")
+	if _, err := s.AddInbox(ctx, InboxItem{RunID: r.ID, Source: "cli", ExternalID: "cli-1", Author: "me", Body: "/compact"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.PendingInbox(ctx, r.ID)
+	inv, _ := s.StartInvocation(ctx, r.ID, "command")
+	inv2, _ := s.StartInvocation(ctx, r.ID, "command")
+	if ok, err := s.ClaimInbox(ctx, pending[0].ID, inv.ID); !ok || err != nil {
+		t.Fatalf("first claim = %v, %v", ok, err)
+	}
+	if ok, err := s.ClaimInbox(ctx, pending[0].ID, inv2.ID); ok || err != nil {
+		t.Errorf("second claim = %v, %v; want false", ok, err)
+	}
+}
+
+func TestLocalMark(t *testing.T) {
+	s := open(t)
+	mark := func() string {
+		t.Helper()
+		m, err := s.LocalMark(ctx, "p")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	r, _ := s.CreateRun(ctx, "p", "yt", "1", "")
+	other, _ := s.CreateRun(ctx, "q", "yt", "2", "")
+	m0 := mark()
+	s.AddInbox(ctx, InboxItem{RunID: other.ID, Source: "cli", ExternalID: "cli-0", Body: "elsewhere"})
+	if m := mark(); m != m0 {
+		t.Errorf("another pipeline's inbox changed the mark: %q -> %q", m0, m)
+	}
+	s.AddInbox(ctx, InboxItem{RunID: r.ID, Source: "cli", ExternalID: "cli-1", Body: "go on"})
+	m1 := mark()
+	if m1 == m0 {
+		t.Error("a new inbox item left the mark as it was")
+	}
+	if m := mark(); m != m1 {
+		t.Errorf("the mark changed by itself: %q -> %q", m1, m)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if _, err := s.ModifyRun(ctx, r.ID, func(run *Run) error { run.Status = StatusCanceled; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if m := mark(); m == m1 {
+		t.Error("ending the run left the mark as it was")
+	}
+}

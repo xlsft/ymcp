@@ -182,8 +182,17 @@ func TestRunModal(t *testing.T) {
 	if len(yt.added) != 1 || yt.added[0] != "ISO 8601, please." {
 		t.Fatalf("posted %q", yt.added)
 	}
-	d.has("Comments · 3", "xlsft · just now", "ISO 8601, please.", "Commented on BE-127. The runner passes it")
+	d.has("Comments · 3", "xlsft · just now", "ISO 8601, please.", "Commented on BE-127; run #6 has it.")
 	d.hasNot("sending…", "enter send")
+	// The run has the comment at once, queued as the runner's poll of
+	// YouTrack would queue it.
+	run, err := f.st.RunByNumber(context.Background(), "backend", 6)
+	f.must(err)
+	inbox, err := f.st.PendingInbox(context.Background(), run.ID)
+	f.must(err)
+	if len(inbox) != 1 || inbox[0].Body != "ISO 8601, please." || inbox[0].Source != "youtrack" || inbox[0].ExternalID == "" {
+		t.Errorf("inbox = %+v", inbox)
+	}
 
 	d.keys("o")
 	if len(f.opened) != 1 || f.opened[0] != "https://example.youtrack.cloud/issue/BE-127" {

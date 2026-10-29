@@ -137,8 +137,15 @@ func (r *Runner) consumeCommand(ctx context.Context, run store.Run, it store.Inb
 		r.log.Warn("starting an invocation failed", "run", run.Number, "err", err)
 		return false
 	}
-	if err := r.st.ConsumeInbox(ctx, []int64{it.ID}, inv.ID); err != nil {
-		r.log.Warn("consuming the inbox failed", "run", run.Number, "err", err)
+	claimed, err := r.st.ClaimInbox(ctx, it.ID, inv.ID)
+	if err != nil || !claimed {
+		if err != nil {
+			r.log.Warn("consuming the inbox failed", "run", run.Number, "err", err)
+		}
+		inv.EndReason = cmd + " by " + it.Author + ": already carried out"
+		if err := r.st.EndInvocation(ctx, inv); err != nil {
+			r.log.Warn("ending an invocation failed", "run", run.Number, "err", err)
+		}
 		return false
 	}
 	inv.EndReason = cmd + " by " + it.Author
@@ -244,7 +251,24 @@ func (r *Runner) clearRun(ctx context.Context, run store.Run, author string) {
 // language, the run's comments are hidden, and the summary is left as the
 // one comment, on the issue and on the change. When no summary can be
 // written, nothing is hidden and a note says why.
+//
+// A /compact while one is still writing the summary of the same run is
+// the same request: it is not carried out twice.
 func (r *Runner) compactRun(ctx context.Context, run store.Run, author string) {
+	r.mu.Lock()
+	busy := r.compacting[run.ID]
+	r.compacting[run.ID] = true
+	r.mu.Unlock()
+	if busy {
+		r.log.Info("a compact is already running", "run", run.Number, "author", author)
+		r.event(ctx, run.ID, "compact.skipped", map[string]string{"by": author})
+		return
+	}
+	defer func() {
+		r.mu.Lock()
+		delete(r.compacting, run.ID)
+		r.mu.Unlock()
+	}()
 	summary, err := r.summarize(ctx, run)
 	if ctx.Err() != nil {
 		return // the runner stops; a stop is no failure to report

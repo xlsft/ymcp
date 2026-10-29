@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/theme"
@@ -154,6 +155,7 @@ type commentSent struct {
 	seq     int
 	text    string
 	comment IssueComment
+	queued  bool // the run has it: the runner needn't wait for its poll
 	err     error
 }
 
@@ -386,7 +388,7 @@ func (m *Run) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.hasComment(msg.comment.ID) {
 			m.comments = append(m.comments, msg.comment)
 		}
-		m.say(m.posted())
+		m.say(m.posted(msg.queued))
 		return m, m.loadIssue(true)
 	case Tick:
 		m.frameN++
@@ -462,8 +464,9 @@ func (m *Run) hasComment(id string) bool {
 	return false
 }
 
-// posted says where a comment went.
-func (m *Run) posted() string {
+// posted says where a comment went; queued is whether the run has it
+// already.
+func (m *Run) posted(queued bool) string {
 	key := m.run.IssueKey
 	switch {
 	case m.backlog:
@@ -473,13 +476,16 @@ func (m *Run) posted() string {
 	case m.runner.state != runnerRunning:
 		return fmt.Sprintf("Commented on %s. The runner is stopped; it reads the comment when it starts.", key)
 	}
+	if queued {
+		return fmt.Sprintf("Commented on %s; run #%d has it.", key, m.number)
+	}
 	return fmt.Sprintf("Commented on %s. The runner passes it to the agent at its next poll.", key)
 }
 
 // answerSent tells where an answer given through the store went.
 func answerSent(number int, r runnerInfo) string {
 	if r.state == runnerRunning {
-		return fmt.Sprintf("Answer sent to #%d; the runner passes it on at its next poll.", number)
+		return fmt.Sprintf("Answer sent to #%d; the runner has it.", number)
 	}
 	return fmt.Sprintf("Answer saved for #%d; the runner is stopped and passes it on when it starts.", number)
 }
@@ -496,11 +502,20 @@ func (m *Run) post(text string) tea.Cmd {
 	m.pending = append(m.pending, pendingComment{seq: m.seq, text: text, at: m.d.Now()})
 	m.docScroll, m.focus = 0, paneThread
 	iss, profile, ref, to, seq := m.d.Issues, m.run.Profile, issueRef(m.run), m.id, m.seq
+	hand := !m.backlog && !m.run.Status.Final() && m.d.Store != nil && m.d.Commented != nil
+	commented, st, pipeline, number := m.d.Commented, m.d.Store, m.pipeline, m.number
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), ytTimeout)
 		defer cancel()
 		c, err := iss.AddComment(ctx, profile, ref, text)
-		return commentSent{to: to, seq: seq, text: text, comment: c, err: err}
+		sent := commentSent{to: to, seq: seq, text: text, comment: c, err: err}
+		if err == nil && hand {
+			// Failing here only leaves the comment to the runner's poll.
+			sent.queued = commented(ctx, st, pipeline, number, engine.Comment{
+				ID: c.ID, Author: c.Author, Text: c.Text, URL: c.URL, Created: c.Created, Updated: c.Updated,
+			}) == nil
+		}
+		return sent
 	}
 }
 
@@ -1381,7 +1396,7 @@ func (m *Run) replyArea(w, rows int) (out []string) {
 	r := m.run
 	switch {
 	case r.Status == store.StatusNeedsInput && m.info.pending > 0:
-		out = append(out, cut(theme.OK.Render("✓ reply queued")+theme.Dim.Render(" · the agent gets it at the next poll"), w))
+		out = append(out, cut(theme.OK.Render("✓ reply queued")+theme.Dim.Render(" · the runner has it"), w))
 	case r.Status == store.StatusNeedsInput:
 		out = append(out, cut(theme.Badge.Render("⚑ needs input")+theme.Dim.Render(" · waiting "+short(m.d.Now().Sub(waitingSince(r)))), w))
 	}

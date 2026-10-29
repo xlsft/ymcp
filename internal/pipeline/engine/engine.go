@@ -120,10 +120,11 @@ type Runner struct {
 	ci       vcs.CI
 	notifyFn func(ctx context.Context, kind string, run store.Run, title, body, url string)
 
-	mu      sync.Mutex
-	workers map[int64]*worker
-	started bool
-	wg      sync.WaitGroup
+	mu         sync.Mutex
+	workers    map[int64]*worker
+	compacting map[int64]bool // runs whose summary is being written
+	started    bool
+	wg         sync.WaitGroup
 
 	// Touched only by the polling loop.
 	suppressed map[string]bool     // issue ids not captured again while they stay in the source
@@ -225,6 +226,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		host:       host,
 		now:        opts.Now,
 		workers:    map[int64]*worker{},
+		compacting: map[int64]bool{},
 		suppressed: map[string]bool{},
 		held:       map[string]bool{},
 	}, nil
@@ -383,18 +385,35 @@ func (r *Runner) Run(ctx context.Context) error {
 		<-watching
 	}()
 
+	local := make(chan struct{}, 1)
+	watchingLocal := make(chan struct{})
+	go func() {
+		defer close(watchingLocal)
+		r.watchLocal(runCtx, local)
+	}()
+	defer func() {
+		stop(nil)
+		<-watchingLocal
+	}()
+
 	poll := time.NewTicker(r.p.Source.PollInterval.Duration)
 	defer poll.Stop()
 	for {
 		r.tick(runCtx)
-		select {
-		case <-runCtx.Done():
-			if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil && !errors.Is(cause, errStopRequested) {
-				return cause
+	wait:
+		for {
+			select {
+			case <-runCtx.Done():
+				if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil && !errors.Is(cause, errStopRequested) {
+					return cause
+				}
+				r.log.Info("pipeline runner stopping")
+				return nil
+			case <-poll.C:
+				break wait
+			case <-local:
+				r.localTick(runCtx)
 			}
-			r.log.Info("pipeline runner stopping")
-			return nil
-		case <-poll.C:
 		}
 	}
 }

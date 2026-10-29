@@ -82,7 +82,7 @@ func (y *YouTrack) Issue(ctx context.Context, profile, issue string) (ytwatch.Is
 	return ytwatch.New(c).Issue(ctx, issue)
 }
 
-const commentFields = "id,text,created,updated,deleted,author(login,fullName),attachments(name,url,mimeType,removed)"
+const commentFields = "id,text,created,updated,deleted,author(login,fullName),attachments(name,url,mimeType,removed),issue(idReadable)"
 
 // commentPage is how many comments one request reads; commentPages caps
 // the pages.
@@ -102,6 +102,9 @@ type apiComment struct {
 		FullName string `json:"fullName"`
 	} `json:"author"`
 	Attachments []apiAttachment `json:"attachments"`
+	Issue       *struct {
+		IDReadable string `json:"idReadable"`
+	} `json:"issue"`
 }
 
 type apiAttachment struct {
@@ -177,7 +180,11 @@ func (y *YouTrack) AddComment(ctx context.Context, profile, issue, text string) 
 	if err := c.Post(ctx, commentsPath(issue), youtrack.Fields(commentFields), map[string]string{"text": text}, &a); err != nil {
 		return views.IssueComment{}, fmt.Errorf("commenting on %s: %w", issue, err)
 	}
-	return a.comment(), nil
+	out := a.comment()
+	if a.Issue != nil && a.Issue.IDReadable != "" {
+		out.URL = ytwatch.CommentURL(c.BaseURL(), a.Issue.IDReadable, a.ID)
+	}
+	return out, nil
 }
 
 // CodeHost reads the conversation of a run's pull or merge request through
