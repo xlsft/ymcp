@@ -1,0 +1,617 @@
+<!doctype html>
+<!--
+  The changelog page. .github/scripts/site.py fills in the releases, from
+  .github/scripts/changelog.py, and the nav's loader, and the Site workflow
+  publishes it as changelog.html on the site branch (https://ymcp.su/changelog).
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>ymcp changelog</title>
+<meta name="description" content="What each release of ymcp, the YouTrack MCP server and pipelines for coding agents, changed for its users.">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#C62A22">
+<link rel="canonical" href="https://ymcp.su/changelog">
+<link rel="alternate" type="text/markdown" href="/CHANGELOG.md">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ymcp">
+<meta property="og:url" content="https://ymcp.su/changelog">
+<meta property="og:title" content="ymcp changelog">
+<meta property="og:description" content="What each release of ymcp changed for its users.">
+<meta property="og:image" content="https://ymcp.su/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://ymcp.su/og.png">
+<script>
+// Dark unless the viewer picked light here before.
+(function () {
+  var root = document.documentElement, saved = null;
+  try { saved = localStorage.getItem('ymcp-theme'); } catch (e) {}
+  root.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* The landing page's tokens, bar and footer (site/index.html), with the releases as one column. */
+:root {
+  --red: #C62A22;
+  --ink: #0E0E0E;
+  --on-red: #FFFFFF;
+  --bg: #F6F2F1;
+  --fg: #171313;
+  --muted: #6B5F5E;
+  --line: #E2D8D6;
+  --accent: #B3241D;
+  --display: "Archivo", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --accent: #F0645A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --accent: #F0645A; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 16px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+code { font-family: var(--mono); font-size: .88em; overflow-wrap: anywhere; }
+.wrap {
+  max-width: 1120px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--red); color: var(--on-red);
+}
+.bar .wrap { padding-block: 12px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--red); }
+nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font: 700 15px/1 var(--mono); text-decoration: none; }
+.brand img { width: 26px; height: 26px; image-rendering: pixelated; }
+nav ul { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; font: 500 14px/1 var(--body); flex-wrap: wrap; }
+nav li { display: flex; align-items: center; }
+nav a { text-decoration: none; opacity: .85; }
+nav a:hover, nav a:focus-visible, nav a[aria-current] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+.theme {
+  appearance: none; cursor: pointer; background: none; color: inherit;
+  border: 1px solid rgba(255, 255, 255, .45); padding: 5px 9px; font: 500 12px/1 var(--mono);
+}
+.theme:hover, .theme:focus-visible { border-color: #fff; outline: none; }
+
+main .wrap { max-width: 820px; padding-block: 56px 80px; }
+h1 { margin: 0; font: 900 clamp(44px, 8vw, 72px)/.95 var(--display); font-stretch: 112%; letter-spacing: -.02em; }
+.intro { margin: 18px 0 0; color: var(--muted); }
+.release { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); scroll-margin-top: 72px; }
+.release h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin: 0; }
+.release h2 a { font: 800 26px/1.1 var(--mono); text-decoration: none; }
+.release h2 a:hover, .release h2 a:focus-visible { color: var(--accent); }
+.release time { font: 400 13px/1 var(--mono); color: var(--muted); }
+.release h3 { margin: 22px 0 8px; font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.release ul { margin: 0; padding-left: 20px; }
+.release li { margin: 6px 0; }
+.release li::marker { color: var(--muted); }
+.release .more { margin: 16px 0 0; font: 400 13px/1.5 var(--mono); }
+.release .more a { color: var(--muted); }
+
+footer { background: var(--ink); color: #CFC6C5; }
+footer .wrap { padding-block: 36px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between; font: 400 13px/1.5 var(--mono); }
+footer .legal { margin: 0; color: #9C8E8C; }
+footer ul { display: flex; flex-wrap: wrap; gap: 20px; list-style: none; margin: 0; padding: 0; }
+footer a { text-decoration: none; }
+footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="wrap">
+    <nav aria-label="Main">
+      <a class="brand" href="/"><img id="loader" src="data:image/gif;base64,R0lGODlhMAAwAAAAACH5BAkEAAAALAAAAAAwADAAhA4ODg4ODhYWFh4eHiYmJi4uLjc3Nz4+PkZGRk5OTlZWVl5eXmZmZm5ubnd3d39/f4iIiI6OjpaWlp+fn6enp6+vr7e3t7+/v8fHx8/Pz9jY2N/f3+fn5+/v7/f39////wXdICCOZGmeaKqubIsGcCzPdG3T5a3vPEz2wKBvJCzufsYkjhgbaDYLmCCzaSh1yBjlg4EtPp7B9ZaFGT6fQwDzkYzJTNnlMzl/Cm9bGab4dCAfFXl6cTIaHxwfCIM1ezANaBmMjYUxAmhWkzOOMB4fDJqblTGeoKExnAGlp6ijMBARaqwBqbMytbZDIrlYrry6AL+Eu8JLxMW3vr+4ucy2zrPQrNKn1KHWmtiT2ozcg955excb5OXm5wpje4do7e7vpkriGvT19vfpV+Bv++rKvP30BTTioqDBgwgThgAAOw==" data-anim="data:image/gif;base64,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" alt="" width="26" height="26">ymcp</a>
+      <ul>
+        <li><a href="/#server">MCP server</a></li>
+        <li><a href="/#pipelines">Pipelines</a></li>
+        <li><a href="/changelog" aria-current="page">Changelog</a></li>
+        <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+        <li><button class="theme" id="theme" type="button">Light</button></li>
+      </ul>
+    </nav>
+  </div>
+</div>
+
+<main>
+  <div class="wrap">
+    <h1>Changelog</h1>
+    <p class="intro">What each release changed for people using ymcp, newest first. Versions follow
+      <a href="https://semver.org">Semantic Versioning</a>; each release's binaries and commits are on
+      <a href="https://github.com/xlsft/ymcp/releases">GitHub</a>. Also as <a href="/CHANGELOG.md">CHANGELOG.md</a>.</p>
+<section class="release" id="v0.22.0">
+  <h2><a href="#v0.22.0">v0.22.0</a> <time datetime="2026-10-29">2026-10-29</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Act on what the TUI asks of a run at once.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.22.0">v0.22.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.21.0">
+  <h2><a href="#v0.21.0">v0.21.0</a> <time datetime="2026-10-29">2026-10-29</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>ymcp setup</code> in a terminal opens a TUI of your profiles, in the look of <code>ymcp pipeline</code>, showing each one's sign-in, allowed tools, confirmations and clients; enter edits a profile, n adds one and d removes one.</li>
+    <li>A profile wizard edits a profile in three steps: its name and connection (signed in as you type), the allowed tools chosen one by one in a tree of groups, and the MCP clients it is registered in.</li>
+    <li>Destructive tools (deletes, unlinks, <code>apply_command</code> with a removing command, <code>call_api</code> with DELETE) can ask for your confirmation: called without <code>confirm</code> they change nothing and return a one-time secret, valid for ten minutes, that the model must pass back after asking you.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li>Confirmation of destructive tools is on by default for every profile; turn it off per profile with <code>ymcp setup --confirm</code>, or per server with <code>ymcp serve --confirm</code> or <code>YMCP_CONFIRM</code>, while <code>ymcp call</code> and pipeline agents never ask.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.21.0">v0.21.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.20.3">
+  <h2><a href="#v0.20.3">v0.20.3</a> <time datetime="2026-10-29">2026-10-29</time></h2>
+  <h3>Changed</h3>
+  <ul>
+    <li>Release provenance is now made by GitHub's build attestations and can be verified with <code>gh attestation verify</code>; the release still carries it as <code>ymcp.intoto.jsonl</code>.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>A leading <code>~</code> in <code>workspace.worktrees</code> now means the home directory on the host, instead of git creating a directory named <code>~</code> inside the repository on ssh hosts.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.20.3">v0.20.3 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.20.2">
+  <h2><a href="#v0.20.2">v0.20.2</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Each release comes with SLSA build provenance, <code>ymcp.intoto.jsonl</code>, for every file listed in <code>checksums.txt</code>.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>The note in the sign-in form now says plainly that only your login and password are needed, with nothing to set up in YouTrack.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.20.2">v0.20.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.20.1">
+  <h2><a href="#v0.20.1">v0.20.1</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Changed</h3>
+  <ul>
+    <li>ymcp is no longer published to winget, and no longer suggests updating through it; Homebrew, Scoop, the install scripts and Docker remain.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Binaries are built with an updated <code>golang.org/x/text</code>, fixing two known vulnerabilities on crafted input.</li>
+    <li>A stray escape byte from a CI job log with broken UTF-8 no longer reaches the pipeline agent's prompt.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.20.1">v0.20.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.20.0">
+  <h2><a href="#v0.20.0">v0.20.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Changed</h3>
+  <ul>
+    <li>After a push, the pipeline agent writes the PR/MR title and description in a turn of its own and hands them over with the new <code>set_change</code> tool, instead of its whole work-turn answer becoming the description; later pushes update them unless someone edited them on the host, and <code>strategy.describe: false</code> keeps the old way.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.20.0">v0.20.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.19.2">
+  <h2><a href="#v0.19.2">v0.19.2</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>A remote agent now starts in a <code>workspace.dir</code> written with <code>~</code> on an ssh host, which used to fail with "can't cd"; the advice to fix the PATH is given only when the shell actually reported a missing command.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.19.2">v0.19.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.19.1">
+  <h2><a href="#v0.19.1">v0.19.1</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Two pipeline runs captured at once no longer fail on a "cannot lock ref" error: fetches of one repository go one at a time, and a fetch that raced another process is retried up to three times.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.19.1">v0.19.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.19.0">
+  <h2><a href="#v0.19.0">v0.19.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>strategy.title</code> sets the PR/MR title template, <code>{{issue.key}} {{issue.summary}}</code> by default, and <code>{{commit.subject}}</code> gives the branch's first commit for a conventional title that a squash merge keeps.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li>ymcp's own commits in pipeline branches no longer end in a full stop.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>An empty <code>workspace.commitPrefix</code> now means no prefix instead of falling back to the issue ID, so repositories with commitlint accept the agent's commits; the agent is told to write commit messages the repository's way.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.19.0">v0.19.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.18.0">
+  <h2><a href="#v0.18.0">v0.18.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Pipeline agents may now use <code>gh</code> and <code>glab</code> to fix the PR/MR title or description and to run and read CI; ymcp still pushes and opens the change, and the agent merges or closes it only when a person asks.</li>
+    <li><code>strategy.squash</code> and <code>strategy.deleteBranch</code> open GitLab merge requests with squash and delete-branch ticked, for projects that require them.</li>
+    <li>The runner watches the CI of every push on GitHub and GitLab and gives failures to the agent with the failed jobs and the end of their logs; after <code>ci.fixes</code> failed attempts in a row (3 by default) the run goes to needs input, and <code>ci.watch: false</code> turns this off.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li>Pipeline agents are told never to credit themselves or any other agent, model or tool in commits or changes.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.18.0">v0.18.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.17.0">
+  <h2><a href="#v0.17.0">v0.17.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>t on a run card opens a live transcript of the run, turn by turn: what the agent thinks and says, each tool it runs with the file, command or pattern, and the replies it gets; the pull request thread moves to [ and ].</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li>The agent's text and thoughts are recorded every second while it streams, so long answers show up on the run card as they are written.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.17.0">v0.17.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.16.0">
+  <h2><a href="#v0.16.0">v0.16.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>d on the board or a run card, or <code>ymcp pipeline NAME delete RUN</code>, deletes a run that has ended from the local store after asking (<code>-y</code> skips the question); the issue, branch and pull request stay.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>An issue canceled with <code>/cancel</code> or from the CLI and then put back in the source is captured again once the runner restarts, instead of staying in the backlog for good.</li>
+    <li>A new run no longer continues a branch left by a run that is no longer in the store; branch names that git already has, locally or on origin, are skipped.</li>
+    <li>When an agent on an ssh host is not found, the run's error and <code>ymcp pipeline check</code> say that the command is not in the PATH of the agent's shell and that <code>~/.zshenv</code>, the top of <code>~/.bashrc</code> or <code>agent.command</code> fixes it.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.16.0">v0.16.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.15.2">
+  <h2><a href="#v0.15.2">v0.15.2</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>The run card keeps an issue's fields beside the title when they take three rows, instead of moving them under the title.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.15.2">v0.15.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.15.1">
+  <h2><a href="#v0.15.1">v0.15.1</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Every release is published to the MCP Registry, which lists the Docker image as a stdio server configured by <code>YOUTRACK_*</code> variables.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Binaries are built with Go 1.26.10, fixing known vulnerabilities in the standard library (net/http, crypto/tls and others) that earlier builds shipped.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.15.1">v0.15.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.15.0">
+  <h2><a href="#v0.15.0">v0.15.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>In kitty and Ghostty the run card shows pictures in place: images in the description and comments, screenshots pasted into comments and the issue's picture attachments; other terminals and tmux or screen get links, and <code>YMCP_IMAGES=kitty</code> or <code>off</code> overrides the choice.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.15.0">v0.15.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.14.0">
+  <h2><a href="#v0.14.0">v0.14.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>The run card shows every field of the issue that has a value, and e opens a menu of the project's fields to change them; a backlog issue that no longer matches the source query after a change leaves the board.</li>
+    <li>r reloads the board and the card, enter opens the comment box, and s on the board starts or stops the runner.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.14.0">v0.14.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.13.0">
+  <h2><a href="#v0.13.0">v0.13.0</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Typing @ in the run card's comment box lists matching YouTrack users, and tab inserts their @login.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li>The pipeline agent now commits as the repository's own <code>user.name</code> and <code>user.email</code>; a separate author is the opt-in <code>workspace.identity</code>, with <code>identity.name</code> and <code>identity.tag</code> templates set in the wizard under Advanced.</li>
+    <li>The run card's frame, help and status lines are laid out more cleanly, and the help names enter and r.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.13.0">v0.13.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.12.2">
+  <h2><a href="#v0.12.2">v0.12.2</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>The pipeline wizard's previews of the branch template and commit prefix now fill in issue fields such as <code>{{issue.fields.Type}}</code> instead of showing none.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.12.2">v0.12.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.12.1">
+  <h2><a href="#v0.12.1">v0.12.1</a> <time datetime="2026-10-28">2026-10-28</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>A stage search naming a tag that does not exist yet now matches nothing instead of making the runner skip every stage check, so issues moved to done, closed or back to the backlog are noticed; the wizard shows it as a warning.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.12.1">v0.12.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.12.0">
+  <h2><a href="#v0.12.0">v0.12.0</a> <time datetime="2026-10-27">2026-10-27</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>ymcp pipeline</code> hands YouTrack issues to a coding agent (Claude Code, Kimi, opencode or any ACP agent), opens a GitHub PR, a GitHub issue with a PR or a GitLab MR, moves the issue through its stages and answers feedback from YouTrack and the change.</li>
+    <li>Pipelines come with a TUI, agents on SSH hosts, reply commands (<code>/approve</code>, <code>/reject</code>, <code>/clear</code>, <code>/compact</code>, <code>/cancel</code>), prompt presets and system notifications.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.12.0">v0.12.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.11.0">
+  <h2><a href="#v0.11.0">v0.11.0</a> <time datetime="2026-10-26">2026-10-26</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Every tool declares all four annotation hints (read-only, destructive, idempotent, open-world) as explicit values, so hosts that require them accept ymcp.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.11.0">v0.11.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.10.1">
+  <h2><a href="#v0.10.1">v0.10.1</a> <time datetime="2026-10-24">2026-10-24</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li><code>ymcp --version</code> and <code>-h</code>/<code>--help</code> now print the version or usage and exit successfully without a configured profile.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.10.1">v0.10.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.10.0">
+  <h2><a href="#v0.10.0">v0.10.0</a> <time datetime="2026-10-24">2026-10-24</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>edit_article_content</code> and <code>edit_issue_description</code> apply exact or regexp find-and-replace edits, all or nothing, so a small change does not resend the whole text.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.10.0">v0.10.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.9.2">
+  <h2><a href="#v0.9.2">v0.9.2</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Publishing to Homebrew, Scoop and winget no longer fails once the packages token is configured.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.9.2">v0.9.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.9.1">
+  <h2><a href="#v0.9.1">v0.9.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Release archives are reproducible: every build of a commit gives the same archives and checksums.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.9.1">v0.9.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.9.0">
+  <h2><a href="#v0.9.0">v0.9.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>ymcp is published to Homebrew (macOS and Linux), Scoop and winget with every release.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li><code>ymcp update</code> no longer replaces a binary installed by Homebrew, Scoop or winget; it and the start-up notice name the package manager's upgrade command instead.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.9.0">v0.9.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.8.0">
+  <h2><a href="#v0.8.0">v0.8.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Four MCP prompts, shown by clients as slash commands, guide the model through common jobs: <code>standup</code>, <code>triage</code> (changes applied only after approval), <code>sprint_report</code> and <code>issue_brief</code>; a prompt is offered only when the tools it needs are served.</li>
+    <li>The HTTP server answers <code>GET /healthz</code> with its version and no token, <code>ymcp health</code> checks it, and the Docker image uses it as its health check.</li>
+    <li>YouTrack errors reach the model with a hint on what to do next, such as which tool finds a valid ID after a 404 or that a 401 needs <code>ymcp auth</code>; HTML error pages are cut down to their title.</li>
+    <li>Requests to YouTrack endpoints that require a Hub-scoped token, such as deleting a user, are repeated once with one.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Error messages in the Docker image name the <code>docker run ... auth</code> command instead of <code>ymcp setup</code>, and leave <code>--profile</code> out for the default profile.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.8.0">v0.8.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.7.1">
+  <h2><a href="#v0.7.1">v0.7.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Release archives and the Docker image are signed with Sigstore and come with SBOMs; the README shows how to verify them.</li>
+  </ul>
+  <h3>Changed</h3>
+  <ul>
+    <li><code>create_issue</code> and <code>update_issue</code> reuse a project's field schema for five minutes instead of reading it on every call, and read it again when a cached one rejects a field or value.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.7.1">v0.7.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.7.0">
+  <h2><a href="#v0.7.0">v0.7.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>A profile can serve only chosen tool groups (issues, comments, attachments, articles, time, agile, projects, people, tags, searches, api) or single tools, set in <code>ymcp setup</code> or with <code>setup --tools</code> and overridden by <code>serve --tools</code> or <code>YMCP_TOOLS</code>.</li>
+    <li>Calls to a busy or unreachable YouTrack are retried up to three times with short waits or what Retry-After asks for; requests that may already have taken effect are never sent twice.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li><code>find_user_groups</code> for a non-admin user on YouTrack 2026 now explains that only admins can list groups there, instead of returning an empty list.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.7.0">v0.7.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.6.1">
+  <h2><a href="#v0.6.1">v0.6.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Entries added to JSONC client configs such as Zed's are indented like their neighbours instead of glued to the previous entry.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.6.1">v0.6.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.6.0">
+  <h2><a href="#v0.6.0">v0.6.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>The server logs at start when a newer release is out, with the command to update; <code>YMCP_UPDATE_CHECK=off</code> turns this off.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.6.0">v0.6.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.5.0">
+  <h2><a href="#v0.5.0">v0.5.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>ymcp setup</code> can register ymcp in Kimi Code.</li>
+    <li><code>--transport http</code> serves every profile on one server at <code>/&lt;key&gt;</code>, <code>--profiles</code> narrows the set, and <code>--token</code> or <code>YMCP_HTTP_TOKEN</code> requires a bearer token on every request.</li>
+    <li>A Docker image on Docker Hub runs the HTTP server for every profile on port 8090, with profiles kept in the <code>/config</code> volume.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Passwords, tokens and other secrets in logged tool arguments, such as <code>call_api</code> bodies, are masked as <code>***</code>.</li>
+    <li>The HTTP address is logged as given, so 0.0.0.0 no longer shows up as [::].</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.5.0">v0.5.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.4.1">
+  <h2><a href="#v0.4.1">v0.4.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li><code>ymcp setup</code> offers to quit Claude Desktop while it edits its config and reopens it afterwards, because Claude Desktop otherwise wrote the old config back and the new server disappeared.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.4.1">v0.4.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.4.0">
+  <h2><a href="#v0.4.0">v0.4.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>Attachment tools work on knowledge base articles through <code>articleId</code>, <code>add_attachment</code> uploads several files at once with <code>filePaths</code>, and <code>get_article</code> lists the article's attachments.</li>
+    <li>Several YouTrack instances can be kept as named profiles, picked with <code>--profile</code> or <code>YMCP_PROFILE</code>, and each profile is registered in MCP clients as its own server.</li>
+    <li>A repeated <code>ymcp setup</code> lets you edit, add or remove profiles, with <code>--name</code>, <code>--remove</code> and <code>--profile</code> for scripts.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>An instance URL without a scheme, such as <code>youtrack.example.com</code>, is accepted as <code>https://</code>.</li>
+    <li>Terminal logs no longer prefix attributes with a group name they don't belong to.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.4.0">v0.4.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.3.1">
+  <h2><a href="#v0.3.1">v0.3.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Clients on the stateless 2026-07-28 MCP protocol, Claude Code among them, are now logged when they connect.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.3.1">v0.3.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.3.0">
+  <h2><a href="#v0.3.0">v0.3.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>call_api</code> sends raw GET, POST or DELETE requests to any YouTrack or Hub REST path as the current user, for anything the other tools don't cover.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.3.0">v0.3.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.2.1">
+  <h2><a href="#v0.2.1">v0.2.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>When a proxy from the environment cannot reach YouTrack, ymcp retries directly and stays direct if that works; an explicitly configured proxy is still used as is.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.2.1">v0.2.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.2.0">
+  <h2><a href="#v0.2.0">v0.2.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li><code>serve</code> and <code>call</code> log startup, connecting clients and every tool call to stderr and to a rotated log file, <code>ymcp logs [-f] [-n N]</code> shows it, and <code>-v</code> or <code>YMCP_LOG_LEVEL=debug</code> adds sign-in and request details.</li>
+  </ul>
+  <h3>Fixed</h3>
+  <ul>
+    <li>The first connection no longer takes 5 seconds behind DNS servers that ignore AAAA queries: ymcp tries IPv4 first and falls back to dual stack.</li>
+    <li>Late terminal replies to colour queries no longer land at the shell prompt or in the MCP stream of a hand-run <code>ymcp serve</code>.</li>
+    <li>The installer's badge uses the same red as ymcp.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.2.0">v0.2.0 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.1.2">
+  <h2><a href="#v0.1.2">v0.1.2</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Fixed</h3>
+  <ul>
+    <li>Interactive forms in <code>auth</code>, <code>setup</code> and <code>update</code> no longer receive stray terminal replies such as "]11;rgb:…" in their first field.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.1.2">v0.1.2 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.1.1">
+  <h2><a href="#v0.1.1">v0.1.1</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>ymcp is licensed under the MIT licence.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.1.1">v0.1.1 on GitHub: binaries and commits</a></p>
+</section>
+<section class="release" id="v0.1.0">
+  <h2><a href="#v0.1.0">v0.1.0</a> <time datetime="2026-10-21">2026-10-21</time></h2>
+  <h3>Added</h3>
+  <ul>
+    <li>An MCP server for YouTrack over stdio or HTTP that signs in with your login and password, with no token or YouTrack setup, and renews its session on its own.</li>
+    <li>Tools that mirror YouTrack's built-in MCP server (issue search, details, comments, create and update with custom fields by name, projects, users, saved searches), and work for users without admin rights.</li>
+    <li>Extra tools beyond the built-in set: deleting issues, comments and articles, links, drafts, tags, work items and time reports, agile boards and sprints, user groups, attachments, articles, issue history, issue counts, VCS changes, saved searches and <code>apply_command</code>.</li>
+    <li><code>ymcp auth</code> saves the connection with the password in the system keychain, and <code>ymcp setup</code> registers ymcp in MCP clients such as Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf, Zed, Gemini CLI and others.</li>
+    <li><code>ymcp check</code>, <code>ymcp call</code> and <code>ymcp update</code>, prebuilt binaries for macOS, Linux and Windows with checksums, and install scripts for each platform.</li>
+  </ul>
+  <p class="more"><a href="https://github.com/xlsft/ymcp/releases/tag/v0.1.0">v0.1.0 on GitHub: binaries and commits</a></p>
+</section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="legal">ymcp · MIT license<br>Not affiliated with JetBrains; YouTrack is a trademark of JetBrains s.r.o.</p>
+    <ul>
+      <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+      <li><a href="https://hub.docker.com/r/xlsoftware/ymcp">Docker Hub</a></li>
+      <li><a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.xlsft/ymcp">MCP Registry</a></li>
+      <li><a href="https://github.com/xlsft/ymcp/discussions">Discussions</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+// The nav's loader plays while the brand is hovered or focused, as on the landing page.
+(function () {
+  var img = document.getElementById('loader'), brand = img.parentNode;
+  var still = img.src, anim = img.dataset.anim;
+  var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  function play() { if (!(calm && calm.matches)) img.src = anim; }
+  function stop() { img.src = still; }
+  brand.addEventListener('mouseenter', play);
+  brand.addEventListener('focus', play);
+  brand.addEventListener('mouseleave', stop);
+  brand.addEventListener('blur', stop);
+})();
+</script>
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme');
+  function show() {
+    var dark = root.getAttribute('data-theme') !== 'light';
+    btn.textContent = dark ? 'Light' : 'Dark';
+    btn.setAttribute('aria-label', dark ? 'Switch to the light theme' : 'Switch to the dark theme');
+  }
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('ymcp-theme', next); } catch (e) {}
+    show();
+  });
+  show();
+})();
+</script>
+</body>
+</html>
