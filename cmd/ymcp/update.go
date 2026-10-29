@@ -116,7 +116,8 @@ func formatChanges(notes []update.Notes, since string, width int) string {
 
 // wrapEntry breaks a changelog entry into lines of at most width
 // characters, at spaces, rendering the text of `code` spans in styleCode.
-// Punctuation next to a span stays on its line.
+// Punctuation next to a span stays on its line, and a word longer than a
+// line (a URL, a path) is left whole so it can still be copied.
 func wrapEntry(text string, width int) []string {
 	var lines []string
 	var line, word strings.Builder
@@ -142,11 +143,11 @@ func wrapEntry(text string, width int) []string {
 	}
 	run := []rune(text)
 	for i := 0; i < len(run); {
-		switch {
-		case run[i] == '`':
+		switch run[i] {
+		case '`':
 			code = !code
 			i++
-		case run[i] == ' ':
+		case ' ':
 			flush()
 			i++
 		default:
