@@ -235,7 +235,7 @@ The [Site workflow](.github/workflows/site.yml) draws these from the TUI's own c
 Run `ymcp pipeline` to open the TUI: your profiles, their pipelines as cards, a board per pipeline and an inbox of
 runs that wait for you. Press `n` to create a pipeline with the wizard. `x` exports the pipeline under the cursor to a
 file, `X` every pipeline of the profile, and `I` imports a file into the profile; the system's file dialog picks the
-file (over SSH you type the path). The file carries the presets of your own the pipelines use; a name that is taken
+file (over SSH you type the path). The file carries your own presets that the pipelines use; a name that is taken
 gets a number, as `backend-2`. `enter` on a card of the board, a run or an
 issue still in the backlog, opens it like a YouTrack issue: the description and comments, the pull request thread
 (`[` and `]`) and the agent's log, with a comment box (`enter`) whose `/` completes the commands below; `r` reloads the
