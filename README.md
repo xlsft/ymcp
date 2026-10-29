@@ -576,8 +576,9 @@ Unit tests never touch the network. [`internal/youtrack/youtracktest`](internal/
 YouTrack and Hub, including the login form, the OAuth redirects and token revocation. The tool tests call tools through
 an in-memory MCP client and check the REST requests they send.
 
-E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack. They call all 58 tools on a
-throwaway project and delete everything they create. They run in CI on every push and nightly.
+E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack, by default a fresh one in Docker.
+They call all 58 tools and delete everything they create. They run in CI on every push, and nightly also against a
+shared hosted instance.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow, and [the changelog](https://ymcp.su/changelog)
 for what each release changed.

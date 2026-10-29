@@ -98,7 +98,8 @@ func youtrackImage() (string, error) {
 }
 
 // exitUnavailable is the exit code of a run that the instance's outage
-// cut short. The workflow reports it apart from failures (see e2e.yml).
+// cut short. go test turns it into 1, so e2e.yml runs the compiled test
+// binary to report it apart from failures.
 const exitUnavailable = 3
 
 // outageText finds the answers of an instance that is down, restarting or

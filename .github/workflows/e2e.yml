@@ -37,16 +37,13 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # A YouTrack of the run's own in Docker, started by the harness: nothing
+  # is shared with other runs, and no secrets are needed, so pull requests
+  # from forks and Dependabot run it too. Releases depend on this job.
   e2e:
     needs: changes
-    # Secrets aren't available to pull requests from forks.
-    if: >-
-      needs.changes.outputs.code == 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    # Runs share one YouTrack instance but keep to their own objects (see
-    # e2e/harness_test.go), so they may overlap. A shared group would hold a
-    # single pending run and cancel it for the next one, a release's
-    # included. Only a newer push to the same pull request cancels its run.
+    if: needs.changes.outputs.code == 'true'
+    # Only a newer push to the same pull request cancels its run.
     concurrency:
       group: ${{ github.event_name == 'pull_request' && format('e2e-{0}', github.ref) || format('e2e-run-{0}', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -58,17 +55,39 @@ jobs:
         with:
           go-version-file: go.mod
       - name: go test -tags e2e
+        run: go test -tags e2e -count=1 -v ./e2e
+
+  # The shared instance, nightly and on demand: a hosted YouTrack that may
+  # get API changes before the Docker image does. It is down or read-only now
+  # and then; the run then says so instead of failing (see e2e/harness_test.go).
+  shared:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Runs keep to their own objects there, so they may overlap.
+    concurrency:
+      group: e2e-shared-${{ github.run_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: E2E on the shared instance
         env:
           YOUTRACK_E2E_ENDPOINT: ${{ secrets.YOUTRACK_E2E_ENDPOINT }}
           YOUTRACK_E2E_LOGIN: ${{ secrets.YOUTRACK_E2E_LOGIN }}
           YOUTRACK_E2E_PASSWORD: ${{ secrets.YOUTRACK_E2E_PASSWORD }}
-        run: go test -tags e2e -count=1 -v ./e2e
-      # Dependabot's pull requests get no repository secrets, and the suite
-      # then skips; say so instead of passing quietly.
-      - name: Skipped
-        if: env.ENDPOINT == ''
-        env:
-          ENDPOINT: ${{ secrets.YOUTRACK_E2E_ENDPOINT }}
         run: |
-          echo "::warning::No YOUTRACK_E2E_* secrets, so the E2E suite skipped; main runs it before releasing"
-          echo "E2E skipped: no YOUTRACK_E2E_* secrets in this run" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$YOUTRACK_E2E_ENDPOINT" ] || { echo "::error::No YOUTRACK_E2E_* secrets"; exit 1; }
+          # The compiled binary keeps the harness's exit code, which go test
+          # turns into 1: 3 means the instance was unavailable.
+          go test -c -tags e2e -o "$RUNNER_TEMP/e2e.test" ./e2e
+          cd e2e
+          code=0
+          "$RUNNER_TEMP/e2e.test" -test.v -test.count=1 || code=$?
+          if [ "$code" = 3 ]; then
+            echo "::warning title=YouTrack unavailable::The shared instance was down or read-only, so this run tested nothing"
+            echo "E2E on the shared instance: YouTrack was unavailable, nothing was tested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$code"
