@@ -34,4 +34,14 @@ wait
 printf "file 'p1.mp4'\nfile 'p2.mp4'\nfile 'p3.mp4'\nfile 'p4.mp4'\n" > "$parts/list.txt"
 ffmpeg -y -loglevel error -f concat -safe 0 -i "$parts/list.txt" -i $here/build/track.mp3 \
   -map 0:v -map 1:a -c:v copy -c:a aac -b:a 320k -shortest -movflags +faststart $here/ymcp-promo.mp4
-echo "$here/ymcp-promo.mp4"
+
+# What the site plays: a WebM (VP9, Opus) and a poster from the full board.
+ffmpeg -y -loglevel error -ss 17.5 -i $here/ymcp-promo.mp4 -frames:v 1 -q:v 3 $here/poster.jpg
+for pass in 1 2; do
+  out=/dev/null audio=-an fmt="-f null"
+  [ $pass = 2 ] && out=$here/ymcp-promo.webm audio="-c:a libopus -b:a 160k" fmt=
+  # shellcheck disable=SC2086
+  ffmpeg -y -loglevel error -i $here/ymcp-promo.mp4 -c:v libvpx-vp9 -b:v 0 -crf 33 -row-mt 1 -deadline good -cpu-used 2 \
+    -pass $pass -passlogfile $here/build/vp9 $audio $fmt $out
+done
+echo "$here/ymcp-promo.mp4 $here/ymcp-promo.webm $here/poster.jpg"
