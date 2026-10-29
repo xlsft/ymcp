@@ -6,5 +6,5 @@ notes, under What's new, above the list of its commits.
 
 The versions follow [Semantic Versioning](https://semver.org). The notes are made on every release from the
 `Changelog:` trailers of the commits since the one before (see [CONTRIBUTING.md](CONTRIBUTING.md) and
-[`.github/scripts/changelog.py`](.github/scripts/changelog.py)); releases up to v0.21.0 are in
+[`.github/scripts/changelog.py`](.github/scripts/changelog.py)); releases up to v0.22.0 are in
 [docs/changelog-history.md](docs/changelog-history.md).

@@ -1,9 +1,19 @@
-# Changelog before v0.22
+# Changelog before v0.23
 
-What the releases up to v0.21.0 changed for users, written after the fact from their commits: they came before
+What the releases up to v0.22.0 changed for users, written after the fact from their commits: they came before
 the `Changelog:` trailers. `.github/scripts/changelog.py` takes these instead of the commits, for the release notes on
-GitHub, [CHANGELOG.md](../CHANGELOG.md) and https://ymcp.su/changelog. Releases after v0.21.0 are made from the
+GitHub, [CHANGELOG.md](../CHANGELOG.md) and https://ymcp.su/changelog. Releases after v0.22.0 are made from the
 trailers and are not added here.
+
+## v0.22.0
+
+### Changed
+
+- An answer, a reply command or a cancel given in the TUI or with the CLI, and a comment the TUI posts on a run's issue, reach the run within a second instead of waiting for the runner's next poll of YouTrack.
+
+### Fixed
+
+- A second `/compact` sent while the first is still writing its summary is skipped, instead of making two summaries and hiding the comments twice.
 
 ## v0.21.0
 

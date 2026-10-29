@@ -14,7 +14,7 @@ under the type of the commit it came with. An entry goes under Added (feat),
 Fixed (fix), Changed (perf) or Breaking changes (type!: or BREAKING CHANGE);
 a trailer that starts with "Changed: ", "Removed: ", "Deprecated: " or
 "Security: " goes there instead. A feat, fix or perf commit without a trailer
-counts its subject. Releases up to v0.21.0, made before the trailers, are
+counts its subject. Releases up to v0.22.0, made before the trailers, are
 written out in docs/changelog-history.md.
 
 The Release workflow puts a release's notes above GoReleaser's list of
