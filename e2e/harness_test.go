@@ -147,7 +147,6 @@ func run(m *testing.M) int {
 	}
 
 	sweep(stale)
-	sweepUsers()
 	if project, err = newProject(); err != nil {
 		fmt.Println("e2e: creating the run's project:", err)
 		if outageSeen() != "" {
@@ -384,35 +383,6 @@ func sweep(match func(name string) bool) {
 			}
 			r := call(t, "call_api", args)
 			fmt.Printf("e2e: sweep %s %q: error=%v\n", path, name, r.isError)
-		}
-	}
-}
-
-// sweepUsers frees license seats taken by marked accounts other than the
-// member. It deletes them in YouTrack, handing their content to the admin,
-// which needs the Hub-scoped token ymcp fetches when asked, and bans those
-// it can't delete; banned users don't count. Accounts already gone from
-// Hub linger in YouTrack banned and can't be deleted, so banned ones are
-// left alone. Best effort, not part of the leftovers check.
-func sweepUsers() {
-	t := &sweepT{}
-	var me struct{ ID string }
-	json.Unmarshal([]byte(call(t, "call_api", map[string]any{"method": "GET", "path": "users/me", "query": map[string]any{"fields": "id"}}).text), &me)
-	var users []struct {
-		ID, Login string
-		Banned    bool
-	}
-	r := call(t, "call_api", map[string]any{"method": "GET", "path": "users", "query": map[string]any{"fields": "id,login,banned", "query": marker, "$top": -1}})
-	json.Unmarshal([]byte(r.text), &users)
-	for _, u := range users {
-		if !strings.HasPrefix(u.Login, marker) || u.Login == memberLogin || u.Banned {
-			continue
-		}
-		d := call(t, "call_api", map[string]any{"method": "DELETE", "path": "users/" + u.ID, "query": map[string]any{"successor": me.ID}})
-		fmt.Printf("e2e: delete YouTrack user %s: error=%v %s\n", u.Login, d.isError, shortText(d.text))
-		if d.isError {
-			b := call(t, "call_api", map[string]any{"method": "POST", "path": "users/" + u.ID, "query": map[string]any{"fields": "banned"}, "body": map[string]any{"banned": true}})
-			fmt.Printf("e2e: ban YouTrack user %s: error=%v\n", u.Login, b.isError)
 		}
 	}
 }
