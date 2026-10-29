@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/xlsft/ymcp/internal/clients"
 	"github.com/xlsft/ymcp/internal/config"
+	"github.com/xlsft/ymcp/internal/pipeline/tui/wizard"
 	"github.com/xlsft/ymcp/internal/youtrack/youtracktest"
 )
 
@@ -127,4 +132,45 @@ func read(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// TestSetupTUIDeps: what the setup TUI saves lands in the config and the
+// clients, and a removal takes it out of both.
+func TestSetupTUIDeps(t *testing.T) {
+	isolate(t)
+	cursor := fakeHome(t)
+	env, err := clients.System(runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := setupDeps(env)
+	off := false
+	cfg := config.Config{Name: "youtrack-work", DisplayName: "YouTrack (work)", URL: "https://yt.example.com", Login: "alice", Password: "pw", Tools: []string{"-api"}, Confirm: &off}
+	lines, err := d.Save(context.Background(), "", wizard.ProfileDraft{Config: cfg, Clients: []string{"cursor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := strings.Join(lines, "\n"); !strings.Contains(out, "Saved profile") || !strings.Contains(out, "Cursor") {
+		t.Errorf("lines:\n%s", out)
+	}
+	if got := read(t, cursor); !strings.Contains(got, `"youtrack-work"`) {
+		t.Errorf("mcp.json:\n%s", got)
+	}
+	list, err := d.Profiles()
+	if err != nil || len(list) != 1 || !slices.Equal(list[0].Clients, []string{"Cursor"}) || list[0].Config.Confirms() {
+		t.Fatalf("profiles = %+v, %v", list, err)
+	}
+	cs := d.Clients("youtrack-work")
+	if i := slices.IndexFunc(cs, func(c wizard.Client) bool { return c.ID == "cursor" }); i < 0 || !cs[i].Registered {
+		t.Errorf("clients = %+v", cs)
+	}
+	if _, err := d.Save(context.Background(), "", wizard.ProfileDraft{Config: cfg}); err == nil {
+		t.Error("a second profile under the same key was saved")
+	}
+	if _, err := d.Remove(context.Background(), "youtrack-work"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, cursor); strings.Contains(got, "youtrack-work") {
+		t.Errorf("after remove, mcp.json:\n%s", got)
+	}
 }

@@ -11,20 +11,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/huh"
-
 	"github.com/xlsft/ymcp/internal/clients"
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/tools"
-)
-
-// errKeep is a declined removal.
-var errKeep = errors.New("nothing removed")
-
-// Choices of the profile picker besides the profiles themselves.
-const (
-	pickNew    = "\x00new"
-	pickRemove = "\x00remove"
 )
 
 func setup(ctx context.Context, args []string) error {
@@ -43,7 +32,12 @@ func setup(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("--confirm: %w", err)
 	}
-	ask := interactive() && *only == "" && !*all && !*remove
+	if interactive() && *only == "" && !*all && !*remove {
+		if *name != "" || *toolsFlag != "" || *confirmFlag != "" || *reauth {
+			return errors.New("--name, --tools, --confirm and --reauth go with --clients or --all; without them setup opens its TUI, which has all of these")
+		}
+		return setupTUI(ctx)
+	}
 
 	fmt.Println()
 	fmt.Println(styleTitle.Render("ymcp") + " " + styleBold.Render("YouTrack MCP setup"))
@@ -59,11 +53,7 @@ func setup(ctx context.Context, args []string) error {
 	}
 
 	// 1. Which profile.
-	current, removing, err := pickProfile(profiles, ask, *remove)
-	if errors.Is(err, errKeep) && !errors.Is(err, huh.ErrUserAborted) {
-		fmt.Println(styleDim.Render("Nothing removed"))
-		return nil
-	}
+	current, removing, err := pickProfile(profiles, *remove)
 	if err != nil {
 		return err
 	}
@@ -83,11 +73,6 @@ func setup(ctx context.Context, args []string) error {
 	if *name != "" {
 		display = *name
 	}
-	if ask {
-		if err := nameForm(&display, oldName, profiles).Run(); err != nil {
-			return err
-		}
-	}
 	key := config.Slug(display)
 	if key != oldName && slices.ContainsFunc(profiles, func(p config.Config) bool { return p.Name == key }) {
 		return fmt.Errorf("a profile %q already exists; pick another name or edit that one", key)
@@ -105,14 +90,6 @@ func setup(ctx context.Context, args []string) error {
 	cfg.Name, cfg.DisplayName = key, display
 	// A new profile is always verified, even when the environment filled it.
 	keep := oldName != "" && cfg.Complete() && !*reauth
-	if keep && ask {
-		if err := huh.NewConfirm().
-			Title(fmt.Sprintf("Keep the saved connection %s@%s?", cfg.Login, strings.TrimPrefix(strings.TrimPrefix(cfg.URL, "https://"), "http://"))).
-			Affirmative("Keep").Negative("Change").
-			Value(&keep).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-			return err
-		}
-	}
 	if keep {
 		if _, err := config.Save(cfg, oldName); err != nil {
 			return err
@@ -125,7 +102,7 @@ func setup(ctx context.Context, args []string) error {
 	}
 
 	// 4. Its tools, and whether the destructive ones ask first.
-	changed, err := pickTools(&cfg, *toolsFlag, ask)
+	changed, err := pickTools(&cfg, *toolsFlag)
 	if err != nil {
 		return err
 	}
@@ -139,16 +116,18 @@ func setup(ctx context.Context, args []string) error {
 	}
 
 	// 5. The clients it is registered in.
-	return registerProfile(env, cfg, oldName, *only, *all, ask)
+	return registerProfile(env, cfg, oldName, *only, *all)
 }
 
-// pickTools sets the tool groups the profile serves, from --tools or a
-// checklist, and reports whether they changed. Nil means all tools.
-func pickTools(cfg *config.Config, spec string, ask bool) (bool, error) {
+// pickTools sets the tools the profile serves from --tools and reports
+// whether they changed. Nil means all tools.
+func pickTools(cfg *config.Config, spec string) (bool, error) {
 	var chosen []string
-	switch {
-	case spec == "all":
-	case spec != "":
+	switch spec {
+	case "":
+		return false, nil
+	case "all":
+	default:
 		for _, it := range strings.Split(spec, ",") {
 			if it = strings.TrimSpace(it); it != "" {
 				chosen = append(chosen, it)
@@ -156,39 +135,6 @@ func pickTools(cfg *config.Config, spec string, ask bool) (bool, error) {
 		}
 		if _, err := tools.Select(chosen); err != nil {
 			return false, err
-		}
-	case !ask:
-		return false, nil
-	default:
-		groups := tools.GroupNames()
-		// Single tools and removals don't fit the checklist; keep them.
-		for _, it := range cfg.Tools {
-			if !slices.Contains(groups, it) {
-				fmt.Println(styleDim.Render("Tools: " + strings.Join(cfg.Tools, ", ") + " (change with ymcp setup --tools)"))
-				return false, nil
-			}
-		}
-		opts := make([]huh.Option[string], 0, len(tools.Groups))
-		for _, g := range tools.Groups {
-			on := len(cfg.Tools) == 0 || slices.Contains(cfg.Tools, g.Name)
-			label := fmt.Sprintf("%-12s", g.Name) + styleDim.Render(fmt.Sprintf("%s · %d", g.Title, len(g.Tools)))
-			opts = append(opts, huh.NewOption(label, g.Name).Selected(on))
-		}
-		if err := huh.NewMultiSelect[string]().
-			Title("Tools for " + cfg.Title()).
-			Description("Fewer tools leave the model more room · space to toggle · enter to confirm").
-			Options(opts...).
-			Validate(func(v []string) error {
-				if len(v) == 0 {
-					return errors.New("pick at least one group")
-				}
-				return nil
-			}).
-			Value(&chosen).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-			return false, err
-		}
-		if len(chosen) == len(groups) {
-			chosen = nil
 		}
 	}
 	changed := !slices.Equal(chosen, cfg.Tools)
@@ -205,10 +151,9 @@ func confirmSetting(on bool) *bool {
 	return &on
 }
 
-// pickProfile chooses the profile to set up: the --profile one, the only
-// one, or the one picked from a list that can also add or remove profiles.
-// An empty Name means a new profile.
-func pickProfile(profiles []config.Config, ask, remove bool) (config.Config, bool, error) {
+// pickProfile chooses the profile to set up: the --profile one or the
+// only one. An empty Name means a new profile.
+func pickProfile(profiles []config.Config, remove bool) (config.Config, bool, error) {
 	find := func(key string) config.Config {
 		for _, p := range profiles {
 			if p.Name == key {
@@ -233,84 +178,56 @@ func pickProfile(profiles []config.Config, ask, remove bool) (config.Config, boo
 	if len(profiles) == 0 {
 		return config.Config{}, false, nil
 	}
-	if !ask {
-		key, err := config.Resolve("")
-		return find(key), false, err
-	}
+	key, err := config.Resolve("")
+	return find(key), false, err
+}
 
-	opts := make([]huh.Option[string], 0, len(profiles)+2)
-	for _, p := range profiles {
-		opts = append(opts, huh.NewOption(profileLabel(p), p.Name))
-	}
-	opts = append(opts, huh.NewOption("+ Add a profile", pickNew), huh.NewOption("− Remove a profile", pickRemove))
-	var choice string
-	if err := huh.NewSelect[string]().
-		Title("Profiles").
-		Description("Each profile is a YouTrack instance, registered in clients under its own name").
-		Options(opts...).Value(&choice).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-		return config.Config{}, false, err
-	}
-	switch choice {
-	case pickNew:
-		return config.Config{}, false, nil
-	case pickRemove:
-		opts = opts[:len(profiles)]
-		if err := huh.NewSelect[string]().Title("Remove which profile?").
-			Options(opts...).Value(&choice).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-			return config.Config{}, false, err
+// registerProfile adds cfg's server to the clients --clients or --all
+// name and removes it, and the server of its old name after a rename,
+// from the others.
+func registerProfile(env clients.Env, cfg config.Config, oldName, only string, all bool) error {
+	detected, missing := detectClients(env)
+	var chosen []string
+	switch {
+	case only != "":
+		chosen = strings.Split(only, ",")
+	case all:
+		for _, c := range detected {
+			chosen = append(chosen, c.ID)
 		}
-		sure := false
-		if err := huh.NewConfirm().
-			Title("Remove " + choice + " and its client registrations?").
-			Affirmative("Remove").Negative("Cancel").
-			Value(&sure).WithTheme(huh.ThemeBase16()).Run(); err != nil || !sure {
-			return config.Config{}, false, errors.Join(err, errKeep)
-		}
-		return find(choice), true, nil
+	default:
+		return errors.New("not a terminal: pass --clients id1,id2 or --all")
 	}
-	return find(choice), false, nil
-}
-
-func profileLabel(p config.Config) string {
-	label := p.Title()
-	if label != p.Name {
-		label += styleDim.Render(" · " + p.Name)
-	}
-	host := strings.TrimPrefix(strings.TrimPrefix(p.URL, "https://"), "http://")
-	return label + styleDim.Render("  "+p.Login+"@"+host)
-}
-
-func nameForm(display *string, oldName string, profiles []config.Config) *huh.Form {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewInput().
-			Title("Profile name").
-			Placeholder("e.g. YouTrack (work)").
-			DescriptionFunc(func() string {
-				if strings.TrimSpace(*display) == "" {
-					return "MCP clients list the YouTrack under a key made from it"
-				}
-				return "MCP clients list this YouTrack as " + config.Slug(*display)
-			}, display).
-			Value(display).
-			Validate(func(s string) error {
-				key := config.Slug(s)
-				if strings.TrimSpace(s) == "" {
-					return errors.New("name is required")
-				}
-				if key != oldName && slices.ContainsFunc(profiles, func(p config.Config) bool { return p.Name == key }) {
-					return fmt.Errorf("profile %s already exists", key)
-				}
-				return nil
-			}),
-	)).WithTheme(huh.ThemeBase16())
-}
-
-// registerProfile adds cfg's server to the chosen clients and removes it,
-// and the server of its old name after a rename, from the others.
-func registerProfile(env clients.Env, cfg config.Config, oldName, only string, all, ask bool) error {
-	bin, err := binaryPath()
+	fmt.Println()
+	lines, failed, err := register(env, cfg, oldName, chosen, false)
 	if err != nil {
 		return err
+	}
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	if len(missing) > 0 && len(detected) > 0 {
+		list := make([]string, 0, len(missing))
+		for _, c := range missing {
+			list = append(list, c.Name)
+		}
+		fmt.Println(styleDim.Render("\nNot found on this machine: " + strings.Join(list, ", ")))
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d client(s) failed", failed)
+	}
+	return nil
+}
+
+// register adds cfg's server to the chosen clients and removes it, and the
+// server of its old name after a rename, from the other detected ones.
+// quit lets it quit and reopen running clients that would drop the
+// change. It returns what happened, line by line, and how many clients
+// failed.
+func register(env clients.Env, cfg config.Config, oldName string, chosen []string, quit bool) (lines []string, failed int, err error) {
+	bin, err := binaryPath()
+	if err != nil {
+		return nil, 0, err
 	}
 	server := clients.Server{Name: cfg.Name, Command: bin, Args: []string{"--profile", cfg.Name}}
 	names := []string{cfg.Name}
@@ -321,46 +238,13 @@ func registerProfile(env clients.Env, cfg config.Config, oldName, only string, a
 		return slices.ContainsFunc(names, func(n string) bool { return c.Installed(env, n) })
 	}
 
-	detected, missing := detectClients(env)
+	detected, _ := detectClients(env)
 	if len(detected) == 0 {
-		fmt.Println(styleWarn.Render("!") + " No MCP clients found. Register " + bin + " --profile " + cfg.Name + " as a stdio server manually.")
-		return nil
+		return []string{styleWarn.Render("!") + " No MCP clients found. Register " + bin + " --profile " + cfg.Name + " as a stdio server manually."}, 0, nil
 	}
 
-	var chosen []string
-	switch {
-	case only != "":
-		chosen = strings.Split(only, ",")
-	case all:
-		for _, c := range detected {
-			chosen = append(chosen, c.ID)
-		}
-	case ask:
-		anyInstalled := slices.ContainsFunc(detected, installed)
-		opts := make([]huh.Option[string], 0, len(detected))
-		for _, c := range detected {
-			label := c.Name
-			had := installed(c)
-			if had {
-				label += styleDim.Render("  · added")
-			}
-			opts = append(opts, huh.NewOption(label, c.ID).Selected(had || !anyInstalled))
-		}
-		if err := huh.NewMultiSelect[string]().
-			Title("Register " + cfg.Title() + " in").
-			Description("space to toggle · enter to confirm · unchecked clients get it removed").
-			Options(opts...).
-			Value(&chosen).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-			return err
-		}
-	default:
-		return errors.New("not a terminal: pass --clients id1,id2 or --all")
-	}
-
-	fmt.Println()
-	reopen := closeApps(env, detected, func(c clients.Client) bool { return slices.Contains(chosen, c.ID) || installed(c) }, ask)
-	defer reopenApps(env, reopen)
-	var failed int
+	reopen, closed := closeApps(env, detected, func(c clients.Client) bool { return slices.Contains(chosen, c.ID) || installed(c) }, quit)
+	lines = append(lines, closed...)
 	for _, c := range detected {
 		want := slices.Contains(chosen, c.ID)
 		had := installed(c)
@@ -378,104 +262,97 @@ func registerProfile(env clients.Env, cfg config.Config, oldName, only string, a
 		}
 		if err := errors.Join(errs...); err != nil {
 			failed++
-			fmt.Printf("%s %s: %v\n", styleWarn.Render("✗"), c.Name, err)
+			lines = append(lines, fmt.Sprintf("%s %s: %v", styleWarn.Render("✗"), c.Name, err))
 			continue
 		}
 		switch {
 		case want && c.Note != "":
-			fmt.Printf("%s %s%s\n", styleOK.Render("✓"), c.Name, styleDim.Render(" — "+c.Note))
+			lines = append(lines, fmt.Sprintf("%s %s%s", styleOK.Render("✓"), c.Name, styleDim.Render(" — "+c.Note)))
 		case want:
-			fmt.Printf("%s %s\n", styleOK.Render("✓"), c.Name)
+			lines = append(lines, fmt.Sprintf("%s %s", styleOK.Render("✓"), c.Name))
 		default:
-			fmt.Printf("%s %s %s\n", styleDim.Render("–"), c.Name, styleDim.Render("removed"))
+			lines = append(lines, fmt.Sprintf("%s %s %s", styleDim.Render("–"), c.Name, styleDim.Render("removed")))
 		}
 	}
-	if len(missing) > 0 {
-		list := make([]string, 0, len(missing))
-		for _, c := range missing {
-			list = append(list, c.Name)
-		}
-		fmt.Println(styleDim.Render("\nNot found on this machine: " + strings.Join(list, ", ")))
-	}
-	fmt.Println(styleDim.Render("\nServer \"" + cfg.Name + "\": " + bin + " --profile " + cfg.Name + " (stdio)"))
-	if failed > 0 {
-		return fmt.Errorf("%d client(s) failed", failed)
-	}
-	return nil
+	lines = append(lines, reopenApps(env, reopen)...)
+	lines = append(lines, styleDim.Render("Server \""+cfg.Name+"\": "+bin+" --profile "+cfg.Name+" (stdio)"))
+	return lines, failed, nil
 }
 
 // removeProfile unregisters a profile from every client and deletes it.
 func removeProfile(env clients.Env, p config.Config) error {
-	detected, _ := detectClients(env)
-	reopen := closeApps(env, detected, func(c clients.Client) bool { return c.Installed(env, p.Name) }, interactive())
-	defer reopenApps(env, reopen)
-	var failed int
-	for _, c := range detected {
-		if !c.Installed(env, p.Name) {
-			continue
-		}
-		if err := c.Uninstall(env, p.Name); err != nil {
-			failed++
-			fmt.Printf("%s %s: %v\n", styleWarn.Render("✗"), c.Name, err)
-			continue
-		}
-		fmt.Printf("%s %s %s\n", styleDim.Render("–"), c.Name, styleDim.Render("removed"))
+	lines, failed, err := unregister(env, p.Name, false)
+	for _, l := range lines {
+		fmt.Println(l)
 	}
-	if err := config.Delete(p.Name); err != nil {
+	if err != nil {
 		return err
 	}
-	fmt.Println(styleOK.Render("✓") + " Removed profile " + styleBold.Render(p.Name))
 	if failed > 0 {
 		return fmt.Errorf("%d client(s) failed", failed)
 	}
 	return nil
 }
 
+// unregister removes a profile from every client and deletes it; quit
+// is as for register.
+func unregister(env clients.Env, key string, quit bool) (lines []string, failed int, err error) {
+	detected, _ := detectClients(env)
+	reopen, closed := closeApps(env, detected, func(c clients.Client) bool { return c.Installed(env, key) }, quit)
+	lines = append(lines, closed...)
+	for _, c := range detected {
+		if !c.Installed(env, key) {
+			continue
+		}
+		if err := c.Uninstall(env, key); err != nil {
+			failed++
+			lines = append(lines, fmt.Sprintf("%s %s: %v", styleWarn.Render("✗"), c.Name, err))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s %s %s", styleDim.Render("–"), c.Name, styleDim.Render("removed")))
+	}
+	lines = append(lines, reopenApps(env, reopen)...)
+	if err := config.Delete(key); err != nil {
+		return lines, failed, err
+	}
+	return append(lines, styleOK.Render("✓")+" Removed profile "+styleBold.Render(key)), failed, nil
+}
+
 // closeApps handles clients that write their config back from memory
-// while running, which would drop ymcp's edit: it offers to quit those
-// about to be edited and returns the ones to reopen afterwards.
-func closeApps(env clients.Env, list []clients.Client, edited func(clients.Client) bool, ask bool) []clients.Client {
-	var reopen []clients.Client
+// while running, which would drop ymcp's edit: with quit it quits those
+// about to be edited and returns the ones to reopen afterwards; without,
+// it says to quit them.
+func closeApps(env clients.Env, list []clients.Client, edited func(clients.Client) bool, quit bool) (reopen []clients.Client, lines []string) {
 	for _, c := range list {
 		if c.App() == "" || !edited(c) || !c.Running(env) {
 			continue
 		}
 		why := c.Name + " is running and writes its config back from memory, which drops ymcp's change"
-		if insideApp(c.App()) {
-			fmt.Println(styleWarn.Render("!") + " " + why + ". Quit it and run ymcp setup from another terminal.")
-			continue
-		}
-		quit := ask
-		if ask {
-			if err := huh.NewConfirm().
-				Title("Quit " + c.Name + " while ymcp updates its config?").
-				Description(why + ".\nIt reopens afterwards. Its windows close, Claude Code sessions in it included.").
-				Affirmative("Quit and reopen").Negative("Leave it running").
-				Value(&quit).WithTheme(huh.ThemeBase16()).Run(); err != nil {
-				quit = false
+		switch {
+		case insideApp(c.App()):
+			lines = append(lines, styleWarn.Render("!")+" "+why+". Quit it and run ymcp setup from another terminal.")
+		case !quit:
+			lines = append(lines, styleWarn.Render("!")+" "+why+". Quit it, then run ymcp setup again.")
+		default:
+			if err := c.Quit(env); err != nil {
+				lines = append(lines, fmt.Sprintf("%s %s: %v", styleWarn.Render("!"), why, err))
+				continue
 			}
+			reopen = append(reopen, c)
 		}
-		if !quit {
-			fmt.Println(styleWarn.Render("!") + " " + why + ". Quit it, then run ymcp setup again.")
-			continue
-		}
-		if err := c.Quit(env); err != nil {
-			fmt.Printf("%s %s: %v\n", styleWarn.Render("!"), why, err)
-			continue
-		}
-		reopen = append(reopen, c)
 	}
-	return reopen
+	return reopen, lines
 }
 
-func reopenApps(env clients.Env, list []clients.Client) {
+func reopenApps(env clients.Env, list []clients.Client) (lines []string) {
 	for _, c := range list {
 		if err := c.Open(env); err != nil {
-			fmt.Printf("%s %s: %v\n", styleWarn.Render("!"), c.Name, err)
+			lines = append(lines, fmt.Sprintf("%s %s: %v", styleWarn.Render("!"), c.Name, err))
 			continue
 		}
-		fmt.Printf("%s %s %s\n", styleOK.Render("✓"), c.Name, styleDim.Render("reopened"))
+		lines = append(lines, fmt.Sprintf("%s %s %s", styleOK.Render("✓"), c.Name, styleDim.Render("reopened")))
 	}
+	return lines
 }
 
 func detectClients(env clients.Env) (detected, missing []clients.Client) {
