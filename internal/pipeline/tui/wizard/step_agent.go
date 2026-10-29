@@ -2,15 +2,18 @@ package wizard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
 	"github.com/xlsft/ymcp/internal/pipeline/tui/keys"
@@ -77,6 +80,9 @@ type agentStep struct {
 
 	command, mode, model, lang     *assistField
 	silence, total, permissionWait *assistField
+	apiURL, apiKey                 *assistField
+	keySource                      string // where the stored key of the endpoint is, see ModelAPIs.KeySource
+	models                         modelCache
 	args                           *areaCtl
 	durErr                         map[string]string
 
@@ -105,11 +111,21 @@ func newAgentStep(sh *shared) *agentStep {
 	if sh.p.Agent.Provider != "kimi" {
 		s.drafts["kimi"] = kimiDefaults()
 	}
+	for _, p := range []string{endpoint.Anthropic, endpoint.OpenAI} {
+		if sh.p.Agent.Provider != p {
+			s.drafts[p] = endpointDefaults(p)
+		}
+	}
 	s.drafts[sh.p.Agent.Provider] = sh.p.Agent
 	s.command = newAssist(sh, "", nil)
 	s.mode = newAssist(sh, "the agent's default", nil)
 	s.model = newAssist(sh, "the agent's default", nil)
 	s.args = newArea("none", 3)
+	s.apiURL = newAssist(sh, "e.g. https://llm.example.com/v1", nil)
+	s.apiKey = newAssist(sh, "paste the key", nil)
+	s.apiKey.in.EchoMode = textinput.EchoPassword
+	s.apiKey.in.EchoCharacter = '•'
+	s.apiKey.set(sh.apiKey)
 	s.lang = newAssist(sh, spec.DefaultLanguage, staticSuggest(languages))
 	s.lang.set(sh.p.Language)
 	s.silence = newAssist(sh, fmtDuration(spec.DefaultSilence), staticSuggest([]string{"5m", "10m", "20m", "30m"}))
@@ -126,7 +142,7 @@ func newAgentStep(sh *shared) *agentStep {
 	s.prompts = &promptsCtl{s: s}
 
 	t0 := sh.p.Timeouts
-	s.advanced = (sh.p.Agent.Command != "" && sh.p.Agent.Provider != "acp") || sh.p.Agent.Mode != "" || sh.p.Agent.Model != "" ||
+	s.advanced = (sh.p.Agent.Command != "" && sh.p.Agent.Provider != "acp") || sh.p.Agent.Mode != "" || (sh.p.Agent.Model != "" && !sh.p.Agent.UsesEndpoint()) ||
 		!sh.p.ServiceEnabled() || t0.Silence.Duration != spec.DefaultSilence || t0.Total.Duration != spec.DefaultTotal ||
 		t0.Permission.Duration != spec.DefaultPermission
 
@@ -150,6 +166,75 @@ func newAgentStep(sh *shared) *agentStep {
 				},
 			},
 			below: s.warnings,
+		},
+		{
+			id: "modelAPI", label: "Model API",
+			descFn: s.serviceAbout,
+			hidden: func() bool { return !s.onEndpoint() },
+			ctl: &choiceCtl{
+				opts: s.serviceOptions,
+				get:  func() string { return s.endpoint().Preset },
+				set:  func(v string) tea.Cmd { return s.setService(v) },
+			},
+		},
+		{
+			id: "apiURL", label: "API URL",
+			descFn: func() string {
+				if s.sh.p.Agent.Provider == endpoint.OpenAI {
+					return "The base URL of the Chat Completions API, up to /v1 or its version."
+				}
+				return "The base URL of the Messages API, without /v1."
+			},
+			hidden: func() bool { return !s.onEndpoint() || s.endpoint().Preset != "" },
+			ctl: newText(s.apiURL, func() tea.Cmd {
+				s.endpoint().URL = s.apiURL.value()
+				s.refreshKey()
+				return s.deb.bump(sh.delay)
+			}),
+			problem: func() string {
+				if !s.fs.tried && s.apiURL.value() == "" {
+					return ""
+				}
+				if err := endpoint.CheckURL(s.apiURL.value()); err != nil {
+					return "Needs an http or https URL."
+				}
+				return ""
+			},
+		},
+		{
+			id: "apiKey", label: "API key",
+			descFn: s.keyAbout,
+			hidden: func() bool {
+				return !s.onEndpoint() || !s.needsKey() && s.keySource == "" && s.apiKey.value() == "" && s.endpoint().Preset != ""
+			},
+			ctl: newText(s.apiKey, func() tea.Cmd {
+				sh.apiKey = s.apiKey.value()
+				s.models.reset()
+				return nil
+			}),
+			problem: func() string {
+				if s.fs.tried && s.keyMissing() {
+					return "Needs the API key."
+				}
+				return ""
+			},
+		},
+		{
+			id: "endpointModel", label: "Model",
+			descFn: func() string {
+				if p, ok := endpoint.Find(s.endpoint().Preset); ok && p.Model != "" {
+					return "The model's name at the API; empty: " + p.Model + "."
+				}
+				return "The model's name at the API; the list comes from the API."
+			},
+			hidden: func() bool { return !s.onEndpoint() },
+			ctl:    newText(s.model, changed),
+			problem: func() string {
+				if s.fs.tried && s.modelMissing() {
+					return "Needs the model."
+				}
+				return ""
+			},
 		},
 		{
 			id: "command", label: "Command",
@@ -200,7 +285,7 @@ func newAgentStep(sh *shared) *agentStep {
 			ctl:  newText(s.mode, changed),
 		},
 		{
-			id: "model", label: "Model", hidden: adv,
+			id: "model", label: "Model", hidden: func() bool { return adv() || s.onEndpoint() },
 			desc: "Empty: the agent's default model.",
 			ctl:  newText(s.model, changed),
 		},
@@ -272,6 +357,18 @@ func (s *agentStep) load() {
 		s.mode.src = staticSuggest(hints)
 	}
 	s.model.set(a.Model)
+	s.model.src = nil
+	s.model.in.Placeholder = "the agent's default"
+	if a.UsesEndpoint() {
+		s.command.in.Placeholder = "claude"
+		s.model.src = s.suggestModels
+		s.model.in.Placeholder = "pick or type the model"
+		if p, ok := endpoint.Find(s.endpoint().Preset); ok && p.Model != "" {
+			s.model.in.Placeholder = p.Model
+		}
+		s.apiURL.set(s.endpoint().URL)
+		s.refreshKey()
+	}
 	s.args.ta.SetValue(strings.Join(a.Args, "\n"))
 }
 
@@ -442,7 +539,7 @@ func (s *agentStep) msg(msg tea.Msg) tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	for _, f := range []*assistField{s.command, s.mode, s.model, s.lang, s.silence, s.total, s.permissionWait} {
+	for _, f := range []*assistField{s.command, s.mode, s.model, s.lang, s.silence, s.total, s.permissionWait, s.apiURL, s.apiKey} {
 		cmds = append(cmds, f.msg(msg))
 	}
 	return tea.Batch(cmds...)
@@ -452,6 +549,17 @@ func (s *agentStep) blockers() []problem {
 	var out []problem
 	if s.provider() == "acp" && s.command.value() == "" {
 		out = append(out, problem{"command", "the command of the ACP agent"})
+	}
+	if s.onEndpoint() {
+		if s.endpoint().Preset == "" && endpoint.CheckURL(s.apiURL.value()) != nil {
+			out = append(out, problem{"apiURL", "the URL of the model API"})
+		}
+		if s.keyMissing() {
+			out = append(out, problem{"apiKey", "the API key"})
+		}
+		if s.modelMissing() {
+			out = append(out, problem{"endpointModel", "the model"})
+		}
 	}
 	for _, d := range []struct{ key, id string }{{"silence", "silence"}, {"total", "total"}, {"permission", "permissionWait"}} {
 		if s.durErr[d.key] != "" {
@@ -1001,6 +1109,152 @@ func (s *agentStep) savePreset() {
 	s.reload()
 	s.presets.cur = s.presetIndex(p.Name)
 	s.notice = "Saved preset " + p.Name + "; the pipeline is now based on it"
+}
+
+// The model API of the anthropic and openai providers.
+
+// onEndpoint reports whether the agent works with a model API.
+func (s *agentStep) onEndpoint() bool { return s.sh.p.Agent.UsesEndpoint() }
+
+// endpoint is the agent's endpoint, made when missing; a throwaway one
+// for an agent without a model API.
+func (s *agentStep) endpoint() *spec.Endpoint {
+	a := &s.sh.p.Agent
+	if !a.UsesEndpoint() {
+		return &spec.Endpoint{}
+	}
+	if a.Endpoint == nil {
+		a.Endpoint = &spec.Endpoint{}
+	}
+	return a.Endpoint
+}
+
+func (s *agentStep) serviceOptions() []option {
+	var out []option
+	for _, p := range endpoint.Presets {
+		if p.URL(s.provider()) != "" {
+			out = append(out, option{value: p.Name, title: p.Title, desc: p.About})
+		}
+	}
+	return append(out, option{value: "", title: "Another API", desc: "any compatible API, at its URL"})
+}
+
+func (s *agentStep) serviceAbout() string {
+	if p, ok := endpoint.Find(s.endpoint().Preset); ok {
+		return "Claude Code's requests go to " + p.URL(s.provider()) + "."
+	}
+	if s.provider() == endpoint.OpenAI {
+		return "Claude Code works with the models of a Chat Completions API; ymcp translates its requests."
+	}
+	return "Claude Code works with the models of a Messages API."
+}
+
+// setService switches to a preset ("" for a URL of the user's). A model,
+// name or key that belonged to the previous one goes with it.
+func (s *agentStep) setService(name string) tea.Cmd {
+	e, a := s.endpoint(), &s.sh.p.Agent
+	if old, ok := endpoint.Find(e.Preset); ok {
+		if a.Model == old.Model {
+			a.Model = ""
+		}
+		if a.Name == old.Title {
+			a.Name = ""
+		}
+	}
+	e.Preset, e.URL, e.KeyEnv = name, "", ""
+	if name == "" {
+		e.URL = s.apiURL.value()
+	}
+	s.apiKey.set("")
+	s.sh.apiKey = ""
+	s.models.reset()
+	s.load()
+	s.store()
+	return s.deb.bump(s.sh.delay)
+}
+
+// needsKey reports whether the service can't work without a key: a
+// preset with a key variable. An API of the user's may not need one.
+func (s *agentStep) needsKey() bool {
+	p, ok := endpoint.Find(s.endpoint().Preset)
+	return ok && p.KeyEnv != ""
+}
+
+func (s *agentStep) keyMissing() bool {
+	return s.onEndpoint() && s.needsKey() && s.apiKey.value() == "" && s.keySource == ""
+}
+
+func (s *agentStep) modelMissing() bool {
+	if !s.onEndpoint() || s.model.value() != "" {
+		return false
+	}
+	p, ok := endpoint.Find(s.endpoint().Preset)
+	return !ok || p.Model == ""
+}
+
+// refreshKey looks up where the stored key of the endpoint is.
+func (s *agentStep) refreshKey() {
+	s.keySource = ""
+	if s.onEndpoint() {
+		s.keySource = s.sh.deps.ModelAPIs.KeySource(s.sh.p.Agent)
+	}
+}
+
+func (s *agentStep) keyAbout() string {
+	e := s.sh.p.Agent.ResolvedEndpoint()
+	switch {
+	case s.apiKey.value() != "":
+		return "Kept in the system keychain on save; the agent never sees it."
+	case s.keySource == "keychain":
+		return "In the system keychain. Type a new one to replace it."
+	case s.keySource != "":
+		return "Read from $" + s.keySource + ". Type one to keep it in the keychain instead."
+	case e.KeyEnv != "":
+		return "Kept in the system keychain; or set $" + e.KeyEnv + "."
+	}
+	return "Kept in the system keychain. Empty: requests go without one."
+}
+
+// modelCache keeps the last model list of an endpoint: completions ask on
+// every pause in typing. It is read on the UI goroutine and written by the
+// background call.
+type modelCache struct {
+	mu           sync.Mutex
+	key, errText string
+	list         []string
+}
+
+func (c *modelCache) reset() {
+	c.mu.Lock()
+	c.key, c.list, c.errText = "", nil, ""
+	c.mu.Unlock()
+}
+
+// suggestModels completes the model from the endpoint's list.
+func (s *agentStep) suggestModels(text string, _ int) func(context.Context) ([]Suggestion, error) {
+	a, key := clonePipeline(*s.sh.p).Agent, s.apiKey.value()
+	cacheKey := a.Provider + " " + a.ResolvedEndpoint().URL + " " + key
+	apis, c := s.sh.deps.ModelAPIs, &s.models
+	return func(ctx context.Context) ([]Suggestion, error) {
+		c.mu.Lock()
+		list, errText, hit := c.list, c.errText, c.key == cacheKey
+		c.mu.Unlock()
+		if !hit {
+			var err error
+			list, err = apis.Models(ctx, a, key)
+			errText = ""
+			if err != nil {
+				errText = "the API lists no models: " + err.Error()
+			}
+			c.mu.Lock()
+			c.key, c.list, c.errText = cacheKey, list, errText
+			c.mu.Unlock()
+		}
+		if errText != "" {
+			return nil, errors.New(errText)
+		}
+		return staticSuggest(list)(text, 0)(ctx)
+	}
 }
 
 func fmtDuration(d time.Duration) string {

@@ -56,6 +56,10 @@ type shared struct {
 	profiles    []config.Config
 	profilesErr error
 
+	// apiKey is a key typed for the agent's model API, kept in the
+	// keychain on save.
+	apiKey string
+
 	conn   connection
 	sample sample
 	full   fullIssue
@@ -314,6 +318,15 @@ func claudeDefaults() spec.Agent {
 	}
 }
 
+// endpointDefaults start an agent on a model API like a new claude one,
+// on OpenRouter until the user picks another.
+func endpointDefaults(provider string) spec.Agent {
+	a := claudeDefaults()
+	a.Provider = provider
+	a.Endpoint = &spec.Endpoint{Preset: "openrouter"}
+	return a
+}
+
 // kimiDefaults let a new kimi agent work unattended: its yolo mode
 // approves every tool, like `ymcp pipeline new`.
 func kimiDefaults() spec.Agent {
@@ -360,6 +373,11 @@ func (k pipelineKind) save(run bool) (tea.Cmd, string) {
 	p := clonePipeline(*k.sh.p).WithDefaults()
 	if err := p.Validate(); err != nil {
 		return nil, "the pipeline isn't valid yet; see the list above"
+	}
+	if key := strings.TrimSpace(k.sh.apiKey); key != "" && p.Agent.UsesEndpoint() {
+		if err := k.sh.deps.ModelAPIs.SetKey(p.Agent, key); err != nil {
+			return nil, "the API key could not be kept: " + err.Error()
+		}
 	}
 	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }, ""
 }
@@ -494,17 +512,22 @@ func (m *Model) syncFocus() tea.Cmd {
 		}
 	}
 	focus := m.focusID()
+	// Blur first: items may share an input, shown one at a time.
+	var focused *item
 	for _, it := range m.steps[m.cur].items() {
-		if it.ctl == nil {
-			continue
-		}
-		switch c, ok := it.ctl.(interface{ focusCmd() tea.Cmd }); {
+		switch {
+		case it.ctl == nil:
 		case it.id != focus || !it.visible():
 			it.ctl.blur()
-		case ok:
-			cmds = append(cmds, c.focusCmd())
 		default:
-			it.ctl.focus()
+			focused = it
+		}
+	}
+	if focused != nil {
+		if c, ok := focused.ctl.(interface{ focusCmd() tea.Cmd }); ok {
+			cmds = append(cmds, c.focusCmd())
+		} else {
+			focused.ctl.focus()
 		}
 	}
 	return tea.Batch(cmds...)

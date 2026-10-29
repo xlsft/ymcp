@@ -434,6 +434,93 @@ func TestEditExisting(t *testing.T) {
 	}
 }
 
+// An agent on a model API: the service, its key, kept on save, and the
+// model from the API's list.
+func TestAgentOnModelAPI(t *testing.T) {
+	f := newFakes()
+	existing := spec.Pipeline{
+		Name: "backend", Profile: "youtrack-work",
+		Source: spec.Source{Query: "project: YPC #Unresolved"},
+		Stages: spec.Stages{
+			Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
+			Review:     spec.Stage{Enter: "State Fixed", Match: "State: Fixed"},
+			NeedsInput: spec.Stage{Enter: "tag needs-input", Exit: "untag needs-input"},
+		},
+		Workspace: spec.Workspace{Dir: "/src/repo"},
+		Agent:     spec.Agent{Provider: "claude"},
+	}
+	d := start(t, f.deps, &existing)
+	d.goStep(3)
+	d.focus("provider")
+	d.mustNot("Model API")
+	d.keys("right", "right", "right", "right", "right")
+	if a := d.m.sh.p.Agent; a.Provider != "openai" || a.Endpoint == nil || a.Endpoint.Preset != "openrouter" {
+		t.Fatalf("agent = %+v", a)
+	}
+	d.must("anthropic", "openai", "Model API", "OpenRouter", "Kimi for Coding", "Ollama", "Another API",
+		"go to https://openrouter.ai/api/v1", "or set $OPENROUTER_API_KEY")
+	d.dump("agent-model-api")
+
+	// Not done without a key and a model.
+	st := d.m.steps[d.m.cur].(*agentStep)
+	if got := fmt.Sprint(st.blockers()); !strings.Contains(got, "the API key") || !strings.Contains(got, "the model") {
+		t.Fatalf("blockers %s", got)
+	}
+	st.fs.tried = true
+
+	d.focus("apiKey")
+	d.must("Needs the API key.")
+	d.typ("sk-or-1")
+	d.mustNot("sk-or-1", "Needs the API key.")
+	d.must("Kept in the system keychain on save")
+
+	d.focus("endpointModel")
+	d.typ("kimi")
+	var listed []string
+	for _, sg := range st.model.list {
+		listed = append(listed, sg.Option)
+	}
+	if !slices.Equal(listed, []string{"moonshotai/kimi-k3"}) {
+		t.Errorf("model completions %q, error %v", listed, st.model.err)
+	}
+	if got := f.apis.asked; len(got) == 0 || got[len(got)-1] != "sk-or-1" {
+		t.Errorf("models asked with keys %q", got)
+	}
+	d.keys("ctrl+u")
+	d.typ("moonshotai/kimi-k3")
+
+	// Ollama needs no key; another API needs its URL.
+	d.focus("modelAPI")
+	d.keys("down", "down", "down", "down", "down", "down")
+	d.must("API URL", "The base URL of the Chat Completions API")
+	d.keys("up")
+	d.mustNot("API key", "API URL")
+	if d.m.sh.p.Agent.Endpoint.Preset != "ollama" || d.m.sh.apiKey != "" {
+		t.Fatalf("after switching to ollama: %+v, key %q", d.m.sh.p.Agent.Endpoint, d.m.sh.apiKey)
+	}
+	d.keys("up", "up", "up", "up", "up")
+	d.focus("apiKey")
+	d.typ("sk-or-2")
+	d.focus("endpointModel")
+	d.keys("ctrl+u")
+	d.typ("z-ai/glm-5")
+
+	d.keys("ctrl+n", "ctrl+n", "ctrl+n")
+	d.keys("enter")
+	if len(d.out) != 1 {
+		t.Fatalf("messages = %v", d.out)
+	}
+	p := d.out[0].(Done).Pipeline
+	if p.Agent.Provider != "openai" || p.Agent.Model != "z-ai/glm-5" || p.Agent.Name != "OpenRouter" ||
+		p.Agent.Endpoint == nil || *p.Agent.Endpoint != (spec.Endpoint{Preset: "openrouter"}) ||
+		!slices.Contains(p.Agent.Args, "--dangerously-skip-permissions") {
+		t.Fatalf("agent = %+v", p.Agent)
+	}
+	if got := f.apis.keys["https://openrouter.ai/api/v1"]; got != "sk-or-2" {
+		t.Errorf("kept key %q", got)
+	}
+}
+
 // Next stays on a step with errors and says why; Back always works.
 func TestValidationBlocksNext(t *testing.T) {
 	d := start(t, newFakes().deps, nil)

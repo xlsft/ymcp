@@ -13,6 +13,7 @@ import (
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/notify"
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 	"github.com/xlsft/ymcp/internal/pipeline/engine"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
@@ -34,6 +35,20 @@ type Deps struct {
 	Editor    EditorLauncher
 	Notify    NotifySettings
 	Presets   PresetStore
+	ModelAPIs ModelAPIs
+}
+
+// ModelAPIs keeps the API keys of the model APIs of the anthropic and
+// openai agents and lists their models.
+type ModelAPIs interface {
+	// KeySource says where the stored key of the agent's endpoint comes
+	// from: a variable's name or "keychain"; "" when there is none.
+	KeySource(a spec.Agent) string
+	// SetKey keeps key for the agent's endpoint in the keychain.
+	SetKey(a spec.Agent, key string) error
+	// Models lists the models of the agent's endpoint, asking with key
+	// when it is set and with the stored one otherwise.
+	Models(ctx context.Context, a spec.Agent, key string) ([]string, error)
 }
 
 // PresetStore lists the prompt presets and saves the user's own.
@@ -186,7 +201,38 @@ func DefaultDeps() Deps {
 		Editor:    envEditor{},
 		Notify:    notifySettings{},
 		Presets:   presetFiles{},
+		ModelAPIs: modelAPIs{},
 	}
+}
+
+// modelAPIs are the endpoints of internal/pipeline/endpoint.
+type modelAPIs struct{}
+
+func (modelAPIs) KeySource(a spec.Agent) string {
+	e := a.ResolvedEndpoint()
+	if endpoint.CheckURL(e.URL) != nil {
+		return ""
+	}
+	_, source, err := endpoint.Key(e.URL, e.KeyEnv)
+	if err != nil {
+		return ""
+	}
+	return source
+}
+
+func (modelAPIs) SetKey(a spec.Agent, key string) error {
+	return endpoint.SetKey(a.ResolvedEndpoint().URL, key)
+}
+
+func (modelAPIs) Models(ctx context.Context, a spec.Agent, key string) ([]string, error) {
+	up, err := a.Upstream()
+	if key != "" {
+		up.Key = key
+	} else if err != nil && !errors.Is(err, endpoint.ErrNoKey) {
+		return nil, err
+	}
+	// Some services list their models without a key.
+	return endpoint.Models(ctx, up)
 }
 
 // presetFiles are the presets of internal/pipeline/spec: the built-in ones
