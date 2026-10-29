@@ -32,6 +32,7 @@ import (
 
 	"github.com/xlsft/ymcp/internal/config"
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 	"github.com/xlsft/ymcp/internal/pipeline/mcpserver"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
@@ -344,6 +345,18 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err := r.forwardMCP(ctx, base); err != nil {
 		return err
 	}
+	if r.p.Agent.UsesEndpoint() {
+		up, err := r.p.Agent.Upstream()
+		if err != nil {
+			return fmt.Errorf("the agent's model API: %w", err)
+		}
+		gw, err := endpoint.NewGateway(up, r.log.With("upstream", up.URL))
+		if err != nil {
+			return err
+		}
+		r.mcp.SetModelAPI(gw)
+		r.log.Info("serving the model API to the agent", "protocol", up.Protocol, "upstream", up.URL, "model", r.p.Agent.Model)
+	}
 
 	runCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
@@ -566,12 +579,34 @@ func (r *Runner) forwardMCP(ctx context.Context, base string) error {
 // agentMCPURL is the URL of the MCP server as the agent reaches it: on a
 // remote host, through the forward, which is set up again if it was lost.
 func (r *Runner) agentMCPURL(ctx context.Context) (string, error) {
+	base, err := r.agentBase(ctx)
+	if err != nil {
+		return "", err
+	}
+	return base + "/" + r.profile, nil
+}
+
+// agentBase is the base URL of the MCP server as the agent reaches it.
+func (r *Runner) agentBase(ctx context.Context) (string, error) {
 	if r.fwd == nil {
-		return r.mcpURL, nil
+		return strings.TrimSuffix(r.mcpURL, "/"+r.profile), nil
 	}
 	port, err := r.fwd.Port(ctx)
 	if err != nil {
 		return "", fmt.Errorf("the MCP forward to %s: %w", r.host.Name(), err)
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d/%s", port, r.profile), nil
+	return fmt.Sprintf("http://127.0.0.1:%d", port), nil
+}
+
+// agentEndpoint is the gateway to the model API as the agent reaches it,
+// with the run's token; nil for an agent with a model of its own.
+func (r *Runner) agentEndpoint(ctx context.Context, token string) (*agent.Endpoint, error) {
+	if !r.p.Agent.UsesEndpoint() {
+		return nil, nil
+	}
+	base, err := r.agentBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &agent.Endpoint{URL: base + mcpserver.ModelAPIPath, Token: token, Model: r.p.Agent.Model}, nil
 }

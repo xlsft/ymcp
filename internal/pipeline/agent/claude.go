@@ -22,7 +22,7 @@ import (
 type claudeAgent struct {
 	provider string // claude, or anthropic and openai on a model API
 	command  string
-	args    []string
+	args     []string
 	settings
 }
 

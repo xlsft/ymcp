@@ -243,7 +243,15 @@ func (t *turn) run1(answer string) string {
 		}
 		return t.fail("agent failed", "The agent could not be given the MCP server: "+err.Error())
 	}
+	ep, err := r.agentEndpoint(t.ctx, t.w.token)
+	if err != nil {
+		if t.ctx.Err() != nil {
+			return t.stopped(causeOf(t.ctx))
+		}
+		return t.fail("agent failed", "The agent could not be given the model API: "+err.Error())
+	}
 	opts := agent.StartOptions{
+		Endpoint:     ep,
 		Dir:          t.w.wt.Path,
 		RunDir:       t.w.runDir,
 		Env:          r.p.Agent.Env,
@@ -1446,7 +1454,7 @@ func (t *turn) denials(res agent.Result) denials {
 			*list = append(*list, s)
 		}
 	}
-	if t.r.p.Agent.Provider == "claude" {
+	if t.r.p.Agent.IsClaude() {
 		for _, c := range res.Denied {
 			if c.Title == "" {
 				continue
