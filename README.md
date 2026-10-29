@@ -59,12 +59,15 @@ scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp
 
 Package-managed copies update through their manager (`brew upgrade ymcp` and so on); `ymcp update` says so.
 
-The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, which:
+The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, a TUI in the look of
+`ymcp pipeline`. With no profile yet it opens a new one, in three steps:
 
-1. asks for a profile name, `youtrack` by default;
-2. asks for your YouTrack URL, login and password, and verifies them before saving anything;
-3. lists the MCP clients found on your machine, with a checkbox for each;
-4. registers ymcp as a stdio server in the clients you pick, and removes it from the ones you uncheck.
+1. **Connection**: a profile name, `youtrack` by default, and your YouTrack URL, login and password, signed in to as
+   you type; nothing is saved until they work;
+2. **Tools**: the tools the profile serves, group by group or tool by tool, and whether destructive ones ask for
+   your confirmation first (on by default, see [Confirmations](#confirmations));
+3. **Clients**: the MCP clients found on your machine, with a checkbox for each. Save registers ymcp as a stdio
+   server in the ones you tick and removes it from the ones you untick.
 
 Run `ymcp setup` again at any time to edit a profile, add or remove clients, or add another YouTrack.
 
@@ -74,7 +77,8 @@ An agent setting ymcp up for you (Cline and the like) has its own steps in [llms
 
 Each YouTrack instance is a profile, and each profile is its own MCP server. The profile's display name gives the
 server name: `YouTrack (work)` becomes `youtrack-work`, `youtrack-acme` stays as it is. A repeated `ymcp setup`
-lists your profiles: pick one to edit it, rename it (its client entries move along), or add or remove a profile.
+lists your profiles with their tools and clients: `enter` edits one (a rename moves its client entries along), `n`
+adds a profile and `d` removes one.
 Clients run `ymcp --profile <key>`, so every instance shows up next to the others with its own tools.
 
 ### Verify a release
@@ -112,7 +116,7 @@ and outputs, and every field of the pipeline file.
 | Command | |
 |---|---|
 | `ymcp` / `ymcp serve` | Run the MCP server over stdio (what clients launch). `--transport http` serves Streamable HTTP, see [HTTP](#http) |
-| `ymcp setup` | Add or edit a profile, sign in, pick its tools and MCP clients. `--name`, `--tools`, `--clients cursor,zed`, `--all`, `--reauth` and `--remove` skip the questions |
+| `ymcp setup` | The profiles TUI: add or edit a profile, sign in, pick its tools, confirmations and MCP clients. For scripts, `--clients cursor,zed` or `--all` with `--name`, `--tools`, `--confirm on\|off` and `--reauth`, or `--remove`, skip the TUI |
 | `ymcp auth` | Set or replace the URL, login and password of a profile. `--url`, `--login`, `--proxy`, `--password-stdin` for scripts |
 | `ymcp check` | Sign in and print who you are |
 | `ymcp call <tool> '<json>'` | Call one tool, exactly as a client would, e.g. `ymcp call count_issues '{"query":"#Unresolved"}'` |
@@ -178,8 +182,8 @@ A prompt is offered only when the tools it needs are served (see below).
 
 ### Choosing tools
 
-All 58 tools take room in the model's context. A profile can serve only some groups of them: pick them in
-`ymcp setup`, or pass `--tools` (or `YMCP_TOOLS`) to `serve`, which wins over the profile.
+All 58 tools take room in the model's context. A profile can serve only some of them: pick groups or single tools
+in `ymcp setup`, or pass `--tools` (or `YMCP_TOOLS`) to `serve`, which wins over the profile.
 
 | Group | Tools |
 |---|---|
@@ -198,6 +202,18 @@ All 58 tools take room in the model's context. A profile can serve only some gro
 A selection mixes groups and tool names, and `-` removes one: `issues,comments,articles,-delete_issue`. Removals
 alone start from everything, e.g. `-api,-agile`. The start-up log shows what is served, e.g.
 `tools="19 of 58: issues, comments, -delete_issue"`.
+
+### Confirmations
+
+Destructive tools ask for your confirmation before they change anything: the deletes, `unlink_issues`,
+`apply_command` with a command that removes something, and `call_api` with DELETE. Called the first time, such a
+tool does nothing and returns an operation id and a one-time secret, with a note for the model to ask you. If you
+agree, the model calls it again with the same arguments and `confirm` set to the secret. A secret works once, for
+those arguments, for 10 minutes.
+
+It is on by default. Turn it off for a profile in `ymcp setup` (or `ymcp setup --confirm off --all`), or for one
+server with `serve --confirm off` (or `YMCP_CONFIRM=off`), and the tools run at once, as they used to. `ymcp call`
+and pipeline agents never ask: a person runs the former, and nobody waits on the latter.
 
 ## Pipelines
 
@@ -412,6 +428,7 @@ Environment variables override the stored values of the profile in use. That's h
 | `YOUTRACK_PROXY` | Empty to use `HTTP(S)_PROXY` (or direct, when that proxy can't reach YouTrack), `none` to always connect directly, or a proxy URL |
 | `YMCP_PROFILE` | Profile to use, like `--profile` |
 | `YMCP_TOOLS` | Tools to serve, like `serve --tools` |
+| `YMCP_CONFIRM` | `on` or `off`: whether destructive tools ask first, like `serve --confirm` |
 | `YMCP_CONFIG` | Path of the config file |
 
 `--env FILE` loads these variables from a dotenv file (see [`.env.example`](.env.example)).
