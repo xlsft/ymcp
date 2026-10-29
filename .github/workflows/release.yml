@@ -91,6 +91,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.version.outputs.version }}" -m "${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.version }}"
+      # What the release changed for its users, from the commits' Changelog:
+      # trailers (see .github/scripts/changelog.py), above GoReleaser's list
+      # of commits.
+      - name: Release notes
+        if: steps.version.outputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 .github/scripts/changelog.py notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: steps.version.outputs.version != ''
         with:
@@ -103,7 +113,7 @@ jobs:
         if: steps.version.outputs.version != ''
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-header ${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Pushes to xlsft/homebrew-tap and xlsft/scoop-bucket.
