@@ -1114,3 +1114,20 @@ func TestStopRequest(t *testing.T) {
 		t.Error("the second request is not seen")
 	}
 }
+
+func TestClaimInboxOnce(t *testing.T) {
+	s := open(t)
+	r, _ := s.CreateRun(ctx, "p", "yt", "1", "")
+	if _, err := s.AddInbox(ctx, InboxItem{RunID: r.ID, Source: "cli", ExternalID: "cli-1", Author: "me", Body: "/compact"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.PendingInbox(ctx, r.ID)
+	inv, _ := s.StartInvocation(ctx, r.ID, "command")
+	inv2, _ := s.StartInvocation(ctx, r.ID, "command")
+	if ok, err := s.ClaimInbox(ctx, pending[0].ID, inv.ID); !ok || err != nil {
+		t.Fatalf("first claim = %v, %v", ok, err)
+	}
+	if ok, err := s.ClaimInbox(ctx, pending[0].ID, inv2.ID); ok || err != nil {
+		t.Errorf("second claim = %v, %v; want false", ok, err)
+	}
+}

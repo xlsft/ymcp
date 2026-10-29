@@ -158,6 +158,20 @@ func (s *Store) ConsumeInbox(ctx context.Context, ids []int64, invocationID int6
 	return nil
 }
 
+// ClaimInbox consumes one inbox item for the invocation and reports
+// whether this call did: false when the item was already consumed.
+func (s *Store) ClaimInbox(ctx context.Context, id, invocationID int64) (bool, error) {
+	res, err := s.q.ExecContext(ctx, `UPDATE inbox SET consumed_by = ? WHERE consumed_by IS NULL AND id = ?`, invocationID, id)
+	if err != nil {
+		return false, fmt.Errorf("consuming the inbox: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("consuming the inbox: %w", err)
+	}
+	return n == 1, nil
+}
+
 // Invocation is one agent turn of a run; Kind is start, feedback or answer.
 type Invocation struct {
 	ID         int64
