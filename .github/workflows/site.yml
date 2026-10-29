@@ -2,8 +2,8 @@ name: Site
 
 # Draws the TUI screens (TestScreens), writes the site's data
 # (internal/site) and builds the landing page (site/index.html) from main,
-# then publishes them on the site branch, where the page, the README and
-# site/docker-compose.yaml read them:
+# then publishes them on the site branch. GitHub Pages serves the branch at
+# https://ymcp.su, and the README reads the screens from it:
 #
 #   https://raw.githubusercontent.com/xlsft/ymcp/site/index.html (with
 #     robots.txt, sitemap.xml, the icons and og.png next to it)
