@@ -8,11 +8,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -150,4 +152,67 @@ func TestLatestTagFollowsNoRedirect(t *testing.T) {
 	if _, err := u.LatestTag(context.Background(), srv.URL); err == nil {
 		t.Error("no tag in the redirect, but no error")
 	}
+}
+
+func TestChangesBetweenVersions(t *testing.T) {
+	notes := func(tag string) string {
+		return "## What's new\n\n### Added\n\n- " + tag + " adds `x`,\n  continued.\n\n### Fixed\n\n- " + tag +
+			" fixes y.\n\n## Changelog\n### Features\n* abc: feat: z (@xlsft)\n\n## Install\n- not an entry\n"
+	}
+	// Two pages, newest first as GitHub lists them.
+	pages := [][]string{
+		{
+			`{"tag_name":"v0.5.0","body":"draft","draft":true}`,
+			`{"tag_name":"v0.4.1-rc.1","body":"pre","prerelease":true}`,
+			`{"tag_name":"v0.4.0","body":` + quote(notes("v0.4.0")) + `}`,
+			`{"tag_name":"v0.3.0","body":"## Changelog\n* no What's new"}`,
+		},
+		{
+			`{"tag_name":"v0.2.1","body":` + quote(strings.ReplaceAll(notes("v0.2.1"), "\n", "\r\n")) + `}`,
+			`{"tag_name":"v0.2.0","body":` + quote(notes("v0.2.0")) + `}`,
+			`{"tag_name":"v0.1.0","body":` + quote(notes("v0.1.0")) + `}`,
+		},
+	}
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.RawQuery)
+		page := map[string]int{"1": 0, "2": 1}[r.URL.Query().Get("page")]
+		list := pages[page]
+		if page == 0 {
+			// A full page: pad it to 100 with releases newer than latest.
+			for len(list) < 100 {
+				list = append([]string{`{"tag_name":"v9.0.0","body":` + quote(notes("v9.0.0")) + `}`}, list...)
+			}
+		}
+		fmt.Fprint(w, "["+strings.Join(list, ",")+"]")
+	}))
+	defer srv.Close()
+	u := Updater{API: srv.URL, Repo: "xlsft/ymcp", HTTP: srv.Client()}
+
+	got, err := u.Changes(context.Background(), "0.2.0", "v0.4.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, n := range got {
+		tags = append(tags, n.Tag)
+	}
+	if strings.Join(tags, " ") != "v0.4.0 v0.2.1" {
+		t.Fatalf("tags = %v, want v0.4.0 v0.2.1 (asked %v)", tags, asked)
+	}
+	want := []Section{
+		{Title: "Added", Entries: []string{"v0.2.1 adds `x`, continued."}},
+		{Title: "Fixed", Entries: []string{"v0.2.1 fixes y."}},
+	}
+	if fmt.Sprint(got[1].Sections) != fmt.Sprint(want) {
+		t.Errorf("v0.2.1 sections = %q, want %q", got[1].Sections, want)
+	}
+	if len(asked) != 2 || !strings.Contains(asked[0], "per_page=100") {
+		t.Errorf("asked %v, want two pages of 100", asked)
+	}
+}
+
+func quote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

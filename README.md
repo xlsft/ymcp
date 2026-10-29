@@ -58,6 +58,7 @@ scoop bucket add xlsft https://github.com/xlsft/scoop-bucket; scoop install ymcp
 ```
 
 Package-managed copies update through their manager (`brew upgrade ymcp` and so on); `ymcp update` says so.
+Either way, `ymcp update` lists what each release since yours changed, and links [the changelog](https://ymcp.su/changelog).
 
 The installer downloads the latest release and checks its SHA-256. It then runs `ymcp setup`, a TUI in the look of
 `ymcp pipeline`. With no profile yet it opens a new one, in three steps:
@@ -123,7 +124,7 @@ and outputs, and every field of the pipeline file.
 | `ymcp health` | Check that a running HTTP server answers (`--url`, default `http://127.0.0.1:8090`) |
 | `ymcp logs` | Show what the server did; `-f` follows the log live, `-n 200` shows more lines |
 | `ymcp pipeline` | Open the pipelines TUI; `ymcp pipeline --help` lists `new`, `run`, `check`, `answer` and the rest, see [Pipelines](#pipelines) |
-| `ymcp update` | Replace the binary with the latest release (`--check` only reports) |
+| `ymcp update` | Replace the binary with the latest release and show what changed since your version (`--check` only reports) |
 | `ymcp version` | Print the version |
 
 ## Tools
