@@ -40,6 +40,20 @@ func (r *Runner) tick(ctx context.Context) {
 	r.schedule(ctx)
 }
 
+// localTick is the part of a tick that reads only the local store: it
+// carries out at once what was asked in the TUI or the CLI, a cancel, a
+// command or an answer, instead of on the next poll. It runs in the
+// polling loop, never beside a tick, so a command is not carried out by
+// both; consumeCommand claims it besides.
+func (r *Runner) localTick(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	r.reapFinished(ctx)
+	r.controls(ctx)
+	r.schedule(ctx)
+}
+
 // reapFinished stops the workers of runs that ended outside the runner,
 // e.g. canceled with Cancel.
 func (r *Runner) reapFinished(ctx context.Context) {

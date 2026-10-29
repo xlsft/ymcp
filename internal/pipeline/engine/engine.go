@@ -385,18 +385,35 @@ func (r *Runner) Run(ctx context.Context) error {
 		<-watching
 	}()
 
+	local := make(chan struct{}, 1)
+	watchingLocal := make(chan struct{})
+	go func() {
+		defer close(watchingLocal)
+		r.watchLocal(runCtx, local)
+	}()
+	defer func() {
+		stop(nil)
+		<-watchingLocal
+	}()
+
 	poll := time.NewTicker(r.p.Source.PollInterval.Duration)
 	defer poll.Stop()
 	for {
 		r.tick(runCtx)
-		select {
-		case <-runCtx.Done():
-			if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil && !errors.Is(cause, errStopRequested) {
-				return cause
+	wait:
+		for {
+			select {
+			case <-runCtx.Done():
+				if cause := context.Cause(runCtx); ctx.Err() == nil && cause != nil && !errors.Is(cause, errStopRequested) {
+					return cause
+				}
+				r.log.Info("pipeline runner stopping")
+				return nil
+			case <-poll.C:
+				break wait
+			case <-local:
+				r.localTick(runCtx)
 			}
-			r.log.Info("pipeline runner stopping")
-			return nil
-		case <-poll.C:
 		}
 	}
 }

@@ -172,6 +172,22 @@ func (s *Store) ClaimInbox(ctx context.Context, id, invocationID int64) (bool, e
 	return n == 1, nil
 }
 
+// LocalMark changes whenever a run of the pipeline gets a new inbox item
+// or ends: what an answer or a cancel in the TUI or the CLI does. A runner
+// compares it from one second to the next to act on those at once instead
+// of on its next poll.
+func (s *Store) LocalMark(ctx context.Context, pipeline string) (string, error) {
+	var inbox, ended int64
+	err := s.q.QueryRowContext(ctx, `SELECT
+		(SELECT COALESCE(MAX(i.id), 0) FROM inbox i JOIN runs r ON r.id = i.run_id WHERE r.pipeline = ?),
+		(SELECT COALESCE(MAX(updated_at), 0) FROM runs WHERE pipeline = ? AND status IN ('done', 'closed', 'canceled', 'failed'))`,
+		pipeline, pipeline).Scan(&inbox, &ended)
+	if err != nil {
+		return "", fmt.Errorf("reading the local mark of %s: %w", pipeline, err)
+	}
+	return fmt.Sprintf("%d %d", inbox, ended), nil
+}
+
 // Invocation is one agent turn of a run; Kind is start, feedback or answer.
 type Invocation struct {
 	ID         int64

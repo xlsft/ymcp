@@ -62,6 +62,7 @@ type IssueComment struct {
 	Created    time.Time
 	Updated    time.Time    // zero when never edited
 	Files      []Attachment // attached to the comment, a pasted screenshot say
+	URL        string       // its link; set by AddComment
 }
 
 // Attachment is a file attached to an issue or a comment.
@@ -153,8 +154,11 @@ type Deps struct {
 	// Answer, Cancel and Delete act on a run. Defaults: engine.Answer,
 	// engine.Cancel, engine.Delete.
 	Answer func(ctx context.Context, st *store.Store, pipeline string, run int, text string) error
-	Cancel func(ctx context.Context, st *store.Store, pipeline string, run int) error
-	Delete func(ctx context.Context, st *store.Store, pipeline string, run int) error
+	// Commented hands a run a comment posted on its issue, so a live
+	// runner acts on it at once. Default: engine.Commented.
+	Commented func(ctx context.Context, st *store.Store, pipeline string, run int, c engine.Comment) error
+	Cancel    func(ctx context.Context, st *store.Store, pipeline string, run int) error
+	Delete    func(ctx context.Context, st *store.Store, pipeline string, run int) error
 	// Daemon starts and stops runners; nil disables r and s.
 	Daemon Daemon
 	// Backlog counts the source issues; nil leaves the backlog column
@@ -206,6 +210,9 @@ func (d Deps) WithDefaults() Deps {
 	}
 	if d.Answer == nil {
 		d.Answer = engine.Answer
+	}
+	if d.Commented == nil {
+		d.Commented = engine.Commented
 	}
 	if d.Cancel == nil {
 		d.Cancel = engine.Cancel

@@ -196,8 +196,10 @@ func (w *worker) step() {
 		if err != nil || len(pending) == 0 {
 			return
 		}
-		if r.now().Sub(pending[0].CreatedAt) < r.p.Feedback.Debounce.Duration {
-			return // the batch is still growing; the next poll looks again
+		if left := r.p.Feedback.Debounce.Duration - r.now().Sub(pending[0].CreatedAt); left > 0 {
+			// The batch is still growing; look again when it is due.
+			time.AfterFunc(left, w.wakeUp)
+			return
 		}
 		switch {
 		case run.Status == store.StatusReview && isCommand(pending[0].Body) && w.hasRetry():
