@@ -61,7 +61,9 @@ jobs:
   # get API changes before the Docker image does. It is down or read-only now
   # and then; the run then says so instead of failing (see e2e/harness_test.go).
   shared:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Not when Release calls this workflow: a called workflow sees its
+    # caller's event and name, and a dispatched Release passes no secrets.
+    if: github.workflow == 'E2E' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     # Runs keep to their own objects there, so they may overlap.
     concurrency:
       group: e2e-shared-${{ github.run_id }}
