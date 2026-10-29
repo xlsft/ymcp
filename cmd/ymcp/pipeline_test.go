@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 )
@@ -195,6 +197,31 @@ func TestPipelineNewClaudeDefaults(t *testing.T) {
 	wantArgs := []string{"--dangerously-skip-permissions"}
 	if p.Agent.Provider != "claude" || p.Agent.Mode != "" || !slices.Equal(p.Agent.Args, wantArgs) {
 		t.Errorf("agent = %+v", p.Agent)
+	}
+}
+
+func TestPipelineNewEndpoint(t *testing.T) {
+	isolatePipelines(t)
+	keyring.MockInit()
+	t.Setenv("OPENROUTER_API_KEY", "")
+	out := mustPipeline(t, "new", "web", "--profile", "work", "--dir", t.TempDir(), "--query", "q",
+		"--agent", "openai", "--endpoint", "openrouter", "--model", "z-ai/glm-5")
+	if !strings.Contains(out, "No API key yet: set $OPENROUTER_API_KEY") {
+		t.Errorf("new output: %q", out)
+	}
+	p, err := spec.Load("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Agent.Provider != "openai" || p.Agent.Model != "z-ai/glm-5" || p.Agent.Name != "OpenRouter" ||
+		p.Agent.Endpoint == nil || p.Agent.Endpoint.Preset != "openrouter" || !slices.Contains(p.Agent.Args, "--dangerously-skip-permissions") {
+		t.Errorf("agent = %+v", p.Agent)
+	}
+
+	mustPipeline(t, "new", "local", "--profile", "work", "--dir", t.TempDir(), "--query", "q",
+		"--agent", "anthropic", "--endpoint", "http://127.0.0.1:4000", "--model", "m")
+	if p, err := spec.Load("local"); err != nil || p.Agent.Endpoint == nil || p.Agent.Endpoint.URL != "http://127.0.0.1:4000" {
+		t.Errorf("custom endpoint: %+v, %v", p.Agent, err)
 	}
 }
 

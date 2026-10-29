@@ -49,8 +49,9 @@ Usage:
   ymcp pipeline                             Open the TUI: profiles, pipelines, boards, run cards, the inbox
   ymcp pipeline list                        List pipelines, their runner and active runs
   ymcp pipeline new NAME --profile P --dir D --query Q
-                                            Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
-                                            --command CMD (acp), --preset NAME, --host SSH_ALIAS
+                                            Create a pipeline with defaults; also --agent claude|kimi|opencode|acp|
+                                            anthropic|openai, --command CMD (acp), --endpoint PRESET|URL and
+                                            --model M (anthropic, openai), --preset NAME, --host SSH_ALIAS
   ymcp pipeline presets                     List the prompt presets, built-in and your own
   ymcp pipeline presets show NAME           Print a preset as JSON
   ymcp pipeline presets copy FROM TO        Copy a preset, built-in or yours, to a new one of yours
