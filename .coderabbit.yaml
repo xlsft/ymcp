@@ -11,6 +11,10 @@ reviews:
   in_progress_fortune: false
   auto_review:
     enabled: true
+    # Named outright: without it the first pull request into main was skipped
+    # as "not the default branch".
+    base_branches:
+      - ^main$
     # Branches get many small commits; keep reviewing all of them, or the
     # latest commit goes unreviewed and the approval never comes.
     auto_pause_after_reviewed_commits: 0
