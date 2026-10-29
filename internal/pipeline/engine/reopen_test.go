@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
 )
@@ -100,4 +102,25 @@ func TestCommandsOnEndedRun(t *testing.T) {
 	if r := h.run(1); r.Status != store.StatusDone {
 		t.Errorf("status = %s", r.Status)
 	}
+}
+
+// An issue moved back into the needs-input stage reopens the run into
+// review and leaves that stage.
+func TestReopenFromNeedsInput(t *testing.T) {
+	h, is, run, _ := reviewedRun(t, func(p *spec.Pipeline) { p.Stages.NeedsInput.Exit = "State Unblocked" }, func(t *fakeTurn) agent.Result {
+		t.Say("Done.")
+		return agent.Result{}
+	})
+	h.vcs.setState(vcs.StateMerged)
+	h.waitStatus(1, store.StatusDone)
+	h.yt.setState(is.Key, "Verified")
+	h.waitFor("the issue seen out of the working stages", func() bool {
+		_, left, _ := h.st.RunState(context.Background(), run.ID, stateLeft)
+		return left
+	})
+	h.yt.setState(is.Key, "Blocked")
+	h.waitStatus(1, store.StatusReview)
+	h.waitFor("the needs-input exit command", func() bool {
+		return slices.Contains(h.yt.commandLog(), is.Key+": State Unblocked")
+	})
 }

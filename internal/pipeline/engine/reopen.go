@@ -26,15 +26,20 @@ const reopenWithin = 30 * 24 * time.Hour
 // other run has the issue.
 func (r *Runner) checkReopened(ctx context.Context) {
 	var back []string
+	needsInput := -1 // the index of the needs-input query in back
 	for _, s := range []struct {
-		on    bool
-		match string
+		on         bool
+		match      string
+		needsInput bool
 	}{
-		{r.p.Stages.Working.On(), r.p.Stages.Working.Match},
-		{r.p.Stages.Review.On(), r.p.Stages.Review.Match},
-		{r.p.Stages.NeedsInput.On(), r.p.Stages.NeedsInput.Match},
+		{r.p.Stages.Working.On(), r.p.Stages.Working.Match, false},
+		{r.p.Stages.Review.On(), r.p.Stages.Review.Match, false},
+		{r.p.Stages.NeedsInput.On(), r.p.Stages.NeedsInput.Match, true},
 	} {
 		if s.on && s.match != "" {
+			if s.needsInput {
+				needsInput = len(back)
+			}
 			back = append(back, s.match)
 		}
 	}
@@ -57,8 +62,8 @@ func (r *Runner) checkReopened(ctx context.Context) {
 	if len(runs) == 0 {
 		return
 	}
-	in := map[string]bool{}
-	for _, q := range back {
+	in, inNeedsInput := map[string]bool{}, map[string]bool{}
+	for i, q := range back {
 		m, err := r.watch.Members(ctx, q, ids)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -68,6 +73,9 @@ func (r *Runner) checkReopened(ctx context.Context) {
 		}
 		for id, ok := range m {
 			in[id] = in[id] || ok
+			if i == needsInput {
+				inNeedsInput[id] = inNeedsInput[id] || ok
+			}
 		}
 	}
 	for _, run := range runs {
@@ -90,7 +98,7 @@ func (r *Runner) checkReopened(ctx context.Context) {
 		}
 		if r.reopenTicks[run.ID]++; r.reopenTicks[run.ID] >= confirmTicks {
 			delete(r.reopenTicks, run.ID)
-			r.reopen(ctx, run)
+			r.reopen(ctx, run, inNeedsInput[run.IssueID])
 		}
 	}
 }
@@ -112,10 +120,9 @@ func (r *Runner) endedRuns(ctx context.Context) []store.Run {
 			last[run.IssueID] = run
 		}
 	}
-	since := r.now().Add(-reopenWithin)
 	var out []store.Run
 	for _, run := range last {
-		if (run.Status == store.StatusDone || run.Status == store.StatusClosed) && run.FinishedAt != nil && run.FinishedAt.After(since) {
+		if followedAfterEnd(run, r.now()) {
 			out = append(out, run)
 		}
 	}
@@ -127,8 +134,9 @@ func (r *Runner) endedRuns(ctx context.Context) []store.Run {
 // session and branch carry on, the worktree is made again for its next
 // turn, and a change that was merged or closed is let go, so the next push
 // opens a new one. The comments written on the issue since the run ended
-// are queued as feedback.
-func (r *Runner) reopen(ctx context.Context, run store.Run) {
+// are queued as feedback. An issue moved back into the needs-input stage
+// leaves it, as the run is in review.
+func (r *Runner) reopen(ctx context.Context, run store.Run, fromNeedsInput bool) {
 	forget, merged := false, false
 	if r.hasChange(run) {
 		ch, err := r.vcs.Change(ctx, run.PRNumber)
@@ -166,6 +174,9 @@ func (r *Runner) reopen(ctx context.Context, run store.Run) {
 	}
 	r.log.Info("run reopened", "run", saved.Number, "issue", saved.IssueKey)
 	r.event(ctx, saved.ID, "run.reopened", data)
+	if fromNeedsInput {
+		r.leaveNeedsInput(ctx, saved)
+	}
 	queued := r.queueSince(ctx, saved, ended)
 	w := r.startWorker(saved)
 	w.leftSource = true
@@ -183,6 +194,14 @@ func (r *Runner) reopen(ctx context.Context, run store.Run) {
 		r.warnUnlessGone("publishing the reopen failed", saved, err)
 	}
 	w.wakeUp()
+}
+
+// followedAfterEnd reports whether the issue of a run that ended is still
+// followed, for /clear and /compact and to reopen the run: it ended as done
+// or closed within reopenWithin. Only the last run of an issue is.
+func followedAfterEnd(run store.Run, now time.Time) bool {
+	return (run.Status == store.StatusDone || run.Status == store.StatusClosed) &&
+		run.FinishedAt != nil && run.FinishedAt.After(now.Add(-reopenWithin))
 }
 
 // queueSince queues the comments written on the issue of run after since,
