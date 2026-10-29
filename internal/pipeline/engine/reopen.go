@@ -142,7 +142,10 @@ func (r *Runner) endedRuns(ctx context.Context) []store.Run {
 // the run: the worker of the run that ended still exiting, the change or
 // the comments not read.
 func (r *Runner) reopen(ctx context.Context, run store.Run, fromNeedsInput bool) {
-	if r.worker(run.ID) != nil {
+	r.mu.Lock()
+	busy := r.workers[run.ID] != nil || r.exiting[run.ID]
+	r.mu.Unlock()
+	if busy {
 		return // its worker is still removing the worktree
 	}
 	comments, err := r.watch.IssueComments(ctx, run.IssueID)

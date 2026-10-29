@@ -123,6 +123,7 @@ type Runner struct {
 	mu         sync.Mutex
 	workers    map[int64]*worker
 	compacting map[int64]bool // runs whose summary is being written
+	exiting    map[int64]bool // runs whose worker has stopped and is still cleaning up
 	started    bool
 	wg         sync.WaitGroup
 
@@ -228,6 +229,7 @@ func New(ctx context.Context, opts Options) (*Runner, error) {
 		now:         opts.Now,
 		workers:     map[int64]*worker{},
 		compacting:  map[int64]bool{},
+		exiting:     map[int64]bool{},
 		suppressed:  map[string]bool{},
 		held:        map[string]bool{},
 		reopenTicks: map[int64]int{},
