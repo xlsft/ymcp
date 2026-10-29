@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zalando/go-keyring"
+
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 )
 
 func setup(t *testing.T) string {
@@ -310,6 +314,53 @@ func TestNames(t *testing.T) {
 	}
 }
 
+func TestAgentEndpoint(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("OPENROUTER_API_KEY", "sk-or")
+	p := minimal("p")
+	p.Agent = Agent{Provider: "openai", Endpoint: &Endpoint{Preset: "openrouter"}}
+	p = p.WithDefaults()
+	if p.Agent.Name != "OpenRouter" || !p.Agent.UsesEndpoint() || !p.Agent.IsClaude() {
+		t.Errorf("defaults: %+v", p.Agent)
+	}
+	up, err := p.Agent.Upstream()
+	if err != nil || up != (endpoint.Upstream{Protocol: "openai", URL: "https://openrouter.ai/api/v1", Key: "sk-or"}) {
+		t.Errorf("Upstream() = %+v, %v", up, err)
+	}
+
+	p.Agent = Agent{Provider: "anthropic", Endpoint: &Endpoint{Preset: "kimi-coding", URL: "https://kimi.example/x/", KeyEnv: "MY_KEY"}}
+	p = p.WithDefaults()
+	if p.Agent.Model != "kimi-for-coding" || p.Agent.Name != "Kimi for Coding" {
+		t.Errorf("preset model and name: %+v", p.Agent)
+	}
+	if e := p.Agent.ResolvedEndpoint(); e.URL != "https://kimi.example/x" || e.KeyEnv != "MY_KEY" {
+		t.Errorf("ResolvedEndpoint() = %+v", e)
+	}
+	t.Setenv("MY_KEY", "")
+	if _, err := p.Agent.Upstream(); !errors.Is(err, endpoint.ErrNoKey) {
+		t.Errorf("no key: %v", err)
+	}
+	if err := endpoint.SetKey("https://kimi.example", "sk-kimi"); err != nil {
+		t.Fatal(err)
+	}
+	if up, err := p.Agent.Upstream(); err != nil || up.Key != "sk-kimi" {
+		t.Errorf("keychain key: %+v, %v", up, err)
+	}
+
+	// Ollama needs no key.
+	p.Agent = Agent{Provider: "openai", Model: "qwen3", Endpoint: &Endpoint{Preset: "ollama"}}
+	if up, err := p.WithDefaults().Agent.Upstream(); err != nil || up.Key != "" || up.URL != "http://localhost:11434/v1" {
+		t.Errorf("ollama: %+v, %v", up, err)
+	}
+	p.Agent = Agent{Provider: "openai", Model: "m", Endpoint: &Endpoint{URL: "https://custom.example/v1"}}
+	if p = p.WithDefaults(); p.Agent.Name != "Agent" {
+		t.Errorf("custom endpoint name %q", p.Agent.Name)
+	}
+	if p.Agent.IsClaude() != true || (Agent{Provider: "kimi"}).IsClaude() {
+		t.Error("IsClaude")
+	}
+}
+
 func TestValidate(t *testing.T) {
 	no := false
 	tests := []struct {
@@ -336,6 +387,23 @@ func TestValidate(t *testing.T) {
 		{"unknown provider", func(p *Pipeline) { p.Agent.Provider = "gpt" }, []string{`agent.provider "gpt" is unknown`, "claude, kimi, opencode, acp"}},
 		{"acp without command", func(p *Pipeline) { p.Agent.Provider = "acp" }, []string{"agent.command is required"}},
 		{"bad env name", func(p *Pipeline) { p.Agent.Env = map[string]string{"A=B": "x"} }, []string{"agent.env"}},
+		{"endpoint preset", func(p *Pipeline) {
+			p.Agent = Agent{Provider: "openai", Endpoint: &Endpoint{Preset: "kimi-coding"}}
+		}, nil},
+		{"endpoint URL", func(p *Pipeline) {
+			p.Agent = Agent{Provider: "anthropic", Model: "m", Endpoint: &Endpoint{URL: "https://llm.example/anthropic"}}
+		}, nil},
+		{"endpoint missing", func(p *Pipeline) { p.Agent = Agent{Provider: "anthropic", Model: "m"} }, []string{"agent.endpoint is required for the anthropic provider"}},
+		{"endpoint unknown preset", func(p *Pipeline) {
+			p.Agent = Agent{Provider: "openai", Model: "m", Endpoint: &Endpoint{Preset: "nope"}}
+		}, []string{`agent.endpoint.preset "nope" is unknown`, "openrouter"}},
+		{"endpoint bad URL", func(p *Pipeline) {
+			p.Agent = Agent{Provider: "openai", Model: "m", Endpoint: &Endpoint{URL: "llm.example"}}
+		}, []string{"agent.endpoint.url"}},
+		{"endpoint without model", func(p *Pipeline) {
+			p.Agent = Agent{Provider: "openai", Endpoint: &Endpoint{Preset: "openrouter"}}
+		}, []string{"agent.model is required for the openai provider"}},
+		{"endpoint on claude", func(p *Pipeline) { p.Agent.Endpoint = &Endpoint{Preset: "zai"} }, []string{"agent.endpoint is only for"}},
 		{"unknown permissions", func(p *Pipeline) { p.Permissions = "maybe" }, []string{`permissions "maybe" is unknown`}},
 		{"unknown strategy", func(p *Pipeline) { p.Strategy.Kind = "svn" }, []string{`strategy.kind "svn" is unknown`}},
 		{"negative timeout", func(p *Pipeline) { p.Timeouts.Total.Duration = -time.Second }, []string{"timeouts.total must not be negative"}},

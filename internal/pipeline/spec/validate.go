@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 )
 
 // Reserved are names no pipeline may take: they are ymcp pipeline
@@ -55,6 +57,8 @@ var Providers = []Choice{
 	{"kimi", "Kimi CLI over ACP"},
 	{"opencode", "opencode over ACP"},
 	{"acp", "another ACP agent"},
+	{"anthropic", "Claude Code on an Anthropic-compatible API"},
+	{"openai", "Claude Code on an OpenAI-compatible API"},
 }
 
 // StrategyKinds are the values of strategy.kind, in the order the wizard
@@ -71,6 +75,14 @@ var (
 	providers       = names(Providers)
 	strategyKinds   = names(StrategyKinds)
 )
+
+func endpointPresetNames() []string {
+	out := make([]string, len(endpoint.Presets))
+	for i, p := range endpoint.Presets {
+		out[i] = p.Name
+	}
+	return out
+}
 
 func names(cs []Choice) []string {
 	out := make([]string, len(cs))
@@ -138,6 +150,27 @@ func (p Pipeline) Validate() error {
 	}
 	if p.Agent.Provider == "acp" && strings.TrimSpace(p.Agent.Command) == "" {
 		add("agent.command is required for the acp provider: the command that starts the ACP server")
+	}
+	if p.Agent.UsesEndpoint() {
+		e := p.Agent.ResolvedEndpoint()
+		switch {
+		case p.Agent.Endpoint == nil || (p.Agent.Endpoint.Preset == "" && strings.TrimSpace(p.Agent.Endpoint.URL) == ""):
+			add("agent.endpoint is required for the %s provider: a preset or the API's URL", p.Agent.Provider)
+		case p.Agent.Endpoint.Preset != "" && !slices.Contains(endpointPresetNames(), p.Agent.Endpoint.Preset):
+			add("agent.endpoint.preset %q is unknown: use one of %s", p.Agent.Endpoint.Preset, strings.Join(endpointPresetNames(), ", "))
+		default:
+			if err := endpoint.CheckURL(e.URL); err != nil {
+				add("agent.endpoint.url: %v", err)
+			}
+		}
+		if p.Agent.Endpoint != nil && strings.ContainsAny(p.Agent.Endpoint.KeyEnv, "= \t") {
+			add("agent.endpoint.keyEnv %q is not a variable name", p.Agent.Endpoint.KeyEnv)
+		}
+		if strings.TrimSpace(p.Agent.Model) == "" {
+			add("agent.model is required for the %s provider: the model's name at the API", p.Agent.Provider)
+		}
+	} else if p.Agent.Endpoint != nil {
+		add("agent.endpoint is only for the anthropic and openai providers")
 	}
 	for _, k := range slices.Sorted(maps.Keys(p.Agent.Env)) {
 		if k == "" || strings.Contains(k, "=") {

@@ -2,9 +2,11 @@
 //
 // Two adapters sit behind one small interface. Claude Code runs as one
 // `claude -p` process per turn that prints stream-json, with the session
-// carried over by --session-id and --resume. Kimi, opencode and any other
-// agent speaking the Agent Client Protocol run as one long-lived ACP server
-// per session, driven through github.com/coder/acp-go-sdk.
+// carried over by --session-id and --resume; with the anthropic and openai
+// providers it talks to a model API through the gateway the caller names
+// in StartOptions.Endpoint. Kimi, opencode and any other agent speaking
+// the Agent Client Protocol run as one long-lived ACP server per session,
+// driven through github.com/coder/acp-go-sdk.
 //
 // Agents run in their own process group (a job object on Windows), so
 // Cancel and Close also stop whatever the agent started, and with an
@@ -119,6 +121,9 @@ type StartOptions struct {
 	// --append-system-prompt on every turn, ACP agents in front of the
 	// first prompt of a new session.
 	SystemPrompt string
+	// Endpoint is the gateway to the model API, required by the anthropic
+	// and openai providers and ignored by the others.
+	Endpoint *Endpoint
 	// OnGroup, when set, is told the process group of every agent process
 	// the session starts: on this machine the agent's pid, which leads its
 	// group, on a host (WithHost) the group there. A caller records it to
@@ -126,6 +131,10 @@ type StartOptions struct {
 	// called from another goroutine.
 	OnGroup func(pgid int)
 }
+
+// Endpoint is a Messages API for Claude Code: ymcp's gateway, reached
+// from the agent's host at URL with Token.
+type Endpoint struct{ URL, Token, Model string }
 
 // Agent is a configured coding agent.
 type Agent interface {
@@ -189,7 +198,7 @@ const (
 var ErrNoResume = errors.New("agent can't resume the session")
 
 // Providers lists the agent providers New accepts.
-var Providers = []string{"claude", "kimi", "opencode", "acp"}
+var Providers = []string{"claude", "kimi", "opencode", "acp", "anthropic", "openai"}
 
 // Setting configures an Agent made by New.
 type Setting func(*settings)
@@ -210,10 +219,12 @@ func WithModel(model string) Setting { return func(s *settings) { s.model = mode
 // discards them.
 func WithLogger(l *slog.Logger) Setting { return func(s *settings) { s.logger = l } }
 
-// New returns the agent of a provider: "claude", "kimi", "opencode", or
-// "acp" for any other ACP agent, started by command and args. command
-// defaults to the provider's binary and is required for "acp". kimi and
-// opencode get their "acp" subcommand in front of args.
+// New returns the agent of a provider: "claude", "kimi", "opencode",
+// "acp" for any other ACP agent, started by command and args, or
+// "anthropic" and "openai" for Claude Code on a model API (see
+// StartOptions.Endpoint). command defaults to the provider's binary
+// (claude for the last two) and is required for "acp". kimi and opencode
+// get their "acp" subcommand in front of args.
 func New(provider, command string, args []string, opts ...Setting) (Agent, error) {
 	s := settings{}
 	for _, o := range opts {
@@ -224,11 +235,11 @@ func New(provider, command string, args []string, opts ...Setting) (Agent, error
 	}
 	args = append([]string(nil), args...)
 	switch provider {
-	case "claude":
+	case "claude", "anthropic", "openai":
 		if command == "" {
 			command = "claude"
 		}
-		return &claudeAgent{command: command, args: args, settings: s}, nil
+		return &claudeAgent{provider: provider, command: command, args: args, settings: s}, nil
 	case "kimi", "opencode":
 		if command == "" {
 			command = provider
@@ -240,5 +251,5 @@ func New(provider, command string, args []string, opts ...Setting) (Agent, error
 		}
 		return &acpAgent{provider: provider, command: command, args: args, settings: s}, nil
 	}
-	return nil, fmt.Errorf("agent: unknown provider %q (want one of claude, kimi, opencode, acp)", provider)
+	return nil, fmt.Errorf("agent: unknown provider %q (want one of claude, kimi, opencode, acp, anthropic, openai)", provider)
 }

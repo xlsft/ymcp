@@ -935,13 +935,17 @@ A pipeline is a JSON file in `<config dir>/ymcp/pipelines/<name>.json`, written 
 | `workspace.identity.name` | string | Template of the author's name, default "{{agent.name}} · {{pipeline.name}} #{{run.number}}" |
 | `workspace.identity.tag` | string | Template of what goes after "+" in the address, default "agent_{{pipeline.name}}_{{run.number}}" |
 | `agent` | object | The coding agent |
-| `agent.provider` | string | One of claude, kimi, opencode or acp |
+| `agent.provider` | string | One of claude, kimi, opencode, acp, anthropic or openai |
 | `agent.name` | string | The agent's name in messages; default from the provider |
 | `agent.command` | string | The executable or its full path; required for acp |
-| `agent.model` | string | The model, as the agent names it |
+| `agent.model` | string | The model, as the agent names it; required for anthropic and openai unless the preset has one |
 | `agent.mode` | string | The agent's mode, e.g. a claude permission mode |
 | `agent.args` | array of string | More command-line arguments of the agent |
 | `agent.env` | object of string | Environment variables of the agent |
+| `agent.endpoint` | object | The model API of the anthropic and openai providers |
+| `agent.endpoint.preset` | string | A known service: openrouter, kimi-coding, zai, deepseek, minimax or ollama |
+| `agent.endpoint.url` | string | The API's base URL; default from the preset |
+| `agent.endpoint.keyEnv` | string | The variable with the API key, read before the keychain; default from the preset |
 | `permissions` | string | Tool calls the agent wasn't allowed: ask (default), allow or deny |
 | `timeouts` | object | Limits of a run |
 | `timeouts.silence` | duration | An agent silent this long is stuck, default 10m |
