@@ -181,6 +181,9 @@ nav a:hover, nav a:focus-visible { opacity: 1; text-decoration: underline; text-
 }
 .hero-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: end; }
 .hero-grid > * { min-width: 0; }
+/* The promo video (docs/promo), from YouTube without cookies until it plays. */
+.video { position: relative; aspect-ratio: 16 / 9; background: var(--ink); }
+.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
 /* Install box */
 .install { background: var(--ink); color: var(--code-fg); }
@@ -363,6 +366,12 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
         </div>
         <p class="after" id="after">Then <code>ymcp setup</code> signs you in and registers ymcp in your clients.</p>
       </div>
+    </div>
+
+    <div class="video">
+      <iframe src="https://www.youtube-nocookie.com/embed/5DUjaV0Obmc?rel=0" title="ymcp in 25 seconds" loading="lazy"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
     </div>
   </div>
 </header>
