@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"net/url"
@@ -81,11 +82,13 @@ func (t *toolset) registerAttachments(s *mcp.Server) {
 		Annotations: changes("Add attachment"),
 	}, t.addAttachment)
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name:        "delete_attachment",
 		Description: "Permanently deletes an attachment from an issue or article.",
 		Annotations: removes("Delete attachment"),
-	}, t.deleteAttachment)
+	}, t.deleteAttachment, always(func(in deleteAttachmentIn) string {
+		return "permanently delete attachment " + in.Attachment + " of " + cmp.Or(in.IssueID, in.ArticleID)
+	}))
 }
 
 // attachmentOwner is the issue or article whose attachments a tool works on.

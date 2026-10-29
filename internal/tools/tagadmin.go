@@ -64,11 +64,13 @@ func (t *toolset) registerTagAdmin(s *mcp.Server) {
 		Description: "Renames a tag.",
 		Annotations: sets("Update tag"),
 	}, t.updateTag)
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name:        "delete_tag",
 		Description: "Permanently deletes a tag and removes it from all issues.",
 		Annotations: removes("Delete tag"),
-	}, t.deleteTag)
+	}, t.deleteTag, always(func(in deleteTagIn) string {
+		return "permanently delete tag " + in.Tag + " and remove it from all issues"
+	}))
 
 	add(s, &mcp.Tool{
 		Name:        "create_saved_search",
@@ -80,11 +82,11 @@ func (t *toolset) registerTagAdmin(s *mcp.Server) {
 		Description: "Renames a saved search or changes its query.",
 		Annotations: sets("Update saved search"),
 	}, t.updateSavedSearch)
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name:        "delete_saved_search",
 		Description: "Permanently deletes a saved search.",
 		Annotations: removes("Delete saved search"),
-	}, t.deleteSavedSearch)
+	}, t.deleteSavedSearch, always(func(in deleteSavedSearchIn) string { return "permanently delete saved search " + in.Search }))
 }
 
 func (t *toolset) findTags(ctx context.Context, in findTagsIn) (any, error) {

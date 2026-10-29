@@ -63,12 +63,14 @@ func (t *toolset) registerSprints(s *mcp.Server) {
 		Annotations: sets("Remove issue from sprint"),
 	}, t.removeIssueFromSprint)
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "delete_sprint",
 		Description: "Permanently deletes a sprint from an agile board. Its issues are kept but leave the sprint. " +
 			"To keep history, archive it with update_sprint instead.",
 		Annotations: removes("Delete sprint"),
-	}, t.deleteSprint)
+	}, t.deleteSprint, always(func(in deleteSprintIn) string {
+		return "permanently delete sprint " + in.Sprint + " of board " + in.Board
+	}))
 }
 
 // sprintBoard resolves a board and refuses boards that don't use sprints.

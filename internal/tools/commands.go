@@ -33,48 +33,86 @@ type parsedCommand struct {
 }
 
 func (t *toolset) registerCommands(s *mcp.Server) {
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "apply_command",
 		Description: "Applies a YouTrack command to one or more issues, the same as the command dialog in the UI: " +
 			"set fields, assign, tag, move to another project, add links, vote, star and more in one line. " +
 			"The command is validated first and nothing is applied if any part is invalid; dryRun only validates and lists suggestions.",
 		Annotations: anything("Apply command"),
-	}, t.applyCommand)
+	}, t.applyCommand, t.applyCommandGuard)
+}
+
+// commandAssist is how YouTrack reads a command against its issues.
+type commandAssist struct {
+	Commands    []parsedCommand `json:"commands"`
+	Suggestions []struct {
+		Option      string `json:"option"`
+		Description string `json:"description"`
+	} `json:"suggestions"`
+}
+
+// parseCommand finds the issues a command applies to and has YouTrack
+// parse it against them; invalid lists the parts in error.
+func (t *toolset) parseCommand(ctx context.Context, in applyCommandIn) (ids []string, assist commandAssist, invalid []string, err error) {
+	if strings.TrimSpace(in.Command) == "" {
+		return nil, assist, nil, fmt.Errorf("command must not be empty")
+	}
+	if ids, err = t.commandTargets(ctx, in); err != nil {
+		return nil, assist, nil, err
+	}
+	issues := make([]map[string]string, 0, len(ids))
+	for _, id := range ids {
+		issues = append(issues, map[string]string{"idReadable": id})
+	}
+	body := map[string]any{"query": in.Command, "caret": len([]rune(in.Command)), "issues": issues}
+	q := url.Values{"fields": {"commands(description,error,delete),suggestions(option,description)"}}
+	if err := t.yt.Post(ctx, "commands/assist", q, body, &assist); err != nil {
+		return nil, assist, nil, err
+	}
+	for i, c := range assist.Commands {
+		// Descriptions carry HTML markup for the UI.
+		assist.Commands[i].Description = html.UnescapeString(htmlTag.ReplaceAllString(c.Description, ""))
+		if c.Error {
+			invalid = append(invalid, assist.Commands[i].Description)
+		}
+	}
+	return ids, assist, invalid, nil
+}
+
+// applyCommandGuard asks for confirmation of valid commands that remove
+// something; a dry run never needs it.
+func (t *toolset) applyCommandGuard(ctx context.Context, in applyCommandIn) (string, bool, error) {
+	if in.DryRun {
+		return "", false, nil
+	}
+	ids, assist, invalid, err := t.parseCommand(ctx, in)
+	if err != nil || len(invalid) > 0 {
+		return "", false, nil // the call itself reports it
+	}
+	var removes []string
+	for _, c := range assist.Commands {
+		if c.Delete {
+			removes = append(removes, c.Description)
+		}
+	}
+	if len(removes) == 0 {
+		return "", false, nil
+	}
+	target := strings.Join(ids, ", ")
+	if len(ids) > 5 {
+		target = fmt.Sprintf("%d issues (%s, …)", len(ids), strings.Join(ids[:5], ", "))
+	}
+	return fmt.Sprintf("apply %q to %s, which will %s", in.Command, target, strings.Join(removes, "; ")), true, nil
 }
 
 func (t *toolset) applyCommand(ctx context.Context, in applyCommandIn) (any, error) {
-	if strings.TrimSpace(in.Command) == "" {
-		return nil, fmt.Errorf("command must not be empty")
-	}
-	ids, err := t.commandTargets(ctx, in)
+	ids, assist, invalid, err := t.parseCommand(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	issues := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
 		issues = append(issues, map[string]string{"idReadable": id})
-	}
-
-	var assist struct {
-		Commands    []parsedCommand `json:"commands"`
-		Suggestions []struct {
-			Option      string `json:"option"`
-			Description string `json:"description"`
-		} `json:"suggestions"`
-	}
-	body := map[string]any{"query": in.Command, "caret": len([]rune(in.Command)), "issues": issues}
-	q := url.Values{"fields": {"commands(description,error,delete),suggestions(option,description)"}}
-	if err := t.yt.Post(ctx, "commands/assist", q, body, &assist); err != nil {
-		return nil, err
-	}
-	var invalid []string
-	for i, c := range assist.Commands {
-		// Descriptions carry HTML markup for the UI.
-		assist.Commands[i].Description = html.UnescapeString(htmlTag.ReplaceAllString(c.Description, ""))
-		c = assist.Commands[i]
-		if c.Error {
-			invalid = append(invalid, c.Description)
-		}
 	}
 
 	out := map[string]any{"command": in.Command, "issues": ids, "parsed": assist.Commands}

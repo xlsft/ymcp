@@ -28,11 +28,17 @@ type Options struct {
 	// update, and article content on create and replace. Appends and
 	// find-and-replace edits are left alone. Nil changes nothing.
 	Mark func(text string) string
+	// Confirm makes the Destructive tools ask for the user's
+	// confirmation first: see addGuarded.
+	Confirm bool
 }
 
 // RegisterWith is Register with options.
 func RegisterWith(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool, opts Options) {
 	t := &toolset{yt: yt, mark: opts.Mark}
+	if opts.Confirm {
+		t.confirm = &confirmations{}
+	}
 	defer func() {
 		if enabled == nil {
 			return
@@ -71,8 +77,9 @@ func RegisterWith(s *mcp.Server, yt *youtrack.Client, enabled map[string]bool, o
 }
 
 type toolset struct {
-	yt   *youtrack.Client
-	mark func(string) string // Options.Mark
+	yt      *youtrack.Client
+	mark    func(string) string // Options.Mark
+	confirm *confirmations      // nil unless Options.Confirm
 
 	meMu sync.Mutex
 	me   *apiUser
