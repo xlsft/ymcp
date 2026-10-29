@@ -58,8 +58,8 @@ and releases run:
 go test -tags e2e -count=1 -v ./e2e
 ```
 
-To test an instance of your own instead, give its address and an admin account; the suite creates its own projects
-and agile board there:
+To test an instance of your own instead, give its address and an admin account; the suite creates a project and an
+agile board of its own there:
 
 ```sh
 YOUTRACK_E2E_ENDPOINT=youtrack.example.com YOUTRACK_E2E_LOGIN=admin YOUTRACK_E2E_PASSWORD=… \
@@ -81,7 +81,9 @@ and the run's ID (`runID`, six digits) and cleaned up:
 
 Runs may overlap, a pull request's with a release's say, since each keeps to its own objects. Keep it that way
 when adding scenarios: create through the fixture project or with the marker and `runID` in the name, keep queries
-to the fixture project, and delete what you create.
+to the fixture project, and delete what you create. Tests share the run's project but nothing in it: each makes its
+own issues (`newIssue`) and other objects, so any one runs on its own (`-run TestComments`) and a failure in one
+doesn't spill into the next.
 
 Besides the stdio server, the suite runs `ymcp serve --transport http` and a container built from the Dockerfile,
 each serving the admin and the member behind a token; the Docker test skips where Docker isn't running, and against a

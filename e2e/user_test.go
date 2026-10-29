@@ -52,7 +52,7 @@ func TestRegularUser(t *testing.T) {
 	hubID := ensureMember(t)
 
 	unbanMember(t)
-	f := newFixture(t)
+	f := project
 	user, err := startServer("user", login, memberPassword())
 	if err != nil {
 		t.Fatal(err)

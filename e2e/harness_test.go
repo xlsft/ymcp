@@ -148,7 +148,15 @@ func run(m *testing.M) int {
 
 	sweep(stale)
 	sweepUsers()
+	if project, err = newProject(); err != nil {
+		fmt.Println("e2e: creating the run's project:", err)
+		if outageSeen() != "" {
+			return exitUnavailable
+		}
+		return 1
+	}
 	code := m.Run()
+	project.delete()
 	sweep(func(name string) bool { return ours(name) || stale(name) })
 	// YouTrack removes a deleted project's boards and their backlog
 	// searches in the background; what a listing missed meanwhile is swept
