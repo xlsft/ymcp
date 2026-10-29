@@ -219,12 +219,14 @@ func (mn *menu) view(title string, details []string, items []menuItem, maxW int)
 var menuHelp = []binding{{"↑↓", "choose"}, {"enter", "run"}, {"esc", "close"}}
 
 // namePrompt asks for a pipeline name in a small box: for Copy… and
-// Rename….
+// Rename…; with startPath, for the path of a file to export to or
+// import from where the system's dialog can't be shown.
 type namePrompt struct {
 	open  bool
 	title string
 	in    textinput.Model
 	err   string
+	path  bool
 	// done runs with the name on enter; it returns an error to keep the
 	// box open with the reason.
 	done func(name string) (tea.Cmd, error)
@@ -238,6 +240,14 @@ func (p *namePrompt) start(title, value string, done func(string) (tea.Cmd, erro
 	in.CursorEnd()
 	*p = namePrompt{open: true, title: title, in: in, done: done}
 	return p.in.Focus()
+}
+
+// startPath opens the prompt for a file path, in a wider box.
+func (p *namePrompt) startPath(title, value string, done func(string) (tea.Cmd, error)) tea.Cmd {
+	cmd := p.start(title, value, done)
+	p.in.CharLimit = 0
+	p.path = true
+	return cmd
 }
 
 // key handles a key while the prompt is open.
@@ -272,9 +282,12 @@ func (p *namePrompt) update(msg tea.Msg) tea.Cmd {
 }
 
 func (p *namePrompt) view(maxW int) []string {
-	inner := min(44, max(maxW-4, 10))
+	inner, label := min(44, max(maxW-4, 10)), "New name"
+	if p.path {
+		inner, label = min(72, max(maxW-4, 10)), "File"
+	}
 	p.in.Width = max(inner-3, 1)
-	lines := []string{theme.Dim.Render("New name"), p.in.View()}
+	lines := []string{theme.Dim.Render(label), p.in.View()}
 	if p.err != "" {
 		lines = append(lines, "")
 		for _, l := range wrap(p.err, inner) {
