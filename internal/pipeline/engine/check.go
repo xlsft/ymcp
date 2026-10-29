@@ -168,6 +168,9 @@ func checkEndpoint(ctx context.Context, a spec.Agent, add func(string, bool, str
 	} else {
 		detail += ", no key"
 	}
+	if up.Key != "" && !endpoint.Private(up.URL) {
+		warn(name, "the key goes to "+up.URL+" over plain HTTP")
+	}
 	models, err := endpoint.Models(ctx, up)
 	switch {
 	case err != nil && ctx.Err() != nil:

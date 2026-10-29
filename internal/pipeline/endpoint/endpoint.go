@@ -11,6 +11,7 @@ package endpoint
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -123,6 +124,24 @@ func CheckURL(raw string) error {
 		return fmt.Errorf("%q must not have a query or a fragment", raw)
 	}
 	return nil
+}
+
+// Private reports whether requests to the API at baseURL can't be read on
+// the way: HTTPS, or plain HTTP to this machine.
+func Private(baseURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	h := u.Hostname()
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 const keyringService = "ymcp"

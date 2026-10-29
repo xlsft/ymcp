@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -416,9 +417,29 @@ func (s *agentStep) storeTimeouts() {
 // switchTo makes provider the pipeline's agent, keeping each provider's
 // draft.
 func (s *agentStep) switchTo(provider string) {
+	before := keyHost(s.sh.p.Agent)
 	s.drafts[s.provider()] = s.sh.p.Agent
 	s.sh.p.Agent = s.drafts[provider]
+	// A typed key belongs to the host it was typed for.
+	if keyHost(s.sh.p.Agent) != before {
+		s.apiKey.set("")
+		s.sh.apiKey = ""
+		s.models.reset()
+	}
 	s.load()
+}
+
+// keyHost is the host whose key the agent's model API takes; "" for an
+// agent without one.
+func keyHost(a spec.Agent) string {
+	if !a.UsesEndpoint() {
+		return ""
+	}
+	u, err := url.Parse(a.ResolvedEndpoint().URL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
 }
 
 func (s *agentStep) providerOptions() []option {
@@ -1246,9 +1267,11 @@ func (s *agentStep) suggestModels(text string, _ int) func(context.Context) ([]S
 			if err != nil {
 				errText = "the API lists no models: " + err.Error()
 			}
-			c.mu.Lock()
-			c.key, c.list, c.errText = cacheKey, list, errText
-			c.mu.Unlock()
+			if ctx.Err() == nil { // a call cut short says nothing about the API
+				c.mu.Lock()
+				c.key, c.list, c.errText = cacheKey, list, errText
+				c.mu.Unlock()
+			}
 		}
 		if errText != "" {
 			return nil, errors.New(errText)

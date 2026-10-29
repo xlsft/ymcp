@@ -58,6 +58,17 @@ func TestCheckURL(t *testing.T) {
 	}
 }
 
+func TestPrivate(t *testing.T) {
+	for u, want := range map[string]bool{
+		"https://api.example/v1": true, "http://localhost:11434/v1": true, "http://127.0.0.1:4000": true,
+		"http://[::1]:8000": true, "http://gpu.lan:8000/v1": false, "http://10.0.0.5/v1": false,
+	} {
+		if got := Private(u); got != want {
+			t.Errorf("Private(%q) = %v", u, got)
+		}
+	}
+}
+
 func TestKey(t *testing.T) {
 	keyring.MockInit()
 	t.Setenv("YMCP_TEST_KEY", "")
@@ -189,7 +200,7 @@ func gateway(t *testing.T, protocol string, upstream http.Handler) *httptest.Ser
 
 func post(t *testing.T, url, body string) (*http.Response, string) {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer agent-token")
 	req.Header.Set("X-Api-Key", "agent-key")
 	resp, err := http.DefaultClient.Do(req)

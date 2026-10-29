@@ -42,7 +42,7 @@ func TestAgentOnEndpoint(t *testing.T) {
 			ft.Say("no endpoint")
 			return agent.Result{}
 		}
-		req, _ := http.NewRequest(http.MethodPost, ep.URL+"/v1/messages", strings.NewReader(`{"model":"`+ep.Model+`","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`))
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, ep.URL+"/v1/messages", strings.NewReader(`{"model":"`+ep.Model+`","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`))
 		req.Header.Set("Authorization", "Bearer "+ep.Token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -100,6 +100,10 @@ func TestCheckEndpoint(t *testing.T) {
 	}
 	if got := strings.Join(check("c", "YMCP_TEST_LLM_KEY"), "|"); !strings.Contains(got, `warn model "c" is not among the 2 it lists`) {
 		t.Errorf("unlisted model: %q", got)
+	}
+	// httptest serves plain HTTP on 127.0.0.1: no warning about it.
+	if got := strings.Join(check("a", "YMCP_TEST_LLM_KEY"), "|"); strings.Contains(got, "plain HTTP") {
+		t.Errorf("loopback warned: %q", got)
 	}
 	if got := strings.Join(check("a", "YMCP_TEST_NO_KEY"), "|"); !strings.HasPrefix(got, "fail no API key") {
 		t.Errorf("no key: %q", got)
