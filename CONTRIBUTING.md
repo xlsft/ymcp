@@ -10,7 +10,20 @@ Questions and ideas go to [Discussions](https://github.com/xlsft/ymcp/discussion
   Push after every commit.
 - Use [Conventional Commits](https://www.conventionalcommits.org): `feat`, `fix`, `docs`, `test`, `refactor`,
   `build`, `ci`, `chore`, with an optional scope (`feat(tools): …`). Add `!` for breaking changes.
-  Release notes are grouped from these prefixes.
+- A `feat`, `fix` or `perf` commit ends with a `Changelog:` trailer: one sentence on what it changes for someone
+  using ymcp, not how. The release notes and [the changelog](https://ymcp.su/changelog) are made of these
+  sentences, and a pull request that releases fails its `conventional` check without one.
+
+  ```
+  fix(pipeline): carry out a reply command once
+
+  A command was marked consumed without checking that this call consumed it, …
+
+  Changelog: A /compact sent twice while the first is still running is carried out once.
+  ```
+
+  It goes under Added (`feat`), Fixed (`fix`), Changed (`perf`) or Breaking changes (`!`); start the sentence
+  with `Changed: `, `Removed: `, `Deprecated: ` or `Security: ` to put it there instead.
 - Outside contributions go through a pull request from a branch. CI runs on every PR.
 
 ## Checks
@@ -135,4 +148,6 @@ checks count as passing. [`.github/scripts/code-changed.sh`](.github/scripts/cod
 
 The workflow then tags the version and uses GoReleaser to build macOS, Linux and Windows binaries for amd64 and
 arm64. It publishes them with checksums and a changelog. `install.sh`, `install.ps1` and `ymcp update`
-pick up the new release automatically.
+pick up the new release automatically. The release notes start with What's new, the `Changelog:` trailers since the last
+release (see [`.github/scripts/changelog.py`](.github/scripts/changelog.py)), above the list of its commits;
+[`CHANGELOG.md`](CHANGELOG.md) points to every release's.

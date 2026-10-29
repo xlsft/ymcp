@@ -3,6 +3,10 @@ name: PR title
 # Merges are squashed with the pull request's title as the commit subject, and
 # the release workflow picks the next version from those subjects. A title
 # that isn't a conventional commit would release nothing, or the wrong thing.
+# A pull request that releases (feat, fix, perf or type!:) also says in a
+# Changelog: trailer of one of its commits what it changes for users: the
+# squashed commit keeps it, and the release's notes are made of them (see
+# .github/scripts/changelog.py).
 # No checkout, so pull_request_target can't run code from the pull request.
 on:
   pull_request_target:
@@ -30,3 +34,19 @@ jobs:
             ci
             chore
             revert
+      - name: Changelog trailer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: ${{ github.event.pull_request.title }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if ! grep -qE '^((feat|fix|perf)(\([^)]*\))?!?|[a-z]+(\([^)]*\))?!): ' <<<"$TITLE"; then
+            echo "No release, no Changelog: trailer needed"
+            exit 0
+          fi
+          if gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" --jq '.[].commit.message' | grep -qE '^Changelog: *[^ ]'; then
+            echo "Has a Changelog: trailer"
+            exit 0
+          fi
+          echo "::error::\"$TITLE\" releases, so one of its commits needs a Changelog: trailer saying in a sentence what it changes for users (see CONTRIBUTING.md)"
+          exit 1

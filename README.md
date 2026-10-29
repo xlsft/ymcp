@@ -578,7 +578,8 @@ an in-memory MCP client and check the REST requests they send.
 E2E tests ([`e2e/`](e2e)) start the built binary over stdio against a real YouTrack. They call all 58 tools on a
 throwaway project and delete everything they create. They run in CI on every push and nightly.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit and release flow, and [the changelog](https://ymcp.su/changelog)
+for what each release changed.
 
 ## License
 

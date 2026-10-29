@@ -9,11 +9,14 @@ fresh ones from the site branch, the figures its meta tags and structured
 data quote, and the nav's loader (docs/loader-black.gif, with its first
 frame as the still); it is written to OUT_DIR/index.html. Next to it go
 robots.txt, sitemap.xml, the icons, the promo video from docs/promo and its
-poster, CNAME and .nojekyll for GitHub Pages, and, drawn by headless Chrome
+poster, CNAME and .nojekyll for GitHub Pages, the changelog as
+changelog.html (from site/changelog.html) and CHANGELOG.md, made by
+.github/scripts/changelog.py from the v* tags, and, drawn by headless Chrome
 ($CHROME, google-chrome by default), the PNG icons and og.png from
 site/og.html.
 """
 import base64
+import html
 import json
 import os
 import pathlib
@@ -21,6 +24,8 @@ import re
 import shutil
 import subprocess
 import sys
+
+import changelog
 
 LOADER = pathlib.Path("docs/loader-black.gif")
 # The promo video the hero plays, and its poster, published as promo.*.
@@ -69,6 +74,26 @@ def features(data):
     ]
 
 
+def inline(text):
+    """A changelog entry as HTML: escaped, with `code` spans."""
+    parts = html.escape(text, quote=False).split("`")
+    return "".join("<code>%s</code>" % p if i % 2 else p for i, p in enumerate(parts))
+
+
+def releases_html():
+    out = []
+    for tag, date, notes in changelog.releases():
+        out.append('<section class="release" id="%s">\n  <h2><a href="#%s">%s</a> <time datetime="%s">%s</time></h2>'
+                   % (tag, tag, tag, date, date))
+        for sec in changelog.SECTIONS:
+            if notes.get(sec):
+                out.append("  <h3>%s</h3>\n  <ul>\n%s\n  </ul>"
+                           % (sec, "\n".join("    <li>%s</li>" % inline(e) for e in notes[sec])))
+        out.append('  <p class="more"><a href="%s/releases/tag/%s">%s on GitHub: binaries and commits</a></p>\n</section>'
+                   % (changelog.REPO, tag, tag))
+    return "\n".join(out)
+
+
 def fill_in(path, fills):
     def fill(m):
         if m.group(1) not in fills:
@@ -110,6 +135,10 @@ def main():
     (out / "index.html").write_text(page, encoding="utf-8")
     print("%s: %d bytes" % (out / "index.html", len(page)))
 
+    (out / "changelog.html").write_text(fill_in(src / "changelog.html", dict(fills, RELEASES=releases_html())),
+                                        encoding="utf-8")
+    (out / "CHANGELOG.md").write_text(changelog.markdown(), encoding="utf-8")
+
     (out / "robots.txt").write_text("User-agent: *\nAllow: /\n\nSitemap: %ssitemap.xml\n" % SITE)
     # GitHub Pages serves the site branch at ymcp.su, as it is (no Jekyll).
     (out / "CNAME").write_text(SITE.split("/")[2] + "\n")
@@ -117,7 +146,7 @@ def main():
     (out / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        "  <url><loc>%s</loc></url>\n</urlset>\n" % SITE)
+        "  <url><loc>%s</loc></url>\n  <url><loc>%schangelog</loc></url>\n</urlset>\n" % (SITE, SITE))
     for name, path in PROMO.items():
         shutil.copy(path, out / name)
     icon = (src / "favicon.svg").read_text(encoding="utf-8")

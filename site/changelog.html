@@ -1,0 +1,192 @@
+<!doctype html>
+<!--
+  The changelog page. .github/scripts/site.py fills in the releases, from
+  .github/scripts/changelog.py, and the nav's loader, and the Site workflow
+  publishes it as changelog.html on the site branch (https://ymcp.su/changelog).
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>ymcp changelog</title>
+<meta name="description" content="What each release of ymcp, the YouTrack MCP server and pipelines for coding agents, changed for its users.">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#C62A22">
+<link rel="canonical" href="https://ymcp.su/changelog">
+<link rel="alternate" type="text/markdown" href="/CHANGELOG.md">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ymcp">
+<meta property="og:url" content="https://ymcp.su/changelog">
+<meta property="og:title" content="ymcp changelog">
+<meta property="og:description" content="What each release of ymcp changed for its users.">
+<meta property="og:image" content="https://ymcp.su/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://ymcp.su/og.png">
+<script>
+// Dark unless the viewer picked light here before.
+(function () {
+  var root = document.documentElement, saved = null;
+  try { saved = localStorage.getItem('ymcp-theme'); } catch (e) {}
+  root.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* The landing page's tokens, bar and footer (site/index.html), with the releases as one column. */
+:root {
+  --red: #C62A22;
+  --ink: #0E0E0E;
+  --on-red: #FFFFFF;
+  --bg: #F6F2F1;
+  --fg: #171313;
+  --muted: #6B5F5E;
+  --line: #E2D8D6;
+  --accent: #B3241D;
+  --display: "Archivo", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --accent: #F0645A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121010; --fg: #EFE9E8; --muted: #A2918F; --line: #2C2523; --accent: #F0645A; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 16px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+code { font-family: var(--mono); font-size: .88em; overflow-wrap: anywhere; }
+.wrap {
+  max-width: 1120px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--red); color: var(--on-red);
+}
+.bar .wrap { padding-block: 12px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--red); }
+nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font: 700 15px/1 var(--mono); text-decoration: none; }
+.brand img { width: 26px; height: 26px; image-rendering: pixelated; }
+nav ul { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; font: 500 14px/1 var(--body); flex-wrap: wrap; }
+nav li { display: flex; align-items: center; }
+nav a { text-decoration: none; opacity: .85; }
+nav a:hover, nav a:focus-visible, nav a[aria-current] { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+.theme {
+  appearance: none; cursor: pointer; background: none; color: inherit;
+  border: 1px solid rgba(255, 255, 255, .45); padding: 5px 9px; font: 500 12px/1 var(--mono);
+}
+.theme:hover, .theme:focus-visible { border-color: #fff; outline: none; }
+
+main .wrap { max-width: 820px; padding-block: 56px 80px; }
+h1 { margin: 0; font: 900 clamp(44px, 8vw, 72px)/.95 var(--display); font-stretch: 112%; letter-spacing: -.02em; }
+.intro { margin: 18px 0 0; color: var(--muted); }
+.release { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); scroll-margin-top: 72px; }
+.release h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin: 0; }
+.release h2 a { font: 800 26px/1.1 var(--mono); text-decoration: none; }
+.release h2 a:hover, .release h2 a:focus-visible { color: var(--accent); }
+.release time { font: 400 13px/1 var(--mono); color: var(--muted); }
+.release h3 { margin: 22px 0 8px; font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.release ul { margin: 0; padding-left: 20px; }
+.release li { margin: 6px 0; }
+.release li::marker { color: var(--muted); }
+.release .more { margin: 16px 0 0; font: 400 13px/1.5 var(--mono); }
+.release .more a { color: var(--muted); }
+
+footer { background: var(--ink); color: #CFC6C5; }
+footer .wrap { padding-block: 36px; display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; justify-content: space-between; font: 400 13px/1.5 var(--mono); }
+footer .legal { margin: 0; color: #9C8E8C; }
+footer ul { display: flex; flex-wrap: wrap; gap: 20px; list-style: none; margin: 0; padding: 0; }
+footer a { text-decoration: none; }
+footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="wrap">
+    <nav aria-label="Main">
+      <a class="brand" href="/"><img id="loader" src="data:image/gif;base64,__LOADER_STILL__" data-anim="data:image/gif;base64,__LOADER__" alt="" width="26" height="26">ymcp</a>
+      <ul>
+        <li><a href="/#server">MCP server</a></li>
+        <li><a href="/#pipelines">Pipelines</a></li>
+        <li><a href="/changelog" aria-current="page">Changelog</a></li>
+        <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+        <li><button class="theme" id="theme" type="button">Light</button></li>
+      </ul>
+    </nav>
+  </div>
+</div>
+
+<main>
+  <div class="wrap">
+    <h1>Changelog</h1>
+    <p class="intro">What each release changed for people using ymcp, newest first. Versions follow
+      <a href="https://semver.org">Semantic Versioning</a>; each release's binaries and commits are on
+      <a href="https://github.com/xlsft/ymcp/releases">GitHub</a>. Also as <a href="/CHANGELOG.md">CHANGELOG.md</a>.</p>
+__RELEASES__
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="legal">ymcp · MIT license<br>Not affiliated with JetBrains; YouTrack is a trademark of JetBrains s.r.o.</p>
+    <ul>
+      <li><a href="https://github.com/xlsft/ymcp">GitHub</a></li>
+      <li><a href="https://hub.docker.com/r/xlsoftware/ymcp">Docker Hub</a></li>
+      <li><a href="https://registry.modelcontextprotocol.io/v0/servers?search=io.github.xlsft/ymcp">MCP Registry</a></li>
+      <li><a href="https://github.com/xlsft/ymcp/discussions">Discussions</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script>
+// The nav's loader plays while the brand is hovered or focused, as on the landing page.
+(function () {
+  var img = document.getElementById('loader'), brand = img.parentNode;
+  var still = img.src, anim = img.dataset.anim;
+  var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  function play() { if (!(calm && calm.matches)) img.src = anim; }
+  function stop() { img.src = still; }
+  brand.addEventListener('mouseenter', play);
+  brand.addEventListener('focus', play);
+  brand.addEventListener('mouseleave', stop);
+  brand.addEventListener('blur', stop);
+})();
+</script>
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme');
+  function show() {
+    var dark = root.getAttribute('data-theme') !== 'light';
+    btn.textContent = dark ? 'Light' : 'Dark';
+    btn.setAttribute('aria-label', dark ? 'Switch to the light theme' : 'Switch to the dark theme');
+  }
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('ymcp-theme', next); } catch (e) {}
+    show();
+  });
+  show();
+})();
+</script>
+</body>
+</html>
