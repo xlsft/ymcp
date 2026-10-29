@@ -4,9 +4,13 @@ What each release of ymcp changed, newest first. The versions follow [Semantic V
 
 ## [0.22.0] - 2026-10-29
 
-### Added
+### Changed
 
-- Act on what the TUI asks of a run at once.
+- An answer, a reply command or a cancel given in the TUI or with the CLI, and a comment the TUI posts on a run's issue, reach the run within a second instead of waiting for the runner's next poll of YouTrack.
+
+### Fixed
+
+- A second `/compact` sent while the first is still writing its summary is skipped, instead of making two summaries and hiding the comments twice.
 
 ## [0.21.0] - 2026-10-29
 
