@@ -616,6 +616,48 @@ func TestCancel(t *testing.T) {
 	}
 }
 
+// The discard question offers to save instead: s saves a valid pipeline,
+// and an invalid one stays in the wizard with the reason.
+func TestSaveFromDiscardQuestion(t *testing.T) {
+	f := newFakes()
+	existing := spec.Pipeline{
+		Name:    "x",
+		Profile: "youtrack-work",
+		Source:  spec.Source{Query: "project: YPC #Unresolved"},
+		Stages: spec.Stages{
+			Working:    spec.Stage{Enter: "State In Progress", Match: "State: {In Progress}"},
+			Review:     spec.Stage{Enter: "State Fixed", Match: "State: Fixed"},
+			NeedsInput: spec.Stage{Enter: "tag needs-input", Exit: "untag needs-input"},
+		},
+		Workspace: spec.Workspace{Dir: "/src/repo"},
+		Agent:     spec.Agent{Provider: "opencode"},
+	}
+	d := start(t, f.deps, &existing)
+	d.focus("query")
+	d.typ(" x")
+	d.keys("esc")
+	d.must("Discard your changes?", "s save", "y discard", "n keep editing")
+	d.typ("s")
+	if len(d.out) != 1 {
+		t.Fatalf("messages = %v", d.out)
+	}
+	if done := d.out[0].(Done); done.RunNow || done.Pipeline.Source.Query != "project: YPC #Unresolved x" {
+		t.Fatalf("saved %+v", done)
+	}
+
+	d = start(t, newFakes().deps, nil)
+	d.typ("x")
+	d.keys("esc")
+	d.typ("s")
+	if len(d.out) != 0 {
+		t.Fatalf("saved an invalid pipeline: %v", d.out)
+	}
+	d.mustNot("Discard your changes?")
+	// The reason, not a list that this step doesn't show.
+	d.must("the pipeline isn't valid yet: source.query is requ")
+	d.mustNot("see the list above")
+}
+
 // Esc closes completions and pickers before it offers to cancel.
 func TestEscClosesPopupsFirst(t *testing.T) {
 	f := newFakes()

@@ -14,6 +14,7 @@ package wizard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -230,7 +231,7 @@ type Model struct {
 	kind    kind
 	steps   []step
 	cur     int
-	confirm bool // asking whether to discard the draft
+	confirm bool // asking whether to discard the draft, or to save it
 	// seen marks the steps shown so far; a new pipeline shows no status
 	// for steps the user hasn't reached.
 	seen []bool
@@ -359,9 +360,24 @@ func (k pipelineKind) snapshot() string {
 func (k pipelineKind) save(run bool) (tea.Cmd, string) {
 	p := clonePipeline(*k.sh.p).WithDefaults()
 	if err := p.Validate(); err != nil {
-		return nil, "the pipeline isn't valid yet; see the list above"
+		return nil, "the pipeline isn't valid yet: " + firstProblem(err)
 	}
 	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }, ""
+}
+
+// firstProblem names the first thing wrong with a pipeline, and how many
+// more there are: the save can be asked for on any step, where no list of
+// problems shows.
+func firstProblem(err error) string {
+	var ve *spec.ValidationError
+	if !errors.As(err, &ve) || len(ve.Problems) == 0 {
+		return err.Error()
+	}
+	first, _, _ := strings.Cut(ve.Problems[0], ": ")
+	if n := len(ve.Problems) - 1; n > 0 {
+		first += fmt.Sprintf(" (and %d more)", n)
+	}
+	return first
 }
 
 func (k pipelineKind) header() string {
@@ -552,6 +568,10 @@ func (m *Model) key(msg tea.KeyMsg) tea.Cmd {
 		switch k {
 		case "y", "Y":
 			return cancelled
+		case "s", "S":
+			// Saved if it is valid; otherwise the wizard says why and stays.
+			m.confirm = false
+			return m.save(false)
 		case "n", "N", "esc":
 			m.confirm = false
 		}
@@ -797,7 +817,7 @@ func (m *Model) buttonRow(focus string, width int, active bool) string {
 // help is the key help of the focused field plus the keys of the form.
 func (m *Model) help(focus string) string {
 	if m.confirm {
-		return styleWarn.Render("Discard your changes?") + "  " + keyHelp("y", "discard", "n", "keep editing")
+		return styleWarn.Render("Discard your changes?") + "  " + keyHelp("s", "save", "y", "discard", "n", "keep editing")
 	}
 	if o := m.steps[m.cur].overlay(); o != nil {
 		return o.help()
