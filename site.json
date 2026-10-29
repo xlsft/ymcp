@@ -650,6 +650,14 @@
     {
       "name": "acp",
       "about": "another ACP agent"
+    },
+    {
+      "name": "anthropic",
+      "about": "Claude Code on an Anthropic-compatible API"
+    },
+    {
+      "name": "openai",
+      "about": "Claude Code on an OpenAI-compatible API"
     }
   ],
   "strategies": [
