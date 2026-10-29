@@ -2,9 +2,14 @@
 # ymcp installer for macOS and Linux.
 #
 #   curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh -s -- -v 0.22.0
+#
+# Options:
+#   -v, --version V   release to install (default: latest), e.g. 0.22.0 or v0.22.0
+#   -h, --help        show this help
 #
 # Environment:
-#   YMCP_VERSION      release tag to install (default: latest), e.g. v0.1.0
+#   YMCP_VERSION      release to install when -v is not given
 #   YMCP_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   YMCP_NO_SETUP=1   skip `ymcp setup` (credentials and MCP clients)
 #   YMCP_DOWNLOAD_URL base URL to download release assets from (mirrors, testing)
@@ -13,6 +18,29 @@ set -eu
 REPO="xlsft/ymcp"
 INSTALL_DIR="${YMCP_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${YMCP_VERSION:-latest}"
+
+usage() {
+  printf '%s\n' "Usage: install.sh [-v VERSION]" "" \
+    "  -v, --version V   release to install (default: latest), e.g. 0.22.0 or v0.22.0" \
+    "  -h, --help        show this help" "" \
+    "Through a pipe: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | sh -s -- -v 0.22.0"
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v|--version)
+      [ $# -ge 2 ] && [ -n "$2" ] || { usage >&2; exit 2; }
+      VERSION="$2"; shift 2 ;;
+    --version=*) VERSION="${1#--version=}"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf '%s\n\n' "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+# A release tag starts with v; 0.22.0 means v0.22.0.
+case "$VERSION" in
+  latest|v*) ;;
+  [0-9]*) VERSION="v$VERSION" ;;
+  *) printf '%s\n' "Not a version: $VERSION (try 0.22.0)" >&2; exit 2 ;;
+esac
 
 if [ -t 1 ]; then
   # The brand red #C62A22 (same as the banner and ymcp itself) where the
@@ -69,7 +97,11 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 say "${DIM}Downloading $ARCHIVE ($VERSION)…${RESET}"
-fetch "$BASE/$ARCHIVE" "$TMP/$ARCHIVE" || die "Download failed: $BASE/$ARCHIVE"
+if ! fetch "$BASE/$ARCHIVE" "$TMP/$ARCHIVE"; then
+  [ "$VERSION" = "latest" ] || [ -n "${YMCP_DOWNLOAD_URL:-}" ] ||
+    die "Download failed: $BASE/$ARCHIVE. Is $VERSION a release? See https://github.com/$REPO/releases"
+  die "Download failed: $BASE/$ARCHIVE"
+fi
 fetch "$BASE/checksums.txt" "$TMP/checksums.txt" || die "Download failed: $BASE/checksums.txt"
 
 EXPECTED="$(awk -v f="$ARCHIVE" '$2 == f { print $1 }' "$TMP/checksums.txt")"

@@ -1,16 +1,29 @@
 # ymcp installer for Windows.
 #
 #   irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1))) -Version 0.22.0
+#
+# Parameters:
+#   -Version V, -v V  release to install (default: latest), e.g. 0.22.0 or v0.22.0
 #
 # Environment:
-#   YMCP_VERSION      release tag to install (default: latest), e.g. v0.1.0
+#   YMCP_VERSION      release to install when -Version is not given
 #   YMCP_INSTALL_DIR  where to put ymcp.exe (default: %LOCALAPPDATA%\Programs\ymcp)
 #   YMCP_NO_SETUP=1   skip `ymcp setup` (credentials and MCP clients)
+param(
+  [Alias('v')][string]$Version = $env:YMCP_VERSION
+)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $Repo = 'xlsft/ymcp'
-$Version = if ($env:YMCP_VERSION) { $env:YMCP_VERSION } else { 'latest' }
+if (-not $Version) { $Version = 'latest' }
+# A release tag starts with v; 0.22.0 means v0.22.0.
+if ($Version -match '^[0-9]') {
+  $Version = "v$Version"
+} elseif ($Version -ne 'latest' -and $Version -notmatch '^v[0-9]') {
+  throw "Not a version: $Version (try 0.22.0)"
+}
 $InstallDir = if ($env:YMCP_INSTALL_DIR) { $env:YMCP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\ymcp' }
 
 Write-Host ''
@@ -37,7 +50,12 @@ $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ymcp-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
   Write-Host "Downloading $Archive ($Version)..." -ForegroundColor DarkGray
-  Invoke-WebRequest "$Base/$Archive" -OutFile (Join-Path $Tmp $Archive)
+  try {
+    Invoke-WebRequest "$Base/$Archive" -OutFile (Join-Path $Tmp $Archive)
+  } catch {
+    if ($Version -ne 'latest') { throw "Download failed: $Base/$Archive. Is $Version a release? See https://github.com/$Repo/releases" }
+    throw
+  }
   Invoke-WebRequest "$Base/checksums.txt" -OutFile (Join-Path $Tmp 'checksums.txt')
 
   $Expected = (Get-Content (Join-Path $Tmp 'checksums.txt') | Where-Object { $_ -match " $([regex]::Escape($Archive))$" }) -split '\s+' | Select-Object -First 1

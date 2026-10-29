@@ -52,6 +52,16 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1 | iex
 ```
 
+A given release instead of the latest, say to go back to it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xlsft/ymcp/main/install.sh | sh -s -- -v 0.22.0
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/xlsft/ymcp/main/install.ps1))) -Version 0.22.0
+```
+
 Or with a package manager, then run `ymcp setup`:
 
 ```sh
