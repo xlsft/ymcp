@@ -32,7 +32,8 @@ func startYouTrack() (url string, stop func(), err error) {
 		return "", nil, err
 	}
 	url = "http://127.0.0.1:" + port
-	name := marker + "-youtrack-" + runID
+	// The process ID keeps two runs started in the same second apart.
+	name := fmt.Sprintf("%s-youtrack-%s-%d", marker, runID, os.Getpid())
 	conf := name + "-conf"
 	stop = func() {
 		exec.Command("docker", "rm", "-f", name).Run()
@@ -62,8 +63,10 @@ func startYouTrack() (url string, stop func(), err error) {
 		return "", nil, err
 	}
 	deadline := time.Now().Add(5 * time.Minute)
+	// A YouTrack still starting may take a connection and not answer.
+	client := &http.Client{Timeout: 10 * time.Second}
 	for {
-		resp, err := http.Get(url + "/api/config?fields=version")
+		resp, err := client.Get(url + "/api/config?fields=version")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
