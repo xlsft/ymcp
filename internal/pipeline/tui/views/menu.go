@@ -233,21 +233,25 @@ type namePrompt struct {
 }
 
 func (p *namePrompt) start(title, value string, done func(string) (tea.Cmd, error)) tea.Cmd {
-	in := textinput.New()
-	in.Prompt = theme.Accent.Render("›") + " "
-	in.CharLimit = 40
-	in.SetValue(value)
-	in.CursorEnd()
-	*p = namePrompt{open: true, title: title, in: in, done: done}
-	return p.in.Focus()
+	return p.show(title, value, 40, false, done)
 }
 
-// startPath opens the prompt for a file path, in a wider box.
+// startPath opens the prompt for a file path, of any length, in a wider
+// box.
 func (p *namePrompt) startPath(title, value string, done func(string) (tea.Cmd, error)) tea.Cmd {
-	cmd := p.start(title, value, done)
-	p.in.CharLimit = 0
-	p.path = true
-	return cmd
+	return p.show(title, value, 0, true, done)
+}
+
+// open_ opens the prompt with value typed in. The limit is set before the
+// value, which SetValue would cut to it; 0 is no limit.
+func (p *namePrompt) show(title, value string, limit int, path bool, done func(string) (tea.Cmd, error)) tea.Cmd {
+	in := textinput.New()
+	in.Prompt = theme.Accent.Render("›") + " "
+	in.CharLimit = limit
+	in.SetValue(value)
+	in.CursorEnd()
+	*p = namePrompt{open: true, title: title, in: in, path: path, done: done}
+	return p.in.Focus()
 }
 
 // key handles a key while the prompt is open.

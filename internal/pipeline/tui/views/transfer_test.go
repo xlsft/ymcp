@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
@@ -98,6 +99,14 @@ func TestPipelinesExportWithoutDialog(t *testing.T) {
 	if len(*out) != 1 || (*out)[0].path != filepath.Join("/home/dev", "ymcp-backend.json") {
 		t.Fatalf("exports = %+v", *out)
 	}
+
+	// A long name is not cut to the 40 characters of a pipeline name.
+	long := strings.Repeat("x", 40)
+	m.exportFile([]string{"backend"}, "backend", exportName(long))
+	if got := m.prompt.in.Value(); got != "~/"+exportName(long) {
+		t.Fatalf("prompt = %q", got)
+	}
+	d.keys("esc")
 
 	// A dialog that fails falls back to the same box.
 	f.d.Files = &fakeFiles{err: errors.New("zenity: not found")}
