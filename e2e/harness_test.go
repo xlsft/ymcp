@@ -34,6 +34,8 @@ const marker = "ymcp-e2e"
 var (
 	// admin is the server signed in as the E2E account, a YouTrack admin.
 	admin *server
+	// adminLogin and adminPassword sign in as the E2E account.
+	adminLogin, adminPassword string
 	// bin and workDir are the built ymcp and the run's temporary directory.
 	bin, workDir string
 	// endpoint is the YouTrack under test.
@@ -82,6 +84,7 @@ func TestMain(m *testing.M) {
 	endpoint = os.Getenv("YOUTRACK_E2E_ENDPOINT")
 	login := os.Getenv("YOUTRACK_E2E_LOGIN")
 	password := os.Getenv("YOUTRACK_E2E_PASSWORD")
+	adminLogin, adminPassword = login, password
 	if endpoint == "" || login == "" || password == "" {
 		fmt.Println("e2e: YOUTRACK_E2E_ENDPOINT, YOUTRACK_E2E_LOGIN and YOUTRACK_E2E_PASSWORD are not set; skipping")
 		os.Exit(0)
@@ -134,7 +137,9 @@ func TestMain(m *testing.M) {
 }
 
 // startServer runs `ymcp -v serve` signed in as login and connects to it.
-func startServer(name, login, password string) (*server, error) {
+// Destructive tools run at once, so the suite can clean up after itself;
+// env adds or overrides variables.
+func startServer(name, login, password string, env ...string) (*server, error) {
 	s := &server{name: name, logFile: filepath.Join(workDir, name+".log")}
 	cmd := exec.Command(bin, "-v", "serve")
 	cmd.Env = append(cleanEnv(),
@@ -143,7 +148,9 @@ func startServer(name, login, password string) (*server, error) {
 		"YOUTRACK_PASSWORD="+password,
 		"YMCP_CONFIG="+filepath.Join(workDir, name+".json"),
 		"YMCP_LOG_FILE="+s.logFile,
+		"YMCP_CONFIRM=off",
 	)
+	cmd.Env = append(cmd.Env, env...)
 	cmd.Stderr = os.Stderr // the server's own log, visible in test output
 	client := mcp.NewClient(&mcp.Implementation{Name: "ymcp-e2e-" + name, Version: runID}, nil)
 	var err error
