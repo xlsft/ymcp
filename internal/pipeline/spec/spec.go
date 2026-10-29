@@ -10,9 +10,12 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 )
 
 // Pipeline is the whole configuration of one pipeline.
@@ -126,13 +129,72 @@ type Identity struct {
 
 // Agent picks and configures the coding agent.
 type Agent struct {
-	Provider string            `json:"provider"`          // one of claude, kimi, opencode or acp
-	Name     string            `json:"name,omitempty"`    // the agent's name in messages; default from the provider
-	Command  string            `json:"command,omitempty"` // the executable or its full path; required for acp
-	Model    string            `json:"model,omitempty"`   // the model, as the agent names it
-	Mode     string            `json:"mode,omitempty"`    // the agent's mode, e.g. a claude permission mode
-	Args     []string          `json:"args,omitempty"`    // more command-line arguments of the agent
-	Env      map[string]string `json:"env,omitempty"`     // environment variables of the agent
+	Provider string            `json:"provider"`           // one of claude, kimi, opencode, acp, anthropic or openai
+	Name     string            `json:"name,omitempty"`     // the agent's name in messages; default from the provider
+	Command  string            `json:"command,omitempty"`  // the executable or its full path; required for acp
+	Model    string            `json:"model,omitempty"`    // the model, as the agent names it; required for anthropic and openai unless the preset has one
+	Mode     string            `json:"mode,omitempty"`     // the agent's mode, e.g. a claude permission mode
+	Args     []string          `json:"args,omitempty"`     // more command-line arguments of the agent
+	Env      map[string]string `json:"env,omitempty"`      // environment variables of the agent
+	Endpoint *Endpoint         `json:"endpoint,omitempty"` // the model API of the anthropic and openai providers
+}
+
+// Endpoint is the model API Claude Code works with for the anthropic and
+// openai providers. ymcp keeps the API key and passes the agent's requests
+// on, translating them for an OpenAI-compatible API.
+type Endpoint struct {
+	Preset string `json:"preset,omitempty"` // a known service: openrouter, kimi-coding, zai, deepseek, minimax or ollama
+	URL    string `json:"url,omitempty"`    // the API's base URL; default from the preset
+	KeyEnv string `json:"keyEnv,omitempty"` // the variable with the API key, read before the keychain; default from the preset
+}
+
+// UsesEndpoint reports whether the agent works with a model API of the
+// pipeline's: the anthropic and openai providers.
+func (a Agent) UsesEndpoint() bool {
+	return a.Provider == endpoint.Anthropic || a.Provider == endpoint.OpenAI
+}
+
+// IsClaude reports whether the agent is Claude Code: the claude provider
+// and the ones with an endpoint.
+func (a Agent) IsClaude() bool { return a.Provider == "claude" || a.UsesEndpoint() }
+
+// ResolvedEndpoint is the agent's endpoint with the URL and key variable
+// of its preset filled in; zero when the agent has none.
+func (a Agent) ResolvedEndpoint() Endpoint {
+	if a.Endpoint == nil {
+		return Endpoint{}
+	}
+	e := *a.Endpoint
+	if p, ok := endpoint.Find(e.Preset); ok {
+		if strings.TrimSpace(e.URL) == "" {
+			e.URL = p.URL(a.Provider)
+		}
+		if e.KeyEnv == "" {
+			e.KeyEnv = p.KeyEnv
+		}
+	}
+	e.URL = strings.TrimRight(strings.TrimSpace(e.URL), "/")
+	return e
+}
+
+// Upstream is the API the agent's requests go to, with its key from the
+// variable or the keychain (see endpoint.Key). A service that needs no key
+// (a preset without a key variable) gets none when there is none.
+func (a Agent) Upstream() (endpoint.Upstream, error) {
+	e := a.ResolvedEndpoint()
+	up := endpoint.Upstream{Protocol: a.Provider, URL: e.URL}
+	if err := endpoint.CheckURL(e.URL); err != nil {
+		return up, fmt.Errorf("agent.endpoint.url: %w", err)
+	}
+	key, _, err := endpoint.Key(e.URL, e.KeyEnv)
+	if err != nil {
+		if p, ok := endpoint.Find(e.Preset); ok && p.KeyEnv == "" && errors.Is(err, endpoint.ErrNoKey) {
+			return up, nil
+		}
+		return up, err
+	}
+	up.Key = key
+	return up, nil
 }
 
 // Timeouts bound a run. Zero values mean the defaults on Load.
@@ -289,8 +351,21 @@ func (p Pipeline) WithDefaults() Pipeline {
 	if p.Agent.Provider == "" {
 		p.Agent.Provider = DefaultProvider
 	}
+	if p.Agent.UsesEndpoint() && p.Agent.Endpoint != nil {
+		if pr, ok := endpoint.Find(p.Agent.Endpoint.Preset); ok {
+			if p.Agent.Model == "" {
+				p.Agent.Model = pr.Model
+			}
+			if p.Agent.Name == "" {
+				p.Agent.Name = pr.Title
+			}
+		}
+	}
 	if p.Agent.Name == "" {
 		p.Agent.Name = strings.ToUpper(p.Agent.Provider[:1]) + p.Agent.Provider[1:]
+		if p.Agent.UsesEndpoint() {
+			p.Agent.Name = "Agent"
+		}
 	}
 	if p.Permissions == "" {
 		p.Permissions = DefaultPermissions

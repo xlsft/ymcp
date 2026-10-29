@@ -197,6 +197,33 @@ func TestClaudeEnvIsScrubbed(t *testing.T) {
 	}
 }
 
+func TestClaudeOnEndpoint(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-users-own")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://parent-proxy")
+	ep := &Endpoint{URL: "http://127.0.0.1:7/_llm", Token: "run-token", Model: "kimi-k2"}
+	s, state := fake(t, "claude", agenttest.Script{Turns: [][]agenttest.Step{{
+		{Env: "ANTHROPIC_BASE_URL"}, {Env: "ANTHROPIC_AUTH_TOKEN"}, {Env: "ANTHROPIC_API_KEY"},
+		{Env: "ANTHROPIC_DEFAULT_HAIKU_MODEL"}, {Env: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"}, {Env: "EXTRA"},
+	}}}, StartOptions{Endpoint: ep, Model: "kimi-k2", Env: map[string]string{"EXTRA": "yes", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "0"}}, "openai")
+	res := s.prompt(t, "env")
+	want := "ANTHROPIC_BASE_URL=http://127.0.0.1:7/_llm\n\nANTHROPIC_AUTH_TOKEN=run-token\n\nANTHROPIC_API_KEY=\n\n" +
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2\n\nCLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=0\n\nEXTRA=yes"
+	if res.Text != want {
+		t.Errorf("text = %q, want %q", res.Text, want)
+	}
+	if m, _ := argValue(calls(t, state, "claude")[0].Args, "--model"); m != "kimi-k2" {
+		t.Errorf("--model %q", m)
+	}
+
+	a, err := New("anthropic", "", nil)
+	if err != nil || a.Name() != "anthropic" || a.(*claudeAgent).command != "claude" {
+		t.Fatalf("New(anthropic) = %v, %v", a, err)
+	}
+	if _, err := a.Start(context.Background(), StartOptions{Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "no model API") {
+		t.Errorf("Start without an endpoint: %v", err)
+	}
+}
+
 func TestClaudeCancelKillsProcessGroup(t *testing.T) {
 	for _, viaContext := range []bool{false, true} {
 		s, state := fake(t, "claude", agenttest.Script{Turns: [][]agenttest.Step{{

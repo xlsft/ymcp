@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/workspace"
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
@@ -120,6 +121,9 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 		add("agent", false, "not checked: "+host.Name()+" is not reachable over ssh")
 		return out, nil
 	}
+	if p.Agent.UsesEndpoint() {
+		checkEndpoint(ctx, p.Agent, add, warn)
+	}
 	ag, err := opts.NewAgent(p.Agent, host, logger)
 	if err != nil {
 		add("agent", false, err.Error())
@@ -145,6 +149,41 @@ func CheckWith(ctx context.Context, opts Options) ([]CheckResult, error) {
 		warn("agent", w)
 	}
 	return out, nil
+}
+
+// checkEndpoint finds the key of the agent's model API and asks the API
+// for its models: a list without the pipeline's model is a warning, as is
+// an API without a list.
+func checkEndpoint(ctx context.Context, a spec.Agent, add func(string, bool, string), warn func(string, string)) {
+	const name = "agent: model API"
+	e := a.ResolvedEndpoint()
+	up, err := a.Upstream()
+	if err != nil {
+		add(name, false, err.Error())
+		return
+	}
+	detail := up.URL
+	if _, source, err := endpoint.Key(e.URL, e.KeyEnv); err == nil {
+		detail += ", key from " + source
+	} else {
+		detail += ", no key"
+	}
+	if up.Key != "" && !endpoint.Private(up.URL) {
+		warn(name, "the key goes to "+up.URL+" over plain HTTP")
+	}
+	models, err := endpoint.Models(ctx, up)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		return
+	case err != nil:
+		add(name, true, detail)
+		warn(name, "could not list its models: "+err.Error())
+	case !slices.Contains(models, a.Model):
+		add(name, true, detail)
+		warn(name, fmt.Sprintf("model %q is not among the %d it lists", a.Model, len(models)))
+	default:
+		add(name, true, detail+", has "+a.Model)
+	}
 }
 
 // checkWorktrees says where the run worktrees go and warns about a root

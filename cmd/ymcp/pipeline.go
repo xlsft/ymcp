@@ -21,6 +21,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 
+	"github.com/xlsft/ymcp/internal/pipeline/endpoint"
 	"github.com/xlsft/ymcp/internal/pipeline/spec"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 )
@@ -31,8 +32,9 @@ Usage:
   ymcp pipeline                             Open the TUI: profiles, pipelines, boards, run cards, the inbox
   ymcp pipeline list                        List pipelines, their runner and active runs
   ymcp pipeline new NAME --profile P --dir D --query Q
-                                            Create a pipeline with defaults; also --agent claude|kimi|opencode|acp,
-                                            --command CMD (acp), --preset NAME, --host SSH_ALIAS
+                                            Create a pipeline with defaults; also --agent claude|kimi|opencode|acp|
+                                            anthropic|openai, --command CMD (acp), --endpoint PRESET|URL and
+                                            --model M (anthropic, openai), --preset NAME, --host SSH_ALIAS
   ymcp pipeline presets                     List the prompt presets, built-in and your own
   ymcp pipeline presets show NAME           Print a preset as JSON
   ymcp pipeline presets copy FROM TO        Copy a preset, built-in or yours, to a new one of yours
@@ -337,13 +339,15 @@ func pipelineList(ctx context.Context, args []string) error {
 }
 
 func pipelineNew(args []string) error {
-	const usage = "ymcp pipeline new NAME --profile P --dir D --query Q [--agent claude] [--command CMD] [--preset NAME] [--host SSH_ALIAS]"
+	const usage = "ymcp pipeline new NAME --profile P --dir D --query Q [--agent claude] [--command CMD] [--endpoint PRESET|URL] [--model M] [--preset NAME] [--host SSH_ALIAS]"
 	fs := pipelineFlags("pipeline new")
 	prof := fs.String("profile", "", "YouTrack profile the pipeline works with")
 	dir := fs.String("dir", "", "the git repository the agent works in")
 	query := fs.String("query", "", "YouTrack search that finds issues for the agent")
-	agentFlag := fs.String("agent", spec.DefaultProvider, "claude, kimi, opencode or acp")
+	agentFlag := fs.String("agent", spec.DefaultProvider, "claude, kimi, opencode, acp, anthropic or openai")
 	command := fs.String("command", "", "the command that starts the ACP server (acp)")
+	endpointFlag := fs.String("endpoint", "", "the model API of anthropic and openai: a preset (openrouter, kimi-coding, zai, deepseek, minimax, ollama) or a URL")
+	model := fs.String("model", "", "the model, as the agent or the API names it")
 	preset := fs.String("preset", spec.DefaultPreset, "prompt preset, built-in or yours")
 	host := fs.String("host", "", "ssh host alias to work on; empty is this machine")
 	pos, err := parseInterspersed(fs, args, usage)
@@ -398,7 +402,7 @@ func pipelineNew(args []string) error {
 			NeedsInput: spec.Stage{Enter: defaultNeedsInputEnter, Exit: defaultNeedsInputExit, Match: defaultNeedsInputMatch},
 		},
 		Workspace: spec.Workspace{Host: *host, Dir: repo},
-		Agent:     spec.Agent{Provider: *agentFlag, Command: *command},
+		Agent:     spec.Agent{Provider: *agentFlag, Command: *command, Model: *model, Endpoint: endpointOf(*endpointFlag)},
 		Prompts:   spec.Prompts{Preset: *preset},
 	}.WithDefaults()
 	if !pr.Builtin {
@@ -406,11 +410,11 @@ func pipelineNew(args []string) error {
 		// its own copy. Built-in ones are resolved at run time.
 		p.Prompts.Start, p.Prompts.Feedback, p.Prompts.Answer = pr.Start, pr.Feedback, pr.Answer
 	}
-	switch p.Agent.Provider {
-	case "claude":
+	switch {
+	case p.Agent.IsClaude():
 		p.Agent.Mode = defaultClaudeMode
 		p.Agent.Args = slices.Clone(defaultClaudeArgs)
-	case "kimi":
+	case p.Agent.Provider == "kimi":
 		p.Agent.Mode = defaultKimiMode
 	}
 	if err := p.Validate(); err != nil {
@@ -420,10 +424,28 @@ func pipelineNew(args []string) error {
 		return err
 	}
 	fmt.Println(styleOK.Render("✓") + " Created pipeline " + styleBold.Render(name))
+	if _, err := p.Agent.Upstream(); p.Agent.UsesEndpoint() && errors.Is(err, endpoint.ErrNoKey) {
+		hint := "enter it in the pipeline's Agent step of the TUI (ymcp pipeline)"
+		if e := p.Agent.ResolvedEndpoint(); e.KeyEnv != "" {
+			hint = "set $" + e.KeyEnv + ", or " + hint
+		}
+		fmt.Println(styleDim.Render("  No API key yet: " + hint))
+	}
 	fmt.Println(styleDim.Render("  The stage commands are examples; adjust them to your workflow:"))
 	fmt.Println("  ymcp pipeline " + name + " edit")
 	fmt.Println("  ymcp pipeline " + name + " check")
 	return nil
+}
+
+// endpointOf reads --endpoint: a preset's name or an API's URL.
+func endpointOf(v string) *spec.Endpoint {
+	switch v = strings.TrimSpace(v); {
+	case v == "":
+		return nil
+	case strings.Contains(v, "://"):
+		return &spec.Endpoint{URL: v}
+	}
+	return &spec.Endpoint{Preset: v}
 }
 
 // expandHome turns a leading ~ into the home directory.

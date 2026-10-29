@@ -196,7 +196,7 @@ func (f *fakeAgents) Check(_ context.Context, a spec.Agent) (agent.Info, error) 
 	f.got = append(f.got, a)
 	f.mu.Unlock()
 	switch a.Provider {
-	case "claude":
+	case "claude", "anthropic", "openai":
 		info := agent.Info{Path: "/usr/local/bin/claude", Version: "2.1.0 (Claude Code)"}
 		switch {
 		case slices.Contains(a.Args, "--dangerously-skip-permissions"):
@@ -209,6 +209,37 @@ func (f *fakeAgents) Check(_ context.Context, a spec.Agent) (agent.Info, error) 
 		return agent.Info{Path: "/opt/homebrew/bin/opencode", Version: "0.15.3"}, nil
 	}
 	return agent.Info{}, errors.New(a.Provider + `: executable file not found in $PATH`)
+}
+
+// fakeModelAPIs keep keys by URL and list models for any key.
+type fakeModelAPIs struct {
+	mu     sync.Mutex
+	keys   map[string]string
+	models []string
+	asked  []string // the keys Models was called with
+}
+
+func (f *fakeModelAPIs) KeySource(a spec.Agent) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.keys[a.ResolvedEndpoint().URL] != "" {
+		return "keychain"
+	}
+	return ""
+}
+
+func (f *fakeModelAPIs) SetKey(a spec.Agent, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keys[a.ResolvedEndpoint().URL] = key
+	return nil
+}
+
+func (f *fakeModelAPIs) Models(_ context.Context, a spec.Agent, key string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, key)
+	return f.models, nil
 }
 
 type fakeInspector struct {
@@ -278,10 +309,12 @@ type fakes struct {
 	inspect *fakeInspector
 	checker *fakeChecker
 	presets *fakePresets
+	apis    *fakeModelAPIs
 }
 
 func newFakes() *fakes {
-	f := &fakes{yt: newFakeYT(), agents: &fakeAgents{}, inspect: &fakeInspector{}, checker: &fakeChecker{}, presets: &fakePresets{}}
+	f := &fakes{yt: newFakeYT(), agents: &fakeAgents{}, inspect: &fakeInspector{}, checker: &fakeChecker{}, presets: &fakePresets{},
+		apis: &fakeModelAPIs{keys: map[string]string{}, models: []string{"deepseek/deepseek-v4", "moonshotai/kimi-k3", "z-ai/glm-5"}}}
 	f.factory = &fakeFactory{yt: f.yt}
 	f.deps = Deps{
 		Local: fakeLocal{
@@ -299,6 +332,7 @@ func newFakes() *fakes {
 		Editor:    fakeEditor{},
 		Notify:    fakeNotify{},
 		Presets:   f.presets,
+		ModelAPIs: f.apis,
 	}
 	return f
 }

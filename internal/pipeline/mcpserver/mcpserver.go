@@ -64,9 +64,22 @@ type Server struct {
 	cb       Callbacks
 	logger   *slog.Logger
 
-	mu     sync.Mutex
-	grants map[string]*grant // token → run
-	srv    *http.Server
+	mu       sync.Mutex
+	grants   map[string]*grant // token → run
+	srv      *http.Server
+	modelAPI http.Handler // served under ModelAPIPath, see SetModelAPI
+}
+
+// ModelAPIPath is where SetModelAPI's handler is served, next to
+// /<profile>.
+const ModelAPIPath = "/_llm"
+
+// SetModelAPI serves h, the gateway to the pipeline's model API, under
+// ModelAPIPath to the holders of a run's token, with the prefix stripped.
+func (s *Server) SetModelAPI(h http.Handler) {
+	s.mu.Lock()
+	s.modelAPI = h
+	s.mu.Unlock()
 }
 
 // grant is a run's access: its MCP server and HTTP handler, built on the
@@ -164,6 +177,19 @@ func (s *Server) Close() error {
 // its bearer token selects. Without a valid token it answers 401.
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	g := s.lookup(r.Header.Get("Authorization"))
+	if rest, ok := strings.CutPrefix(r.URL.Path, ModelAPIPath+"/"); ok && g != nil {
+		s.mu.Lock()
+		h := s.modelAPI
+		s.mu.Unlock()
+		if h == nil {
+			http.Error(w, "this pipeline has no model API", http.StatusNotFound)
+			return
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path, r2.URL.RawPath = "/"+rest, ""
+		h.ServeHTTP(w, r2)
+		return
+	}
 	if g != nil {
 		g.once.Do(func() {
 			g.server = s.newMCP(g.run)

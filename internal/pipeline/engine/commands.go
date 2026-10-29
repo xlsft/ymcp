@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xlsft/ymcp/internal/pipeline/agent"
+	"github.com/xlsft/ymcp/internal/pipeline/mcpserver"
 	"github.com/xlsft/ymcp/internal/pipeline/store"
 	"github.com/xlsft/ymcp/internal/pipeline/text"
 	"github.com/xlsft/ymcp/internal/pipeline/vcs"
@@ -396,7 +397,15 @@ func (r *Runner) summarize(ctx context.Context, run store.Run) (string, error) {
 	if lang == "" {
 		lang = "English"
 	}
-	sess, err := r.agent.Start(ctx, agent.StartOptions{Dir: r.p.Workspace.Dir, Env: r.p.Agent.Env, Model: r.p.Agent.Model})
+	opts := agent.StartOptions{Dir: r.p.Workspace.Dir, Env: r.p.Agent.Env, Model: r.p.Agent.Model}
+	if r.p.Agent.UsesEndpoint() {
+		token := r.mcp.Grant(mcpserver.RunInfo{ID: run.ID, Number: run.Number, Pipeline: r.p.Name, Mention: r.mention()})
+		defer r.mcp.Revoke(token)
+		if opts.Endpoint, err = r.agentEndpoint(ctx, token); err != nil {
+			return "", fmt.Errorf("the model API: %w", err)
+		}
+	}
+	sess, err := r.agent.Start(ctx, opts)
 	if err != nil {
 		return "", fmt.Errorf("starting the agent: %w", err)
 	}

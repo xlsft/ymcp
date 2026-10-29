@@ -20,12 +20,40 @@ import (
 // claudeAgent is Claude Code driven as `claude -p … --output-format
 // stream-json`, one process per turn.
 type claudeAgent struct {
-	command string
-	args    []string
+	provider string // claude, or anthropic and openai on a model API
+	command  string
+	args     []string
 	settings
 }
 
-func (a *claudeAgent) Name() string { return "claude" }
+func (a *claudeAgent) Name() string { return a.provider }
+
+// onEndpoint reports whether claude works with a model API through
+// StartOptions.Endpoint rather than its own sign-in.
+func (a *claudeAgent) onEndpoint() bool { return a.provider != "claude" }
+
+// endpointEnv points claude at the gateway: every model it would pick
+// (the main one, subagents, background work) is the endpoint's, and it
+// sends nothing but model requests there.
+func endpointEnv(e *Endpoint, extra map[string]string) map[string]string {
+	env := map[string]string{
+		"ANTHROPIC_BASE_URL":   e.URL,
+		"ANTHROPIC_AUTH_TOKEN": e.Token,
+		// Empty, not unset: claude would sign in with it otherwise.
+		"ANTHROPIC_API_KEY":                        "",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+		"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS":   "1",
+	}
+	if e.Model != "" {
+		for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL"} {
+			env[k] = e.Model
+		}
+	}
+	for k, v := range extra {
+		env[k] = v
+	}
+	return env
+}
 
 func (a *claudeAgent) Check(ctx context.Context) (Info, error) {
 	info, err := a.checkBinary(ctx, a.command)
@@ -47,6 +75,12 @@ func (a *claudeAgent) Check(ctx context.Context) (Info, error) {
 }
 
 func (a *claudeAgent) Start(ctx context.Context, opts StartOptions) (Session, error) {
+	if a.onEndpoint() {
+		if opts.Endpoint == nil || opts.Endpoint.URL == "" {
+			return nil, fmt.Errorf("%s: no model API to work with", a.provider)
+		}
+		opts.Env = endpointEnv(opts.Endpoint, opts.Env)
+	}
 	s := &claudeSession{agent: a, opts: opts}
 	if opts.SessionID != "" {
 		s.id, s.started = opts.SessionID, true

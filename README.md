@@ -32,6 +32,8 @@ attachments, history, time reports, commands and more.
 **Pipelines** take the issues a YouTrack search finds and give each one to a coding agent on its own branch.
 
 - **Claude Code, Kimi, opencode or any ACP agent**, with the same YouTrack tools as the server
+- **Any Anthropic- or OpenAI-compatible model API** for Claude Code: OpenRouter, Kimi for Coding, Z.ai, DeepSeek,
+  MiniMax, Ollama or your own
 - **Branches, GitHub pull requests or GitLab merge requests**, and the agent answers review comments
 - **Needs input** when the agent has a question or wants a permission, with a system notification
 - **A TUI** with a board per pipeline, or plain commands for scripts
@@ -307,6 +309,8 @@ first commit, so `"title": "{{commit.subject}}"` gives a conventional title, whi
 | `kimi` | Kimi Code over [ACP](https://agentclientprotocol.com), `kimi acp` |
 | `opencode` | opencode over ACP, `opencode acp` |
 | `acp` | Any other agent that speaks ACP, started by `agent.command` |
+| `anthropic` | Claude Code on an Anthropic-compatible model API (`agent.endpoint`) |
+| `openai` | Claude Code on an OpenAI-compatible (Chat Completions) model API (`agent.endpoint`) |
 
 Each run gets its own MCP server on a loopback port with its own token, and the agent gets the YouTrack tools
 through it, as the pipeline's profile. The password and the YouTrack token stay in ymcp and never leave your machine.
@@ -319,6 +323,30 @@ every one and the agent goes on without the tool. New Claude pipelines start wit
 `agent.args`, so Claude runs every tool without asking; replace it with a mode or `--allowedTools` to restrict it.
 New Kimi pipelines start in Kimi's `yolo` mode for the same reason; `auto` approves only what Kimi deems safe and
 `default` asks about everything.
+
+With `anthropic` and `openai`, Claude Code works with the models of `agent.endpoint` instead of your Claude
+account. `agent.endpoint.preset` names a ready-made service, or `agent.endpoint.url` gives the API's base URL:
+
+| `preset` | Service | Key |
+|---|---|---|
+| `openrouter` | [OpenRouter](https://openrouter.ai), hundreds of models, some free | `OPENROUTER_API_KEY` |
+| `kimi-coding` | [Kimi for Coding](https://www.kimi.com/code), model `kimi-for-coding` by default | `KIMI_API_KEY` |
+| `zai` | [Z.ai](https://z.ai) GLM Coding Plan | `ZAI_API_KEY` |
+| `deepseek` | [DeepSeek](https://platform.deepseek.com), model `deepseek-chat` by default | `DEEPSEEK_API_KEY` |
+| `minimax` | [MiniMax](https://www.minimax.io) | `MINIMAX_API_KEY` |
+| `ollama` | [Ollama](https://ollama.com) on the machine ymcp runs on | none |
+
+```bash
+ymcp pipeline new web --profile work --dir ~/src/web --query "project: WEB #Unresolved" \
+  --agent openai --endpoint openrouter --model z-ai/glm-5
+```
+
+The API key goes to the system keychain from the wizard, or comes from the variable in the table
+(`agent.endpoint.keyEnv` names another). The agent never sees it: Claude Code talks to a gateway on the runner's
+MCP port with its run's token, and the gateway passes its requests on with the key. For an OpenAI-compatible API
+the gateway translates them to Chat Completions; for an Anthropic-compatible one it passes them on as they are, so
+prefer that API where a service has both. `agent.model` is the model's name at the API; `ymcp pipeline NAME check`
+looks for it in the API's list.
 
 Before each turn ymcp fetches `origin`, so the agent can rebase onto the base branch without fetching itself.
 

@@ -324,3 +324,38 @@ func TestNoDecoratorLeavesTextAlone(t *testing.T) {
 		t.Errorf("posted = %q", got)
 	}
 }
+
+func TestModelAPI(t *testing.T) {
+	s, endpoint := start(t, &fakeYouTrack{}, nil, &fakeCallbacks{})
+	base := strings.TrimSuffix(endpoint, "/work")
+	get := func(token, path string) (int, string) {
+		req, _ := http.NewRequest(http.MethodPost, base+path, strings.NewReader("{}"))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	tok := s.Grant(RunInfo{ID: 1, Number: 1, Pipeline: "p"})
+	if code, _ := get(tok, ModelAPIPath+"/v1/messages"); code != http.StatusNotFound {
+		t.Errorf("without a model API: %d", code)
+	}
+	s.SetModelAPI(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "model "+r.URL.Path+" "+r.URL.RawQuery)
+	}))
+	if code, body := get(tok, ModelAPIPath+"/v1/messages?beta=true"); code != 200 || body != "model /v1/messages beta=true" {
+		t.Errorf("with a token: %d %q", code, body)
+	}
+	if code, _ := get("", ModelAPIPath+"/v1/messages"); code != http.StatusUnauthorized {
+		t.Errorf("without a token: %d", code)
+	}
+	s.Revoke(tok)
+	if code, _ := get(tok, ModelAPIPath+"/v1/messages"); code != http.StatusUnauthorized {
+		t.Errorf("revoked token: %d", code)
+	}
+}
