@@ -653,7 +653,9 @@ func TestSaveFromDiscardQuestion(t *testing.T) {
 		t.Fatalf("saved an invalid pipeline: %v", d.out)
 	}
 	d.mustNot("Discard your changes?")
-	d.must("the pipeline isn't valid yet")
+	// The reason, not a list that this step doesn't show.
+	d.must("the pipeline isn't valid yet: source.query is requ")
+	d.mustNot("see the list above")
 }
 
 // Esc closes completions and pickers before it offers to cancel.

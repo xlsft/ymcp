@@ -14,6 +14,7 @@ package wizard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -359,9 +360,24 @@ func (k pipelineKind) snapshot() string {
 func (k pipelineKind) save(run bool) (tea.Cmd, string) {
 	p := clonePipeline(*k.sh.p).WithDefaults()
 	if err := p.Validate(); err != nil {
-		return nil, "the pipeline isn't valid yet; see the list above"
+		return nil, "the pipeline isn't valid yet: " + firstProblem(err)
 	}
 	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }, ""
+}
+
+// firstProblem names the first thing wrong with a pipeline, and how many
+// more there are: the save can be asked for on any step, where no list of
+// problems shows.
+func firstProblem(err error) string {
+	var ve *spec.ValidationError
+	if !errors.As(err, &ve) || len(ve.Problems) == 0 {
+		return err.Error()
+	}
+	first, _, _ := strings.Cut(ve.Problems[0], ": ")
+	if n := len(ve.Problems) - 1; n > 0 {
+		first += fmt.Sprintf(" (and %d more)", n)
+	}
+	return first
 }
 
 func (k pipelineKind) header() string {
