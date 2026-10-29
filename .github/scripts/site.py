@@ -9,7 +9,7 @@ fresh ones from the site branch, the figures its meta tags and structured
 data quote, and the nav's loader (docs/loader-black.gif, with its first
 frame as the still); it is written to OUT_DIR/index.html. Next to it go
 robots.txt, sitemap.xml, the icons, the promo video from docs/promo and its
-poster, and, drawn by headless Chrome
+poster, CNAME and .nojekyll for GitHub Pages, and, drawn by headless Chrome
 ($CHROME, google-chrome by default), the PNG icons and og.png from
 site/og.html.
 """
@@ -111,6 +111,9 @@ def main():
     print("%s: %d bytes" % (out / "index.html", len(page)))
 
     (out / "robots.txt").write_text("User-agent: *\nAllow: /\n\nSitemap: %ssitemap.xml\n" % SITE)
+    # GitHub Pages serves the site branch at ymcp.su, as it is (no Jekyll).
+    (out / "CNAME").write_text(SITE.split("/")[2] + "\n")
+    (out / ".nojekyll").write_text("")
     (out / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
