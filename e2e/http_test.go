@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +43,13 @@ func TestDockerImage(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil || exec.Command("docker", "info").Run() != nil {
 		t.Skip("no Docker here")
 	}
+	// A YouTrack of the run's own is on the host's loopback, which a
+	// container shares only on the host network, and that only on Linux.
+	u, _ := url.Parse(endpoint)
+	hostNet := u != nil && u.Hostname() == "127.0.0.1"
+	if hostNet && runtime.GOOS != "linux" {
+		t.Skip("a container reaches the host's loopback only on Linux")
+	}
 	image := "ymcp-e2e:" + runID
 	build := exec.Command("docker", "build", "-q", "--build-arg", "VERSION=e2e", "-t", image, "..")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -55,8 +64,13 @@ func TestDockerImage(t *testing.T) {
 	token := "e2e-token-" + runID
 	port := freePort(t)
 	name := "ymcp-e2e-" + runID
-	run := exec.Command("docker", "run", "-d", "--name", name, "-p", "127.0.0.1:"+port+":8090",
-		"-v", dir+":/config", "-e", "YMCP_HTTP_TOKEN="+token, "-e", "YMCP_UPDATE_CHECK=off", image)
+	args := []string{"run", "-d", "--name", name, "-v", dir + ":/config", "-e", "YMCP_HTTP_TOKEN=" + token, "-e", "YMCP_UPDATE_CHECK=off"}
+	if hostNet {
+		args = append(args, "--network", "host", image, "serve", "--transport", "http", "--addr", "127.0.0.1:"+port)
+	} else {
+		args = append(args, "-p", "127.0.0.1:"+port+":8090", image)
+	}
+	run := exec.Command("docker", args...)
 	if out, err := run.CombinedOutput(); err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
 	}
@@ -79,7 +93,7 @@ func httpConfig(t *testing.T) string {
 	unbanMember(t)
 	dir := t.TempDir()
 	cfg := map[string]any{"profiles": map[string]any{
-		"e2e-admin":  map[string]any{"displayName": "E2E admin", "url": endpoint, "login": os.Getenv("YOUTRACK_E2E_LOGIN"), "password": os.Getenv("YOUTRACK_E2E_PASSWORD")},
+		"e2e-admin":  map[string]any{"displayName": "E2E admin", "url": endpoint, "login": adminLogin, "password": adminPassword},
 		"e2e-member": map[string]any{"displayName": "E2E member", "url": endpoint, "login": memberLogin, "password": memberPassword(), "tools": []string{"people", "projects"}},
 	}}
 	data, _ := json.Marshal(cfg)
@@ -91,12 +105,21 @@ func httpConfig(t *testing.T) string {
 
 func freePort(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	port, err := listenPort()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return port
+}
+
+// listenPort is a local TCP port free at the moment.
+func listenPort() (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
 	defer ln.Close()
-	return fmt.Sprint(ln.Addr().(*net.TCPAddr).Port)
+	return fmt.Sprint(ln.Addr().(*net.TCPAddr).Port), nil
 }
 
 // bearer adds the token to every request.
@@ -141,7 +164,7 @@ func checkHTTP(t *testing.T, base, token string, logs func() string) {
 		login string
 		tools int
 	}{
-		"e2e-admin":  {os.Getenv("YOUTRACK_E2E_LOGIN"), 58},
+		"e2e-admin":  {adminLogin, 58},
 		"e2e-member": {memberLogin, 6},
 	} {
 		ctx := context.Background()

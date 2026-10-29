@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ import (
 const memberLogin = marker + "-regular"
 
 func memberPassword() string {
-	sum := sha256.Sum256([]byte(memberLogin + "\x00" + os.Getenv("YOUTRACK_E2E_PASSWORD")))
+	sum := sha256.Sum256([]byte(memberLogin + "\x00" + adminPassword))
 	return "Ym-" + hex.EncodeToString(sum[:12]) + "-Pw!"
 }
 

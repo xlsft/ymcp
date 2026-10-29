@@ -1,14 +1,20 @@
 //go:build e2e
 
 // Package e2e runs the ymcp binary as an MCP server over stdio against a real
-// YouTrack, the way MCP clients do. It needs YOUTRACK_E2E_ENDPOINT,
-// YOUTRACK_E2E_LOGIN and YOUTRACK_E2E_PASSWORD; without them it skips.
+// YouTrack, the way MCP clients do. With YOUTRACK_E2E_ENDPOINT,
+// YOUTRACK_E2E_LOGIN and YOUTRACK_E2E_PASSWORD it tests that instance;
+// without them it starts a fresh one in Docker for the run (see
+// youtrack_test.go), and skips when there is no Docker.
 //
 //	go test -tags e2e -count=1 -v ./e2e
 //
 // Everything the tests create carries the marker prefix and the run's ID and
 // is deleted when they finish. Runs may overlap: each sweeps only its own
 // objects and those of runs long over, and fails only for its own leftovers.
+//
+// An instance that is down or read-only isn't a failure of ymcp: the run
+// waits for it for YOUTRACK_E2E_WAIT (10m by default) and, if it stays
+// unavailable or goes away midway, exits with exitUnavailable.
 package e2e
 
 import (
@@ -80,15 +86,30 @@ type server struct {
 	logFile string
 }
 
-func TestMain(m *testing.M) {
+func TestMain(m *testing.M) { os.Exit(run(m)) }
+
+func run(m *testing.M) int {
 	endpoint = os.Getenv("YOUTRACK_E2E_ENDPOINT")
 	login := os.Getenv("YOUTRACK_E2E_LOGIN")
 	password := os.Getenv("YOUTRACK_E2E_PASSWORD")
-	adminLogin, adminPassword = login, password
-	if endpoint == "" || login == "" || password == "" {
-		fmt.Println("e2e: YOUTRACK_E2E_ENDPOINT, YOUTRACK_E2E_LOGIN and YOUTRACK_E2E_PASSWORD are not set; skipping")
-		os.Exit(0)
+	if endpoint == "" {
+		if exec.Command("docker", "info").Run() != nil {
+			fmt.Println("e2e: no YOUTRACK_E2E_ENDPOINT and no Docker to start a YouTrack in; skipping")
+			return 0
+		}
+		url, stop, err := startYouTrack()
+		if err != nil {
+			fmt.Println("e2e:", err)
+			return 1
+		}
+		defer stop()
+		endpoint, login, password = url, throwawayLogin, throwawayPassword
 	}
+	if login == "" || password == "" {
+		fmt.Println("e2e: YOUTRACK_E2E_ENDPOINT is set without YOUTRACK_E2E_LOGIN and YOUTRACK_E2E_PASSWORD")
+		return 1
+	}
+	adminLogin, adminPassword = login, password
 
 	dir, err := os.MkdirTemp("", "ymcp-e2e-")
 	if err != nil {
@@ -104,12 +125,25 @@ func TestMain(m *testing.M) {
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
 	if err := build.Run(); err != nil {
 		fmt.Println("e2e: build failed:", err)
-		os.Exit(1)
+		return 1
 	}
 
 	if admin, err = startServer("admin", login, password); err != nil {
 		fmt.Println("e2e:", err)
-		os.Exit(1)
+		return 1
+	}
+	defer admin.close()
+
+	wait := 10 * time.Minute
+	if v := os.Getenv("YOUTRACK_E2E_WAIT"); v != "" {
+		if wait, err = time.ParseDuration(v); err != nil {
+			fmt.Println("e2e: YOUTRACK_E2E_WAIT:", err)
+			return 1
+		}
+	}
+	if err := waitAvailable(wait); err != nil {
+		fmt.Printf("e2e: YouTrack stayed unavailable for %s, so nothing was tested: %s\n", wait, err)
+		return exitUnavailable
 	}
 
 	sweep(stale)
@@ -129,11 +163,15 @@ func TestMain(m *testing.M) {
 		fmt.Println("e2e: objects left behind:", left)
 		code = 1
 	}
-	admin.close()
 	if code != 0 {
 		admin.dumpLog()
+		// Failures while the instance was out say nothing about ymcp.
+		if text := outageSeen(); text != "" {
+			fmt.Printf("e2e: YouTrack became unavailable during the run, so its failures don't count: %s\n", shortText(text))
+			return exitUnavailable
+		}
 	}
-	os.Exit(code)
+	return code
 }
 
 // startServer runs `ymcp -v serve` signed in as login and connects to it.
@@ -221,6 +259,9 @@ func (s *server) call(t testing.TB, tool string, args map[string]any) result {
 		if tc, ok := c.(*mcp.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
+	}
+	if res.IsError {
+		noteOutage(b.String())
 	}
 	return result{b.String(), res.IsError}
 }
@@ -388,7 +429,7 @@ func unbanMember(t *testing.T) {
 // scrub hides the passwords the suite knows from text bound for the log;
 // CI logs of the public repository are public.
 func scrub(s string) string {
-	for _, pw := range []string{os.Getenv("YOUTRACK_E2E_PASSWORD"), memberPassword()} {
+	for _, pw := range []string{adminPassword, memberPassword()} {
 		if pw != "" {
 			s = strings.ReplaceAll(s, pw, "***")
 		}

@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 )
@@ -14,7 +13,7 @@ import (
 func TestInstance(t *testing.T) {
 	var me struct{ Login, FullName string }
 	must(t, "get_current_user", nil, &me)
-	if !strings.EqualFold(me.Login, os.Getenv("YOUTRACK_E2E_LOGIN")) {
+	if !strings.EqualFold(me.Login, adminLogin) {
 		t.Errorf("signed in as %q, not the configured login", me.Login)
 	}
 
