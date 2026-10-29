@@ -26,7 +26,7 @@ import (
 	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
-func newServer(yt *youtrack.Client, logger *slog.Logger, enabled map[string]bool) *mcp.Server {
+func newServer(yt *youtrack.Client, logger *slog.Logger, enabled map[string]bool, confirm bool) *mcp.Server {
 	// The SDK logs session plumbing at info; keep that for -v only.
 	sdkLogger := logger
 	if !logger.Enabled(context.Background(), slog.LevelDebug) {
@@ -36,7 +36,7 @@ func newServer(yt *youtrack.Client, logger *slog.Logger, enabled map[string]bool
 		Instructions: "Tools for the YouTrack instance at " + yt.BaseURL() + ". Issues are addressed by readable ID (e.g. PRJ-123).",
 		Logger:       sdkLogger,
 	})
-	tools.Register(s, yt, enabled)
+	tools.RegisterWith(s, yt, enabled, tools.Options{Confirm: confirm})
 	s.AddReceivingMiddleware(logRequests(logger))
 	return s
 }
@@ -163,6 +163,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	token := fs.String("token", "", "bearer token HTTP clients must send (YMCP_HTTP_TOKEN also works)")
 	only := fs.String("profiles", "", "comma-separated profiles to serve over HTTP (default: all, or --profile)")
 	toolsFlag := fs.String("tools", "", `tool groups or tools to serve, e.g. "issues,articles,-delete_issue" (YMCP_TOOLS also works; default: the profile's, or all)`)
+	confirmFlag := fs.String("confirm", "", `"on" or "off": whether destructive tools ask for the user's confirmation first (YMCP_CONFIRM also works; default: the profile's, on)`)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -171,6 +172,13 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 	}
 	if *toolsFlag == "" {
 		*toolsFlag = os.Getenv("YMCP_TOOLS")
+	}
+	if *confirmFlag == "" {
+		*confirmFlag = os.Getenv("YMCP_CONFIRM")
+	}
+	confirmOverride, err := parseSwitch(*confirmFlag)
+	if err != nil {
+		return fmt.Errorf("--confirm: %w", err)
 	}
 
 	switch *transport {
@@ -195,10 +203,11 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 			logger.Error("can't start", "err", err)
 			return err
 		}
-		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "tools", summary, "log", cmp.Or(logPath, "off"))
+		confirm := confirms(confirmOverride, cfg)
+		logger.Info("ymcp started", "version", version, "transport", "stdio", "youtrack", yt.BaseURL(), "tools", summary, "confirm", onOff(confirm), "log", cmp.Or(logPath, "off"))
 		defer logger.Info("ymcp stopped")
 		checkForUpdate(ctx, logger)
-		return newServer(yt, logger, enabled).Run(ctx, &mcp.StdioTransport{})
+		return newServer(yt, logger, enabled, confirm).Run(ctx, &mcp.StdioTransport{})
 	case "http":
 		ln, err := net.Listen("tcp", *addr)
 		if err != nil {
@@ -209,7 +218,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 		if _, port, _ := net.SplitHostPort(*addr); port == "0" {
 			base = "http://" + ln.Addr().String()
 		}
-		handler, served, err := httpHandler(base, *token, *only, *toolsFlag, logger)
+		handler, served, err := httpHandler(base, *token, *only, *toolsFlag, confirmOverride, logger)
 		if err != nil {
 			ln.Close()
 			logger.Error("can't start", "err", err)
@@ -243,7 +252,7 @@ func serve(ctx context.Context, args []string, logger *slog.Logger, logPath stri
 // httpHandler serves each profile at /<key>, and the default one at / too.
 // Profiles that can't sign in are skipped with a warning; it returns the
 // keys it serves and logs the URL of each.
-func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http.Handler, []string, error) {
+func httpHandler(base, token, only, toolsSpec string, confirmOverride *bool, logger *slog.Logger) (http.Handler, []string, error) {
 	names, def, err := httpProfiles(only)
 	if err != nil {
 		return nil, nil, err
@@ -269,7 +278,8 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 			l.Warn("profile skipped", "err", err)
 			continue
 		}
-		srv := newServer(yt, l, enabled)
+		confirm := confirms(confirmOverride, cfg)
+		srv := newServer(yt, l, enabled, confirm)
 		h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 		mux.Handle("/"+name, h)
 		mux.Handle("/"+name+"/", h)
@@ -278,7 +288,7 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 			mux.Handle("/{$}", h)
 			urls += " and " + base + "/"
 		}
-		l.Info("serving profile", "name", cfg.Title(), "youtrack", yt.BaseURL(), "tools", summary, "url", urls)
+		l.Info("serving profile", "name", cfg.Title(), "youtrack", yt.BaseURL(), "tools", summary, "confirm", onOff(confirm), "url", urls)
 		served = append(served, name)
 	}
 	if len(served) == 0 {
@@ -300,6 +310,30 @@ func httpHandler(base, token, only, toolsSpec string, logger *slog.Logger) (http
 	})
 	outer.Handle("/", handler)
 	return outer, served, nil
+}
+
+// parseSwitch reads an on/off setting; "" is nil, meaning not set.
+func parseSwitch(s string) (*bool, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return nil, nil
+	case "on", "true", "yes", "1":
+		on := true
+		return &on, nil
+	case "off", "false", "no", "0":
+		off := false
+		return &off, nil
+	}
+	return nil, fmt.Errorf("%q is neither on nor off", s)
+}
+
+// confirms is whether a profile's destructive tools ask for
+// confirmation: the --confirm override, else the profile's setting.
+func confirms(override *bool, cfg config.Config) bool {
+	if override != nil {
+		return *override
+	}
+	return cfg.Confirms()
 }
 
 // toolSelection picks the tools to serve: spec (from --tools or
@@ -399,7 +433,8 @@ func call(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 
 	ct, st := mcp.NewInMemoryTransports()
-	if _, err := newServer(yt, logger, nil).Connect(ctx, st, nil); err != nil {
+	// A person runs the tool here, so it does not ask them to confirm.
+	if _, err := newServer(yt, logger, nil, false).Connect(ctx, st, nil); err != nil {
 		return err
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "ymcp-call", Version: version}, nil).Connect(ctx, ct, nil)

@@ -35,8 +35,13 @@ func setup(ctx context.Context, args []string) error {
 	name := fs.String("name", "", `profile display name, e.g. "YouTrack (work)"; its key is the MCP server name`)
 	remove := fs.Bool("remove", false, "remove the --profile profile and its client registrations")
 	toolsFlag := fs.String("tools", "", `tool groups or tools the profile serves, e.g. "issues,articles"; "all" for every tool`)
+	confirmFlag := fs.String("confirm", "", `"on" or "off": whether the profile's destructive tools ask for the user's confirmation first (default on)`)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	confirm, err := parseSwitch(*confirmFlag)
+	if err != nil {
+		return fmt.Errorf("--confirm: %w", err)
 	}
 	ask := interactive() && *only == "" && !*all && !*remove
 
@@ -119,10 +124,13 @@ func setup(ctx context.Context, args []string) error {
 		fmt.Println(styleOK.Render("✓") + " Renamed profile " + oldName + " to " + styleBold.Render(key))
 	}
 
-	// 4. Its tools.
+	// 4. Its tools, and whether the destructive ones ask first.
 	changed, err := pickTools(&cfg, *toolsFlag, ask)
 	if err != nil {
 		return err
+	}
+	if confirm != nil && *confirm != cfg.Confirms() {
+		cfg.Confirm, changed = confirmSetting(*confirm), true
 	}
 	if changed {
 		if _, err := config.Save(cfg, ""); err != nil {
@@ -186,6 +194,15 @@ func pickTools(cfg *config.Config, spec string, ask bool) (bool, error) {
 	changed := !slices.Equal(chosen, cfg.Tools)
 	cfg.Tools = chosen
 	return changed, nil
+}
+
+// confirmSetting is how a profile stores the confirmation switch: nil
+// for the default, on.
+func confirmSetting(on bool) *bool {
+	if on {
+		return nil
+	}
+	return &on
 }
 
 // pickProfile chooses the profile to set up: the --profile one, the only

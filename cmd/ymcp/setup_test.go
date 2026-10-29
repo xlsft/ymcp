@@ -93,6 +93,19 @@ func TestSetupRenamesAddsAndRemovesProfiles(t *testing.T) {
 		t.Errorf("tools after all = %v", cfg.Tools)
 	}
 
+	// Turn its confirmations off and on again.
+	captureStdout(t, func() error { return run([]string{"--profile", "youtrack-acme", "setup", "--confirm", "off", "--all"}) })
+	if cfg, _ := config.Load("youtrack-acme"); cfg.Confirms() {
+		t.Error("confirmations still on after --confirm off")
+	}
+	captureStdout(t, func() error { return run([]string{"--profile", "youtrack-acme", "setup", "--confirm", "on", "--all"}) })
+	if cfg, _ := config.Load("youtrack-acme"); !cfg.Confirms() || cfg.Confirm != nil {
+		t.Errorf("after --confirm on: %v", cfg.Confirm)
+	}
+	if err := run([]string{"--profile", "youtrack-acme", "setup", "--confirm", "maybe", "--all"}); err == nil {
+		t.Error("--confirm maybe was taken")
+	}
+
 	// Remove it again.
 	if _, err := captureStdout(t, func() error {
 		return run([]string{"--profile", "youtrack-acme", "setup", "--remove"})
