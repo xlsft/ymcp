@@ -107,7 +107,7 @@ const exitUnavailable = 3
 
 // outageText finds the answers of an instance that is down, restarting or
 // in read-only mode for maintenance, as ymcp's errors put them.
-var outageText = regexp.MustCompile(`(?i): (418|502|503|504)\b|read-only mode|maintenance|connection refused|connection reset`)
+var outageText = regexp.MustCompile(`(?i): (418|502|503|504)\b|read-only mode|maintenance|connection refused|connection reset|Client\.Timeout exceeded|i/o timeout|TLS handshake timeout`)
 
 var (
 	outageMu sync.Mutex
@@ -136,24 +136,26 @@ func outageSeen() string {
 
 // waitAvailable waits until the instance takes a write, for up to wait: a
 // read-only instance still answers reads. It creates and deletes a marked
-// tag, and reports the last outage error if the instance never took it.
+// tag, and reports the last outage error if the instance never took both.
+// A tag the instance kept is swept at the end, by the run ID in its name.
 func waitAvailable(wait time.Duration) error {
 	t := &sweepT{}
-	name := marker + " probe " + runID
 	deadline := time.Now().Add(wait)
-	for {
+	for try := 1; ; try++ {
+		name := fmt.Sprintf("%s probe %s %d", marker, runID, try)
 		r := call(t, "create_tag", map[string]any{"name": name})
 		if !r.isError {
 			var tag struct{ ID string }
 			json.Unmarshal([]byte(r.text), &tag)
-			call(t, "delete_tag", map[string]any{"tag": tag.ID})
+			r = call(t, "delete_tag", map[string]any{"tag": tag.ID})
+		}
+		// Taken, or failed for a reason the tests will name: either way
+		// the outage the wait saw is over.
+		if !r.isError || !outageText.MatchString(r.text) {
 			outageMu.Lock()
-			outage = "" // what the wait saw is over
+			outage = ""
 			outageMu.Unlock()
 			return nil
-		}
-		if !outageText.MatchString(r.text) {
-			return nil // not an outage; the tests will say what is wrong
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("%s", shortText(r.text))
