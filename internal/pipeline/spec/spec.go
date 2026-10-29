@@ -98,7 +98,7 @@ type Workspace struct {
 	Base         string  `json:"base,omitempty"`         // the branch to start from; empty for origin's default branch
 	Branch       string  `json:"branch"`                 // template of a run's branch, default "{{issue.id}}-{{issue.summary | slug}}"
 	CommitPrefix *string `json:"commitPrefix,omitempty"` // template put in front of the agent's commit messages, default "{{issue.id}}"; "" for none
-	Worktrees    string  `json:"worktrees,omitempty"`    // where the runs' worktrees go; empty for <user cache dir>/ymcp/worktrees/<pipeline> on the host
+	Worktrees    string  `json:"worktrees,omitempty"`    // where the runs' worktrees go, ~ being the home directory on the host; empty for <user cache dir>/ymcp/worktrees/<pipeline> on the host
 	Parallel     int     `json:"parallel"`               // how many issues are worked on at once, default 1
 	KeepWorktree bool    `json:"keepWorktree,omitempty"` // keep a run's worktree after it ends
 	// A git author of the agent's own in each worktree. Off by default: the

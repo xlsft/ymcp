@@ -920,7 +920,7 @@ A pipeline is a JSON file in `<config dir>/ymcp/pipelines/<name>.json`, written 
 | `workspace.base` | string | The branch to start from; empty for origin's default branch |
 | `workspace.branch` | string | Template of a run's branch, default "{{issue.id}}-{{issue.summary \| slug}}" |
 | `workspace.commitPrefix` | string | Template put in front of the agent's commit messages, default "{{issue.id}}"; "" for none |
-| `workspace.worktrees` | string | Where the runs' worktrees go; empty for <user cache dir>/ymcp/worktrees/<pipeline> on the host |
+| `workspace.worktrees` | string | Where the runs' worktrees go, ~ being the home directory on the host; empty for <user cache dir>/ymcp/worktrees/<pipeline> on the host |
 | `workspace.parallel` | number | How many issues are worked on at once, default 1 |
 | `workspace.keepWorktree` | boolean | Keep a run's worktree after it ends |
 | `workspace.identity` | object | A git author of the agent's own in each worktree. Off by default: the agent commits as the repository's user.name and user.email. |

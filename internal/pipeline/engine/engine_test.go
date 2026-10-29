@@ -1898,6 +1898,16 @@ func TestCheck(t *testing.T) {
 	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Name == "workspace: worktrees" && r.Warning }) {
 		t.Errorf("no .git warning: %+v", res)
 	}
+	// A root under ~: the home directory on the host.
+	h.p.Workspace.Worktrees = "~/wts"
+	o.Pipeline = h.p
+	res, _ = CheckWith(context.Background(), o)
+	home, _ := os.UserHomeDir()
+	if !slices.ContainsFunc(res, func(r CheckResult) bool {
+		return r.Name == "workspace: worktrees" && r.OK && filepath.Clean(r.Detail) == filepath.Join(home, "wts")
+	}) {
+		t.Errorf("~ not expanded: %+v", res)
+	}
 	h.p.Workspace.Worktrees = ""
 
 	// An issue in both the source and the working stage: a warning.
@@ -1906,6 +1916,29 @@ func TestCheck(t *testing.T) {
 	res, _ = CheckWith(context.Background(), o)
 	if !slices.ContainsFunc(res, func(r CheckResult) bool { return r.Name == "working leaves the source" && r.Warning }) {
 		t.Errorf("no overlap warning: %+v", res)
+	}
+}
+
+// A ~ in workspace.worktrees is the home directory on the host: git, given
+// the root as an argument, would make a directory named ~ in the repository.
+func TestWorktreesUnderHome(t *testing.T) {
+	h := newHarness(t, func(p *spec.Pipeline) { p.Workspace.Worktrees = "~/wts" })
+	is := h.yt.addIssue("Fix the login page", "Open")
+	h.ag.script(func(t *fakeTurn) agent.Result {
+		writeFile(t, "login.go", "package login\n")
+		t.Say("Fixed the login page.")
+		return agent.Result{}
+	})
+	h.start()
+
+	run := h.waitReview(1, is.Key)
+	home, _ := os.UserHomeDir()
+	want, _ := filepath.EvalSymlinks(filepath.Join(home, "wts", run.Branch))
+	if got, _ := filepath.EvalSymlinks(run.Worktree); got != want || want == "" {
+		t.Errorf("worktree = %q, want %q", run.Worktree, want)
+	}
+	if _, err := os.Stat(filepath.Join(h.repo, "~")); !os.IsNotExist(err) {
+		t.Errorf("a ~ directory in the repository: %v", err)
 	}
 }
 

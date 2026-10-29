@@ -253,6 +253,19 @@ func (h *SSHHost) CacheDir(ctx context.Context) (string, error) {
 	return c, nil
 }
 
+// HomeDir is $HOME on the host.
+func (h *SSHHost) HomeDir(ctx context.Context) (string, error) {
+	out, stderr, err := h.Run(ctx, "", []string{"sh", "-c", `printf '%s' "$HOME"`}, nil)
+	if err != nil {
+		return "", sshError(h.alias, err, stderr)
+	}
+	home := strings.TrimRight(trim(string(out)), "/")
+	if !strings.HasPrefix(home, "/") {
+		return "", fmt.Errorf("unexpected home directory %q on %s", home, h.alias)
+	}
+	return home, nil
+}
+
 // Close ends the master connection and every forward. A closed host can't
 // be used again.
 func (h *SSHHost) Close() error {

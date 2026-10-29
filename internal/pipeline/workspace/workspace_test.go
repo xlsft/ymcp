@@ -444,6 +444,24 @@ func TestDefaultRoot(t *testing.T) {
 	}
 }
 
+func TestExpandRoot(t *testing.T) {
+	isolate(t)
+	ctx := context.Background()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ExpandRoot(ctx, Local(), "~/wts"); err != nil || filepath.Clean(got) != filepath.Join(home, "wts") {
+		t.Errorf("ExpandRoot(~/wts) = %q, %v", got, err)
+	}
+	if got, err := ExpandRoot(ctx, cachelessHost{Local()}, "/srv/wts"); got != "/srv/wts" || err != nil {
+		t.Errorf("ExpandRoot without ~ = %q, %v", got, err)
+	}
+	if _, err := ExpandRoot(ctx, cachelessHost{Local()}, "~/wts"); err == nil || !strings.Contains(err.Error(), "home directory") {
+		t.Errorf("no home dir: err = %v", err)
+	}
+}
+
 // cachelessHost is a host whose cache directory is unknown.
 type cachelessHost struct{ Host }
 
