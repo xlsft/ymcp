@@ -62,6 +62,7 @@ func TestPrivate(t *testing.T) {
 	for u, want := range map[string]bool{
 		"https://api.example/v1": true, "http://localhost:11434/v1": true, "http://127.0.0.1:4000": true,
 		"http://[::1]:8000": true, "http://gpu.lan:8000/v1": false, "http://10.0.0.5/v1": false,
+		"http://llm.localhost:8000": false,
 	} {
 		if got := Private(u); got != want {
 			t.Errorf("Private(%q) = %v", u, got)
@@ -353,6 +354,36 @@ func TestGatewayAnthropic(t *testing.T) {
 	}
 	if f.auth[0] != "/base/v1/messages Bearer sk-up sk-up" {
 		t.Errorf("upstream got %q", f.auth[0])
+	}
+}
+
+func TestRedirectKeepsTheKey(t *testing.T) {
+	var leaked []string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked = append(leaked, r.Header.Get("X-Api-Key")+r.Header.Get("Authorization"))
+		io.WriteString(w, `{"data":[{"id":"x"}]}`)
+	}))
+	defer other.Close()
+	var same []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/away/v1/models":
+			http.Redirect(w, r, other.URL+"/v1/models", http.StatusFound)
+		case "/here/v1/models":
+			http.Redirect(w, r, "/moved/v1/models", http.StatusFound)
+		default:
+			same = append(same, r.URL.Path+" "+r.Header.Get("X-Api-Key"))
+			io.WriteString(w, `{"data":[{"id":"m"}]}`)
+		}
+	}))
+	defer api.Close()
+	_, err := Models(context.Background(), Upstream{Protocol: Anthropic, URL: api.URL + "/away", Key: "sk"})
+	if err == nil || !strings.Contains(err.Error(), "not following the redirect") || len(leaked) != 0 {
+		t.Errorf("redirect to another host: %v, leaked %q", err, leaked)
+	}
+	ms, err := Models(context.Background(), Upstream{Protocol: Anthropic, URL: api.URL + "/here", Key: "sk"})
+	if err != nil || len(ms) != 1 || len(same) != 1 || same[0] != "/moved/v1/models sk" {
+		t.Errorf("redirect on the same host: %v %v %q", ms, err, same)
 	}
 }
 

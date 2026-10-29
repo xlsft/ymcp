@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,20 @@ type Gateway struct {
 	logger *slog.Logger
 }
 
+// apiClient sends requests with the key. It follows a redirect only on
+// the same host and never from HTTPS to HTTP: Go would pass X-Api-Key on
+// to any host, and Authorization over plain HTTP.
+var apiClient = &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	from := via[0].URL
+	switch {
+	case len(via) >= 10:
+		return errors.New("too many redirects")
+	case !strings.EqualFold(req.URL.Host, from.Host) || (from.Scheme == "https" && req.URL.Scheme != "https"):
+		return fmt.Errorf("not following the redirect to %s with the API key", req.URL.Redacted())
+	}
+	return nil
+}}
+
 // NewGateway returns the gateway to up. logger may be nil.
 func NewGateway(up Upstream, logger *slog.Logger) (*Gateway, error) {
 	if logger == nil {
@@ -36,7 +51,7 @@ func NewGateway(up Upstream, logger *slog.Logger) (*Gateway, error) {
 		return nil, fmt.Errorf("endpoint: %w", err)
 	}
 	up.URL = strings.TrimRight(strings.TrimSpace(up.URL), "/")
-	g := &Gateway{up: up, client: &http.Client{}, logger: logger}
+	g := &Gateway{up: up, client: apiClient, logger: logger}
 	switch up.Protocol {
 	case Anthropic:
 		base, _ := url.Parse(up.URL)
@@ -275,7 +290,7 @@ func Models(ctx context.Context, up Upstream) ([]string, error) {
 	if up.Protocol == Anthropic {
 		req.Header.Set("Anthropic-Version", "2023-06-01")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -127,7 +127,8 @@ func CheckURL(raw string) error {
 }
 
 // Private reports whether requests to the API at baseURL can't be read on
-// the way: HTTPS, or plain HTTP to this machine.
+// the way: HTTPS, or plain HTTP to this machine by a name no proxy gets
+// (Go sends *.localhost through HTTP_PROXY).
 func Private(baseURL string) bool {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
@@ -137,7 +138,7 @@ func Private(baseURL string) bool {
 		return true
 	}
 	h := u.Hostname()
-	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+	if h == "localhost" {
 		return true
 	}
 	ip := net.ParseIP(h)
