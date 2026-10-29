@@ -3,6 +3,7 @@ package spec
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -115,6 +116,30 @@ func TestFreeNameStaysValid(t *testing.T) {
 	got, err := freeName(long, func(n string) (bool, error) { return n == long, nil })
 	if err != nil || len(got) != 40 || !strings.HasSuffix(got, "-2") || CheckName(got) != nil {
 		t.Fatalf("freeName = %q, %v", got, err)
+	}
+}
+
+func TestFreeNameGivesUp(t *testing.T) {
+	if _, err := freeName("a", func(string) (bool, error) { return true, nil }); err == nil {
+		t.Fatal("no error when every name is taken")
+	}
+}
+
+func TestImportFailsOnUnreadableDir(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("needs unix permissions")
+	}
+	dir := setup(t)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	b := Bundle{Format: BundleFormat, Version: 1, Pipelines: []Pipeline{minimal("a")}}
+	if _, err := Import(b, ""); err == nil {
+		t.Fatal("imported into an unreadable directory")
 	}
 }
 

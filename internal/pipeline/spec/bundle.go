@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 )
@@ -169,19 +170,27 @@ func samePreset(a, b Preset) bool {
 	return a.Rationale == b.Rationale && a.Start == b.Start && a.Feedback == b.Feedback && a.Answer == b.Answer
 }
 
+// pipelineTaken reports whether a pipeline file of that name is there,
+// readable or not.
 func pipelineTaken(name string) (bool, error) {
-	_, err := Load(name)
-	if errors.Is(err, ErrNotFound) {
+	path, err := filePath(name)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
-	// A file that cannot be read is still taken.
-	return true, nil
+	return err == nil, err
 }
+
+// maxNameTries bounds the numbers freeName tries.
+const maxNameTries = 1000
 
 // freeName is name, or else the first of name-2, name-3… that is not
 // taken, shortened to stay a valid name.
 func freeName(name string, taken func(string) (bool, error)) (string, error) {
-	for n := 1; ; n++ {
+	for n := 1; n <= maxNameTries; n++ {
 		try := name
 		if n > 1 {
 			suffix := "-" + strconv.Itoa(n)
@@ -195,4 +204,5 @@ func freeName(name string, taken func(string) (bool, error)) (string, error) {
 			return try, nil
 		}
 	}
+	return "", fmt.Errorf("no free name for %q: %s-2 to %s-%d are taken", name, name, name, maxNameTries)
 }
