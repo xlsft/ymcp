@@ -8,7 +8,8 @@ The page gets them built in, as the copy it shows until it has fetched the
 fresh ones from the site branch, the figures its meta tags and structured
 data quote, and the nav's loader (docs/loader-black.gif, with its first
 frame as the still); it is written to OUT_DIR/index.html. Next to it go
-robots.txt, sitemap.xml and the icons, and, drawn by headless Chrome
+robots.txt, sitemap.xml, the icons, the promo video from docs/promo and its
+poster, and, drawn by headless Chrome
 ($CHROME, google-chrome by default), the PNG icons and og.png from
 site/og.html.
 """
@@ -17,10 +18,13 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
 LOADER = pathlib.Path("docs/loader-black.gif")
+# The promo video the hero plays, and its poster, published as promo.*.
+PROMO = {"promo.webm": "docs/promo/ymcp-promo.webm", "promo.mp4": "docs/promo/ymcp-promo.mp4", "promo.jpg": "docs/promo/poster.jpg"}
 SITE = "https://ymcp.su/"
 
 
@@ -111,6 +115,8 @@ def main():
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         "  <url><loc>%s</loc></url>\n</urlset>\n" % SITE)
+    for name, path in PROMO.items():
+        shutil.copy(path, out / name)
     icon = (src / "favicon.svg").read_text(encoding="utf-8")
     (out / "favicon.svg").write_text(icon, encoding="utf-8")
 

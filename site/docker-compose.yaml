@@ -4,9 +4,9 @@
 #   docker compose up -d
 #
 # nginx serves the page the Site workflow last published on the site branch,
-# with its robots.txt, sitemap, icons and Open Graph picture, fetched at start
-# and then every 10 minutes, so it follows main on its own. YMCP_SITE points
-# it at another copy of the branch.
+# with its robots.txt, sitemap, icons, Open Graph picture and promo video,
+# fetched at start and then every 10 minutes, so it follows main on its own.
+# YMCP_SITE points it at another copy of the branch.
 # The page loads its data and TUI screens from the same branch, and fonts from
 # Google Fonts.
 services:
@@ -16,7 +16,7 @@ services:
       - "13453:80"
     environment:
       SITE: ${YMCP_SITE:-https://raw.githubusercontent.com/xlsft/ymcp/site}
-      FILES: index.html robots.txt sitemap.xml favicon.svg favicon-48.png apple-touch-icon.png og.png
+      FILES: index.html robots.txt sitemap.xml favicon.svg favicon-48.png apple-touch-icon.png og.png promo.webm promo.mp4 promo.jpg
       EVERY: "600"
     entrypoint: ["/bin/sh", "-c"]
     command:
