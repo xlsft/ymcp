@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +19,7 @@ import (
 const memberLogin = marker + "-regular"
 
 func memberPassword() string {
-	sum := sha256.Sum256([]byte(memberLogin + "\x00" + os.Getenv("YOUTRACK_E2E_PASSWORD")))
+	sum := sha256.Sum256([]byte(memberLogin + "\x00" + adminPassword))
 	return "Ym-" + hex.EncodeToString(sum[:12]) + "-Pw!"
 }
 
@@ -53,7 +52,7 @@ func TestRegularUser(t *testing.T) {
 	hubID := ensureMember(t)
 
 	unbanMember(t)
-	f := newFixture(t)
+	f := project
 	user, err := startServer("user", login, memberPassword())
 	if err != nil {
 		t.Fatal(err)

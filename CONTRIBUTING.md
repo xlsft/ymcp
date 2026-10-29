@@ -48,19 +48,32 @@ YMCP_REFERENCE=write go test ./cmd/ymcp -run TestReference
 
 ## E2E tests
 
-`e2e/` runs the real binary as an MCP server over stdio against a real YouTrack and calls every tool. The test
-account must be an admin there, because the suite creates its own project and agile board. The E2E workflow runs on
-pushes to `main`, on pull requests from this repository, nightly and on demand. It uses the
-`YOUTRACK_E2E_ENDPOINT`, `YOUTRACK_E2E_LOGIN` and `YOUTRACK_E2E_PASSWORD` repository secrets. To run it locally
-against an instance of your own:
+`e2e/` runs the real binary as an MCP server over stdio against a real YouTrack and calls every tool. By default it
+starts a YouTrack of its own in Docker: the image pinned in `e2e/youtrack/Dockerfile` (Dependabot keeps it current),
+with the configuration wizard skipped, signed in as the `admin` that a clean install creates. It comes up in about a
+minute and is removed at the end, so a run shares nothing with any other. That is what pull requests, pushes to `main`
+and releases run:
+
+```sh
+go test -tags e2e -count=1 -v ./e2e
+```
+
+To test an instance of your own instead, give its address and an admin account; the suite creates a project and an
+agile board of its own there:
 
 ```sh
 YOUTRACK_E2E_ENDPOINT=youtrack.example.com YOUTRACK_E2E_LOGIN=admin YOUTRACK_E2E_PASSWORD=… \
   go test -tags e2e -count=1 -v ./e2e
 ```
 
-Without those variables the suite skips. Everything a test creates is named with the `ymcp-e2e` prefix and the
-run's ID (`runID`, six digits) and cleaned up:
+The nightly run and manual ones (`gh workflow run e2e.yml`) also test the shared instance from the `YOUTRACK_E2E_ENDPOINT`,
+`YOUTRACK_E2E_LOGIN` and `YOUTRACK_E2E_PASSWORD` repository secrets, a hosted YouTrack that may get API changes before
+the image does. An instance that is down or read-only isn't a failure of ymcp: the run waits up to
+`YOUTRACK_E2E_WAIT` (10m) for it to take a write, and if it stays unavailable, or goes away during the run, the test
+binary exits with 3, which the workflow reports as a warning that nothing was tested.
+
+Without an endpoint and without Docker the suite skips. Everything a test creates is named with the `ymcp-e2e` prefix
+and the run's ID (`runID`, six digits) and cleaned up:
 
 - `t.Cleanup` deletes each object, even when the test fails;
 - a sweep removes this run's leftovers at the end, and those of runs over two hours old at both ends;
@@ -68,10 +81,13 @@ run's ID (`runID`, six digits) and cleaned up:
 
 Runs may overlap, a pull request's with a release's say, since each keeps to its own objects. Keep it that way
 when adding scenarios: create through the fixture project or with the marker and `runID` in the name, keep queries
-to the fixture project, and delete what you create.
+to the fixture project, and delete what you create. Tests share the run's project but nothing in it: each makes its
+own issues (`newIssue`) and other objects, so any one runs on its own (`-run TestComments`) and a failure in one
+doesn't spill into the next.
 
 Besides the stdio server, the suite runs `ymcp serve --transport http` and a container built from the Dockerfile,
-each serving the admin and the member behind a token; the Docker test skips where Docker isn't running.
+each serving the admin and the member behind a token; the Docker test skips where Docker isn't running, and against a
+YouTrack of the run's own outside Linux, where a container can't reach the host's loopback.
 
 One account is the exception: `ymcp-e2e-regular`, the member without admin rights that runs the non-admin scenarios.
 The license limits users and YouTrack keeps deleted ones, so it is created on the first run and kept. Its password

@@ -44,7 +44,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/e2e.yml
-    secrets: inherit
 
   release:
     needs: [ci, e2e]
