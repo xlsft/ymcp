@@ -181,9 +181,43 @@ nav a:hover, nav a:focus-visible { opacity: 1; text-decoration: underline; text-
 }
 .hero-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 40px; align-items: end; }
 .hero-grid > * { min-width: 0; }
-/* The promo video (docs/promo), from YouTube without cookies until it plays. */
-.video { position: relative; aspect-ratio: 16 / 9; background: var(--ink); }
-.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+/* The promo video (docs/promo) in a player of the page's own: a red Y-square
+   to start it, a flat black strip of controls, the red bar as the progress. */
+.player { position: relative; aspect-ratio: 16 / 9; background: var(--ink); color: #E9E2E1; overflow: hidden; }
+.player video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: var(--ink); cursor: pointer; }
+.player .start {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 22px;
+  appearance: none; border: 0; padding: 0; background: rgba(14, 14, 14, .35); color: #fff; cursor: pointer;
+}
+.player .sq { position: relative; width: clamp(72px, 9vw, 112px); aspect-ratio: 1; background: var(--red); transition: background .15s; }
+.player .sq::before {
+  content: ""; position: absolute; left: 14%; top: 12%; width: 30%; height: 34%;
+  background: #fff; clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.player .sq::after { content: ""; position: absolute; left: 14%; bottom: 13%; width: 40%; height: 7%; background: #fff; }
+.player .start:hover .sq, .player .start:focus-visible .sq { background: var(--ink); }
+.player .start:focus-visible { outline: 2px solid var(--red-hi); outline-offset: -2px; }
+.player .start span:last-child { font: 600 clamp(14px, 1.6vw, 18px)/1 var(--mono); letter-spacing: .04em; }
+.player.playing .start { display: none; }
+.player .ctl {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 4px;
+  padding: 0 8px; height: 44px; background: var(--ink); transition: transform .2s;
+}
+.player:not(.started) .ctl, .player.playing.idle .ctl { transform: translateY(100%); }
+.player.playing.idle video { cursor: none; }
+.player .ctl button {
+  appearance: none; border: 0; background: none; color: inherit; cursor: pointer; padding: 8px 10px;
+  font: 500 12px/1 var(--mono); white-space: nowrap;
+}
+.player .ctl button:hover, .player .ctl button:focus-visible { color: #fff; outline: none; text-decoration: underline; text-underline-offset: 4px; }
+.player .time { font: 400 12px/1 var(--mono); color: #9C8E8C; padding: 0 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.player .track { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; cursor: pointer; margin: 0 8px; }
+.player .track::before { content: ""; flex: 1; height: 4px; background: #3A3230; }
+.player .track i { position: absolute; top: 50%; transform: translateY(-50%); height: 4px; background: var(--red-hi); pointer-events: none; }
+.player .track:hover::before, .player .track:focus-visible::before { height: 6px; }
+.player .track:hover i, .player .track:focus-visible i { height: 6px; }
+.player .track:focus-visible { outline: none; }
+@media (max-width: 560px) { .player .time { display: none; } }
 
 /* Install box */
 .install { background: var(--ink); color: var(--code-fg); }
@@ -368,13 +402,83 @@ footer a:hover, footer a:focus-visible { color: #fff; text-decoration: underline
       </div>
     </div>
 
-    <div class="video">
-      <iframe src="https://www.youtube-nocookie.com/embed/5DUjaV0Obmc?rel=0" title="ymcp in 25 seconds" loading="lazy"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+    <div class="player" id="player">
+      <!-- From the page's own server first, then from the site branch. -->
+      <video id="promo" preload="metadata" playsinline poster="https://raw.githubusercontent.com/xlsft/ymcp/site/promo.jpg" aria-label="ymcp in 25 seconds">
+        <source src="promo.webm" type="video/webm">
+        <source src="promo.mp4" type="video/mp4">
+        <source src="https://raw.githubusercontent.com/xlsft/ymcp/site/promo.webm" type="video/webm">
+        <source src="https://raw.githubusercontent.com/xlsft/ymcp/site/promo.mp4" type="video/mp4">
+      </video>
+      <button class="start" id="p-start" type="button" aria-label="Play the video, 25 seconds"><span class="sq" aria-hidden="true"></span><span id="p-label">Watch · 0:25</span></button>
+      <div class="ctl" id="p-ctl">
+        <button id="p-play" type="button">Pause</button>
+        <span class="time" id="p-time">0:00 / 0:25</span>
+        <div class="track" id="p-track" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="25" aria-valuenow="0" aria-valuetext="0:00"><i id="p-fill"></i></div>
+        <button id="p-mute" type="button">Sound on</button>
+        <button id="p-full" type="button">Full screen</button>
+      </div>
     </div>
   </div>
 </header>
+
+<script>
+// The promo player: play and pause, seek, sound, full screen; the controls
+// hide while it plays and the pointer rests.
+(function () {
+  var box = document.getElementById('player'), v = document.getElementById('promo');
+  var start = document.getElementById('p-start'), label = document.getElementById('p-label');
+  var play = document.getElementById('p-play'), time = document.getElementById('p-time');
+  var track = document.getElementById('p-track'), fill = document.getElementById('p-fill');
+  var mute = document.getElementById('p-mute'), full = document.getElementById('p-full');
+  var idle;
+  function mmss(s) { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+  function toggle() { if (v.paused || v.ended) v.play(); else v.pause(); }
+  function wake() {
+    box.classList.remove('idle'); clearTimeout(idle);
+    if (!v.paused) idle = setTimeout(function () { box.classList.add('idle'); }, 2000);
+  }
+  function draw() {
+    var d = v.duration || 25, at = v.currentTime || 0;
+    fill.style.left = track.offsetLeft + 'px';
+    fill.style.width = (track.offsetWidth * at / d) + 'px';
+    time.textContent = mmss(at) + ' / ' + mmss(d);
+    track.setAttribute('aria-valuemax', Math.round(d));
+    track.setAttribute('aria-valuenow', Math.round(at));
+    track.setAttribute('aria-valuetext', mmss(at));
+  }
+  function seek(e) {
+    var r = track.getBoundingClientRect(), d = v.duration || 25;
+    v.currentTime = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * d;
+  }
+  start.addEventListener('click', function () { v.play(); });
+  v.addEventListener('click', toggle);
+  play.addEventListener('click', toggle);
+  v.addEventListener('play', function () { box.classList.add('playing', 'started'); play.textContent = 'Pause'; wake(); });
+  v.addEventListener('pause', function () { box.classList.remove('playing', 'idle'); play.textContent = 'Play'; label.textContent = 'Resume · ' + mmss(v.currentTime); });
+  v.addEventListener('ended', function () { label.textContent = 'Watch again'; });
+  v.addEventListener('timeupdate', draw);
+  v.addEventListener('loadedmetadata', draw);
+  window.addEventListener('resize', draw);
+  track.addEventListener('click', seek);
+  track.addEventListener('keydown', function (e) {
+    var step = { ArrowLeft: -2, ArrowRight: 2, Home: -1e9, End: 1e9 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault(); v.currentTime = Math.min(Math.max(v.currentTime + step, 0), v.duration || 25);
+  });
+  mute.addEventListener('click', function () { v.muted = !v.muted; mute.textContent = v.muted ? 'Muted' : 'Sound on'; });
+  full.addEventListener('click', function () {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (box.requestFullscreen) box.requestFullscreen();
+    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+  });
+  document.addEventListener('fullscreenchange', function () { full.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; draw(); });
+  box.addEventListener('mousemove', wake);
+  box.addEventListener('keydown', function (e) {
+    if ((e.key === ' ' || e.key === 'k') && e.target.tagName !== 'BUTTON') { e.preventDefault(); toggle(); }
+  });
+})();
+</script>
 
 <main id="top">
   <section id="server">

@@ -31,7 +31,8 @@ docs/promo/make.sh FONT_DIR
 `FONT_DIR` holds `JetBrainsMonoNerdFontMono-{Regular,Bold,Italic}.ttf` from the
 JetBrains Mono Nerd Font v3.5.1, the one the Site workflow downloads. The script
 writes the frames, the page and the parts to `docs/promo/build/` and the video
-to `docs/promo/ymcp-promo.mp4`, in about five minutes.
+to `docs/promo/ymcp-promo.mp4`, with the WebM and the poster the site plays
+(`ymcp-promo.webm`, `poster.jpg`), in about six minutes.
 
 | File | |
 |---|---|

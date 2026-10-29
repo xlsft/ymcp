@@ -22,6 +22,8 @@ on:
       - internal/site/**
       - site/**
       - docs/loader-black.gif
+      - docs/promo/ymcp-promo.*
+      - docs/promo/poster.jpg
       - .github/scripts/screens.py
       - .github/scripts/site.py
       - .github/workflows/site.yml
@@ -81,13 +83,13 @@ jobs:
             git worktree add -q --orphan -b site pub
           fi
           rm -rf pub/screens pub/site.json pub/index.html pub/robots.txt pub/sitemap.xml pub/favicon.svg \
-            pub/favicon-48.png pub/apple-touch-icon.png pub/og.png
+            pub/favicon-48.png pub/apple-touch-icon.png pub/og.png pub/promo.webm pub/promo.mp4 pub/promo.jpg
           cp -R out/. pub/
           cd pub
           git add -A
           # Chrome's pictures differ by a few bytes from run to run; the
           # text they are drawn from doesn't.
-          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html' robots.txt sitemap.xml favicon.svg; then
+          if git rev-parse -q --verify HEAD >/dev/null && git diff --cached --quiet -- index.html site.json 'screens/*.html' robots.txt sitemap.xml favicon.svg promo.webm promo.mp4 promo.jpg; then
             echo "Site page, data and screens unchanged" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
