@@ -24,26 +24,33 @@ type deleteArticleIn struct {
 }
 
 func (t *toolset) registerDeletes(s *mcp.Server) {
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "delete_issue",
 		Description: "Permanently deletes an issue or a draft, with its comments, attachments and work items. " +
 			"This cannot be undone; confirm with the user first.",
 		Annotations: removes("Delete issue"),
-	}, t.deleteIssue)
+	}, t.deleteIssue, always(func(in deleteIssueIn) string {
+		return "permanently delete issue " + in.IssueID + " with its comments, attachments and work items"
+	}))
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "delete_issue_comment",
 		Description: "Deletes a comment from an issue. By default it is marked deleted, as in the UI, and can be restored there; " +
 			"permanent erases it. Comment IDs come from get_issue_comments.",
 		Annotations: removes("Delete issue comment"),
-	}, t.deleteIssueComment)
+	}, t.deleteIssueComment, always(func(in deleteIssueCommentIn) string {
+		if in.Permanent {
+			return "erase comment " + in.CommentID + " of issue " + in.IssueID + " for good"
+		}
+		return "delete comment " + in.CommentID + " of issue " + in.IssueID
+	}))
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "delete_article",
 		Description: "Permanently deletes a knowledge base article. If it has sub-articles, " +
 			"delete or move them first (get_article lists them).",
 		Annotations: removes("Delete article"),
-	}, t.deleteArticle)
+	}, t.deleteArticle, always(func(in deleteArticleIn) string { return "permanently delete article " + in.ArticleID }))
 }
 
 func (t *toolset) deleteIssue(ctx context.Context, in deleteIssueIn) (any, error) {

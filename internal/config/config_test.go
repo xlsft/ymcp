@@ -23,7 +23,8 @@ func setup(t *testing.T) string {
 
 func TestSaveKeepsPasswordInKeychain(t *testing.T) {
 	path := setup(t)
-	in := Config{Name: "youtrack", URL: "https://yt.example.com", Login: "alice", Password: "s3cret", Proxy: "none", Tools: []string{"issues", "-delete_issue"}}
+	off := false
+	in := Config{Name: "youtrack", URL: "https://yt.example.com", Login: "alice", Password: "s3cret", Proxy: "none", Tools: []string{"issues", "-delete_issue"}, Confirm: &off}
 	store, err := Save(in, "")
 	if err != nil || store != "keychain" {
 		t.Fatalf("Save = %q, %v", store, err)
@@ -38,8 +39,11 @@ func TestSaveKeepsPasswordInKeychain(t *testing.T) {
 	}
 
 	got, err := Load("")
-	if err != nil || !reflect.DeepEqual(got, in) {
+	if err != nil || !reflect.DeepEqual(got, in) || got.Confirms() {
 		t.Errorf("Load = %+v, %v", got, err)
+	}
+	if !(Config{}).Confirms() {
+		t.Error("confirmations are off by default")
 	}
 }
 

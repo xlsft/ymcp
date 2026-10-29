@@ -219,7 +219,7 @@ func (f *assistField) view(width int, focused, bad bool) string {
 		f.in.SetCursor(f.in.Position()) // scrolls a long value to the caret
 	}
 	content := f.in.View()
-	if v, room := f.in.Value(), boxWidth(width)-4; !f.in.Focused() && lenRunes(v) > room {
+	if v, room := f.in.Value(), boxWidth(width)-4; !f.in.Focused() && f.in.EchoMode == textinput.EchoNormal && lenRunes(v) > room {
 		// A long value (a path) shows its end; the start is cut.
 		r := []rune(v)
 		content = "…" + string(r[len(r)-room+1:])

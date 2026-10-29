@@ -25,7 +25,7 @@ type callAPIIn struct {
 }
 
 func (t *toolset) registerRawAPI(s *mcp.Server) {
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "call_api",
 		Description: "Calls any YouTrack (or Hub) REST endpoint as the current user, for what no other tool covers. " +
 			"YouTrack returns only entity IDs unless you pass a fields query, e.g. fields=idReadable,summary,customFields(name,value(name)). " +
@@ -35,7 +35,19 @@ func (t *toolset) registerRawAPI(s *mcp.Server) {
 			p["method"].Enum = enum("GET", "POST", "DELETE")
 			p["api"].Enum = enum("youtrack", "hub")
 		}),
-	}, t.callAPI)
+	}, t.callAPI, t.callAPIGuard)
+}
+
+// callAPIGuard asks for confirmation of DELETE calls only.
+func (t *toolset) callAPIGuard(_ context.Context, in callAPIIn) (string, bool, error) {
+	if !strings.EqualFold(in.Method, "DELETE") {
+		return "", false, nil
+	}
+	api := "YouTrack"
+	if strings.EqualFold(in.API, "hub") {
+		api = "Hub"
+	}
+	return "send DELETE " + in.Path + " to the " + api + " REST API", true, nil
 }
 
 func (t *toolset) callAPI(ctx context.Context, in callAPIIn) (any, error) {

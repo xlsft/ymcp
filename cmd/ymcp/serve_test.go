@@ -32,7 +32,7 @@ func TestLogsClientAndToolCalls(t *testing.T) {
 
 	ctx := context.Background()
 	ct, st := mcp.NewInMemoryTransports()
-	if _, err := newServer(yt, logger, nil).Connect(ctx, st, nil); err != nil {
+	if _, err := newServer(yt, logger, nil, false).Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)
 	}
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "9.9"}, nil).Connect(ctx, ct, nil)
@@ -78,7 +78,7 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 	config.Save(config.Config{Name: "broken", URL: "https://broken.example.com", Login: "x"}, "")
 
 	var logs bytes.Buffer
-	handler, served, err := httpHandler("http://ymcp.test", "s3cret", "", "", slog.New(slog.NewTextHandler(&logs, nil)))
+	handler, served, err := httpHandler("http://ymcp.test", "s3cret", "", "", nil, slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil || strings.Join(served, ",") != "home,work" {
 		t.Fatalf("served %v, %v", served, err)
 	}
@@ -132,11 +132,11 @@ func TestHTTPServesEveryProfileBehindAToken(t *testing.T) {
 	}
 
 	// --profiles work: only that one, at / as well.
-	_, served, err = httpHandler("http://ymcp.test", "", "work", "", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, served, err = httpHandler("http://ymcp.test", "", "work", "", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil || strings.Join(served, ",") != "work" {
 		t.Errorf("--profiles work: %v %v", served, err)
 	}
-	if _, _, err := httpHandler("http://ymcp.test", "", "broken", "", slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
+	if _, _, err := httpHandler("http://ymcp.test", "", "broken", "", nil, slog.New(slog.NewTextHandler(io.Discard, nil))); err == nil {
 		t.Error("serving only a broken profile succeeded")
 	}
 }
@@ -175,5 +175,27 @@ func TestToolSelection(t *testing.T) {
 	}
 	if _, _, err := toolSelection("nope", cfg); err == nil {
 		t.Error("unknown group accepted")
+	}
+}
+
+func TestConfirmSwitch(t *testing.T) {
+	off := false
+	for _, c := range []struct {
+		flag string
+		cfg  config.Config
+		want bool
+	}{
+		{"", config.Config{}, true},
+		{"", config.Config{Confirm: &off}, false},
+		{"on", config.Config{Confirm: &off}, true},
+		{"OFF", config.Config{}, false},
+	} {
+		override, err := parseSwitch(c.flag)
+		if err != nil || confirms(override, c.cfg) != c.want {
+			t.Errorf("--confirm %q with %v = %v, %v", c.flag, c.cfg.Confirm, confirms(override, c.cfg), err)
+		}
+	}
+	if _, err := parseSwitch("maybe"); err == nil {
+		t.Error("maybe is a switch")
 	}
 }

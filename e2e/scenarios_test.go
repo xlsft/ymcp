@@ -260,6 +260,28 @@ func TestScenarios(t *testing.T) {
 		mustFail(t, "get_issue", map[string]any{"issueId": other}, "404")
 	})
 
+	t.Run("delete only after a confirmation", func(t *testing.T) {
+		asker, err := startServer("confirm", adminLogin, adminPassword, "YMCP_CONFIRM=on")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer asker.close()
+		id := issue("deleted after a confirmation", nil)
+		t.Cleanup(func() { call(t, "delete_issue", map[string]any{"issueId": id}) })
+		var p struct {
+			ConfirmationRequired bool
+			OperationID, Confirm string
+		}
+		asker.must(t, "delete_issue", map[string]any{"issueId": id}, &p)
+		if !p.ConfirmationRequired || p.Confirm == "" || p.OperationID == "" {
+			t.Fatalf("delete_issue without confirm = %+v", p)
+		}
+		must(t, "get_issue", map[string]any{"issueId": id}, nil)
+		asker.mustFail(t, "delete_issue", map[string]any{"issueId": id, "confirm": "wrong"}, "unknown")
+		asker.must(t, "delete_issue", map[string]any{"issueId": id, "confirm": p.Confirm}, nil)
+		mustFail(t, "get_issue", map[string]any{"issueId": id}, "404")
+	})
+
 	t.Run("work", func(t *testing.T) {
 		api(t, "POST", "admin/projects/"+f.projectID+"/timeTrackingSettings", map[string]any{"fields": "enabled"}, map[string]any{"enabled": true}, nil)
 		var project struct {

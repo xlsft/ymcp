@@ -36,9 +36,15 @@ type Config struct {
 	Proxy       string `json:"proxy,omitempty"`
 	// Tools are the tool groups or tools this profile serves, e.g.
 	// ["issues", "articles", "-delete_issue"]; empty means all.
-	Tools    []string `json:"tools,omitempty"`
-	Password string   `json:"password,omitempty"` // only when the keychain is unavailable
+	Tools []string `json:"tools,omitempty"`
+	// Confirm makes destructive tools ask for the user's confirmation
+	// before they change anything; nil means on.
+	Confirm  *bool  `json:"confirm,omitempty"`
+	Password string `json:"password,omitempty"` // only when the keychain is unavailable
 }
+
+// Confirms reports whether destructive tools ask for confirmation.
+func (c Config) Confirms() bool { return c.Confirm == nil || *c.Confirm }
 
 // Complete reports whether the config is enough to log in.
 func (c Config) Complete() bool {

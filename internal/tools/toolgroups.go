@@ -1,9 +1,15 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/xlsft/ymcp/internal/youtrack"
 )
 
 // Group is a set of related tools that can be turned on or off together,
@@ -111,4 +117,86 @@ func resolve(name string) ([]string, error) {
 		}
 	}
 	return nil, fmt.Errorf("unknown tool or group %q; groups: %s", name, strings.Join(GroupNames(), ", "))
+}
+
+// Info describes a tool for a picker.
+type Info struct {
+	Name, Title, Group string
+	// Destructive tools ask for confirmation when it is on.
+	Destructive bool
+}
+
+var catalog = sync.OnceValue(func() []Info {
+	yt, err := youtrack.New(youtrack.Options{BaseURL: "https://youtrack.invalid", Login: "-", Password: "-", Proxy: "none"})
+	if err != nil {
+		panic(err)
+	}
+	s := mcp.NewServer(&mcp.Implementation{Name: "catalog"}, nil)
+	Register(s, yt, nil)
+	ctx := context.Background()
+	ct, st := mcp.NewInMemoryTransports()
+	ss, err := s.Connect(ctx, st, nil)
+	if err != nil {
+		panic(err)
+	}
+	defer ss.Close()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "catalog"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		panic(err)
+	}
+	defer cs.Close()
+	titles := map[string]string{}
+	for tool, err := range cs.Tools(ctx, nil) {
+		if err != nil {
+			panic(err)
+		}
+		if tool.Annotations != nil {
+			titles[tool.Name] = tool.Annotations.Title
+		}
+	}
+	var out []Info
+	for _, g := range Groups {
+		for _, name := range g.Tools {
+			out = append(out, Info{Name: name, Title: titles[name], Group: g.Name, Destructive: slices.Contains(Destructive, name)})
+		}
+	}
+	return out
+})
+
+// Catalog lists every tool, group by group, with its title.
+func Catalog() []Info { return slices.Clone(catalog()) }
+
+// Compact turns a set of enabled tools into a profile's tool selection,
+// the shorter of the groups and tools to serve or those to leave out
+// ("-api,-delete_issue"); nil when every tool is enabled, and for a nil
+// set, which means all too. Select reads it back to the same set; an
+// empty set has no selection, so pickers must keep one tool on.
+func Compact(enabled map[string]bool) []string {
+	var on, off []string
+	for _, g := range Groups {
+		var in, out []string
+		for _, tool := range g.Tools {
+			if enabled[tool] {
+				in = append(in, tool)
+			} else {
+				out = append(out, "-"+tool)
+			}
+		}
+		switch {
+		case len(out) == 0:
+			on = append(on, g.Name)
+		case len(in) == 0:
+			off = append(off, "-"+g.Name)
+		default:
+			on = append(on, in...)
+			off = append(off, out...)
+		}
+	}
+	switch {
+	case len(off) == 0:
+		return nil
+	case len(off) < len(on):
+		return off
+	}
+	return on
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -90,4 +91,54 @@ func TestSelect(t *testing.T) {
 	if _, err := Select([]string{"api", "-call_api"}); err == nil {
 		t.Error("an empty selection was accepted")
 	}
+}
+
+func TestCatalog(t *testing.T) {
+	list := Catalog()
+	if len(list) != len(listed(t, nil)) {
+		t.Fatalf("%d tools in the catalog", len(list))
+	}
+	for _, it := range list {
+		if it.Title == "" || it.Group == "" {
+			t.Errorf("%+v", it)
+		}
+	}
+	if !slices.ContainsFunc(list, func(it Info) bool { return it.Name == "delete_issue" && it.Destructive }) {
+		t.Error("delete_issue is not destructive")
+	}
+}
+
+func TestCompact(t *testing.T) {
+	for _, items := range [][]string{
+		nil,
+		{"issues", "comments"},
+		{"-api", "-delete_issue"},
+		{"projects", "get_issue"},
+		{"-issues", "-comments", "-attachments", "-articles", "-time", "-agile", "-projects", "-people", "-tags", "-searches", "get_issue"},
+	} {
+		enabled, err := Select(items)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := Compact(enabled)
+		back, err := Select(got)
+		if err != nil || !maps.Equal(back, enabled) {
+			t.Errorf("Compact(Select(%v)) = %v, which selects %d tools, want %d", items, got, len(back), len(enabled))
+		}
+	}
+	if got := strings.Join(Compact(mustSelect(t, "-api", "-delete_issue")), ","); got != "-delete_issue,-api" {
+		t.Errorf("all but two = %s", got)
+	}
+	if got := strings.Join(Compact(mustSelect(t, "projects", "get_issue")), ","); got != "get_issue,projects" {
+		t.Errorf("a group and a tool = %s", got)
+	}
+}
+
+func mustSelect(t *testing.T, items ...string) map[string]bool {
+	t.Helper()
+	enabled, err := Select(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return enabled
 }

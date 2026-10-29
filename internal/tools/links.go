@@ -71,12 +71,14 @@ func (t *toolset) registerLinks(s *mcp.Server) {
 		Annotations: sets("Link issues"),
 	}, t.linkIssues)
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name: "unlink_issues",
 		Description: "Removes a link between two issues; arguments mirror link_issues. " +
 			"{\"targetIssueId\":\"DEMO-1\",\"linkType\":\"subtask of\",\"issueToLinkId\":\"DEMO-2\"} makes DEMO-1 no longer a subtask of DEMO-2.",
 		Annotations: removes("Unlink issues"),
-	}, t.unlinkIssues)
+	}, t.unlinkIssues, always(func(in linkIssuesIn) string {
+		return "remove the link " + in.TargetIssueID + " " + in.LinkType + " " + in.IssueToLinkID
+	}))
 }
 
 func (t *toolset) linkIssues(ctx context.Context, in linkIssuesIn) (any, error) {

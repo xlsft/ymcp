@@ -108,11 +108,13 @@ func (t *toolset) registerWorkItems(s *mcp.Server) {
 		Annotations: readOnly("Get issue work items"),
 	}, t.getIssueWorkItems)
 
-	add(s, &mcp.Tool{
+	addGuarded(t, s, &mcp.Tool{
 		Name:        "delete_work_item",
 		Description: "Permanently deletes a spent time work item. Work item IDs come from get_issue_work_items.",
 		Annotations: removes("Delete work item"),
-	}, t.deleteWorkItem)
+	}, t.deleteWorkItem, always(func(in deleteWorkItemIn) string {
+		return "permanently delete work item " + in.WorkItemID + " of issue " + in.IssueID
+	}))
 }
 
 func (t *toolset) getIssueWorkItems(ctx context.Context, in getIssueWorkItemsIn) (any, error) {

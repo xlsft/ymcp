@@ -24,9 +24,9 @@ Usage:
   ymcp [global flags] [command] [arguments]
 
 Commands:
-  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr, --token, --profiles, --tools
+  serve     Run the MCP server (default). Flags: --transport stdio|http, --addr, --token, --profiles, --tools, --confirm
   auth      Set or replace the URL, login and password of a profile
-  setup     Add, edit or remove YouTrack profiles and register them in MCP clients
+  setup     Profiles in a TUI: sign-in, allowed tools, confirmations, MCP clients; flags for scripts
   check     Log in and print the current user
   call      Call one tool: ymcp call <tool> ['{"json":"args"}']
   logs      Show the server log; -f follows it, -n N sets the lines, --path prints where it is
@@ -101,6 +101,13 @@ A pipeline can narrow these with "notifications": {"providers": [...], "events":
 may come as images or resources. A failure is a result with `isError: true` and a message that says what
 went wrong and what to do: the allowed values, the tool that finds the right ID, or the permission that is missing.
 Custom fields go in and come out by their display names.
+
+**Confirmation.** With confirmations on (a profile's default; `serve --confirm off` turns them off), every tool
+marked destructive below takes one more optional argument, `confirm` (string). `apply_command` asks only for
+commands that remove something, `call_api` only for DELETE. Called without `confirm`, the tool changes
+nothing and answers `{"confirmationRequired": true, "operationId", "operation", "confirm", "expiresAt", "message"}`;
+the model asks the user, and if they agree calls again with the same arguments and `confirm` set to that
+secret. A secret works once, for those arguments, for 10 minutes.
 
 ### Issues: search, read, create, edit, link, commands, history
 

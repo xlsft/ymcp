@@ -31,9 +31,9 @@ Ask the user to run this in their own terminal:
 ymcp setup
 ```
 
-It asks for the YouTrack URL, login and password, checks them, and keeps the password in the system keychain. It
-then offers to register ymcp in the MCP clients it finds, Cline included; the user can tick yours there and skip
-step 3.
+It opens a TUI that asks for the YouTrack URL, login and password, checks them, and keeps the password in the
+system keychain. It then offers to register ymcp in the MCP clients it finds, Cline included; the user can tick yours
+there and skip step 3.
 
 Don't ask the user to type their password into the chat. If they still want ymcp configured through environment
 variables, put them in your MCP config's `env` (step 3) and nowhere else.
@@ -80,4 +80,8 @@ it serves.
 
 `ymcp check` (with `--profile KEY` for another profile) signs in and prints the current user, and so does the
 `get_current_user` tool once the client has started the server. A sign-in error means the URL, login or password is
-wrong; `ymcp setup --reauth` asks for them again.
+wrong; the user fixes them in `ymcp setup`.
+
+Destructive tools (deletes and the like) first answer with `confirmationRequired` and a secret instead of changing
+anything: ask the user, and only if they agree, call the tool again with the same arguments and `confirm` set to
+the secret. `YMCP_CONFIRM=off` in the config's `env` turns that off.
