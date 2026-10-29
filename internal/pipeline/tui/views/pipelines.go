@@ -134,7 +134,11 @@ func (m *Pipelines) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.to != m.id {
 			return m, nil
 		}
-		m.say(importSummary(msg.res))
+		if msg.err != nil {
+			m.fail(errors.New(importSummary(msg.res, msg.err)))
+		} else {
+			m.say(importSummary(msg.res, nil))
+		}
 		if len(msg.res.Pipelines) > 0 {
 			m.want = msg.res.Pipelines[0].To
 		}

@@ -149,6 +149,24 @@ func TestPipelinesImport(t *testing.T) {
 		t.Fatalf("imports = %+v", *in)
 	}
 	d.has("Imported pipelines api and backend → backend-2, preset mine.")
+
+	// An import that stops halfway says what it saved before the error.
+	f.d.ImportPipelines = func(path, profile string) (spec.ImportResult, error) {
+		return spec.ImportResult{Pipelines: []spec.Imported{{From: "api", To: "api"}}}, errors.New("disk full")
+	}
+	d.keys("I")
+	d.has("✗ Imported pipeline api, then failed: disk full")
+}
+
+func TestImportSummaryOnError(t *testing.T) {
+	err := errors.New("disk full")
+	if got := importSummary(spec.ImportResult{}, err); got != "disk full" {
+		t.Errorf("nothing saved: %q", got)
+	}
+	res := spec.ImportResult{Presets: []spec.Imported{{From: "p", To: "p"}}}
+	if got, want := importSummary(res, err), "Imported preset p, then failed: disk full"; got != want {
+		t.Errorf("preset saved: %q, want %q", got, want)
+	}
 }
 
 func TestImportSummary(t *testing.T) {
@@ -163,7 +181,7 @@ func TestImportSummary(t *testing.T) {
 			Presets:   []spec.Imported{{From: "p", To: "p-2"}, {From: "q", To: "q"}},
 		}, "Imported pipelines a, b and c → c-2, presets p → p-2 and q."},
 	} {
-		if got := importSummary(c.res); got != c.want {
+		if got := importSummary(c.res, nil); got != c.want {
 			t.Errorf("importSummary = %q, want %q", got, c.want)
 		}
 	}

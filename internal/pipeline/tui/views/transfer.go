@@ -24,10 +24,12 @@ type fileChosen struct {
 	use   func(path string) tea.Cmd
 }
 
-// imported is the outcome of an import.
+// imported is the outcome of an import: what it saved and, when it
+// stopped halfway, why.
 type imported struct {
 	to  int64
 	res spec.ImportResult
+	err error
 }
 
 // exportFile asks where to export the named pipelines, with their
@@ -47,10 +49,7 @@ func (m *Pipelines) importFile() tea.Cmd {
 	return m.pickFile("Import pipelines", "", false, func(path string) tea.Cmd {
 		return func() tea.Msg {
 			res, err := m.d.ImportPipelines(path, m.profile)
-			if err != nil {
-				return m.report("", err)
-			}
-			return imported{to: m.id, res: res}
+			return imported{to: m.id, res: res, err: err}
 		}
 	})
 }
@@ -116,11 +115,24 @@ func expandHome(path, home string) string {
 }
 
 // importSummary says what an import saved: "Imported pipelines a and
-// b → b-2, preset mine.", a renamed one with the name it got.
-func importSummary(res spec.ImportResult) string {
-	if len(res.Pipelines) == 0 {
+// b → b-2, preset mine.", a renamed one with the name it got. An import
+// that failed says what it saved before the error, if anything.
+func importSummary(res spec.ImportResult, err error) string {
+	saved := importedNames(res)
+	switch {
+	case err != nil && saved == "":
+		return err.Error()
+	case err != nil:
+		return "Imported " + saved + ", then failed: " + err.Error()
+	case len(res.Pipelines) == 0:
 		return "The file has no pipelines."
 	}
+	return "Imported " + saved + "."
+}
+
+// importedNames lists what an import saved: "pipelines a and b → b-2,
+// preset mine"; empty when nothing.
+func importedNames(res spec.ImportResult) string {
 	list := func(one string, items []spec.Imported) string {
 		names := make([]string, len(items))
 		for i, it := range items {
@@ -137,11 +149,14 @@ func importSummary(res spec.ImportResult) string {
 		}
 		return one + " " + names[0]
 	}
-	out := "Imported " + list("pipeline", res.Pipelines)
-	if len(res.Presets) > 0 {
-		out += ", " + list("preset", res.Presets)
+	var parts []string
+	if len(res.Pipelines) > 0 {
+		parts = append(parts, list("pipeline", res.Pipelines))
 	}
-	return out + "."
+	if len(res.Presets) > 0 {
+		parts = append(parts, list("preset", res.Presets))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // exportName is the file name an export suggests: ymcp-<name>.json.
