@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/xlsft/ymcp/internal/update"
 )
 
 func TestStartupUpdateCheck(t *testing.T) {
@@ -43,5 +45,31 @@ func TestStartupUpdateCheck(t *testing.T) {
 	}
 	if got := check("dev"); got != "" {
 		t.Errorf("dev build checked:\n%s", got)
+	}
+}
+
+func TestFormatChanges(t *testing.T) {
+	notes := []update.Notes{
+		{Tag: "v0.3.0", Sections: []update.Section{
+			{Title: "Added", Entries: []string{"`ymcp setup` opens a TUI of your profiles, and `apply_command`, with a removing command, asks first."}},
+		}},
+		{Tag: "v0.2.1", Sections: []update.Section{{Title: "Fixed", Entries: []string{"A short fix."}}}},
+	}
+	got := formatChanges(notes, "0.2.0", 46)
+	want := `
+What's new since 0.2.0
+
+ v0.3.0 
+  Added
+  • ymcp setup opens a TUI of your profiles,
+    and apply_command, with a removing
+    command, asks first.
+
+ v0.2.1 
+  Fixed
+  • A short fix.
+`
+	if got != want {
+		t.Errorf("formatChanges:\n%s\nwant:\n%s", got, want)
 	}
 }

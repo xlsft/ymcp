@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -81,6 +82,108 @@ func (u Updater) Latest(ctx context.Context) (Release, error) {
 		return r, fmt.Errorf("GitHub: %s", resp.Status)
 	}
 	return r, json.NewDecoder(resp.Body).Decode(&r)
+}
+
+// Notes is what one release changed for its users: the What's new its
+// release notes open with, by section (Added, Fixed and so on).
+type Notes struct {
+	Tag      string
+	Sections []Section
+}
+
+// Section is one heading of a release's What's new and its entries.
+type Section struct {
+	Title   string
+	Entries []string
+}
+
+// Changes returns the notes of every published release newer than current,
+// up to and including latest, newest first. A release whose notes have no
+// What's new is left out.
+func (u Updater) Changes(ctx context.Context, current, latest string) ([]Notes, error) {
+	var out []Notes
+	for page := 1; ; page++ {
+		var releases []struct {
+			Tag        string `json:"tag_name"`
+			Body       string `json:"body"`
+			Draft      bool   `json:"draft"`
+			Prerelease bool   `json:"prerelease"`
+		}
+		path := fmt.Sprintf("/repos/%s/releases?per_page=100&page=%d", u.Repo, page)
+		if err := u.getJSON(ctx, path, &releases); err != nil {
+			return nil, err
+		}
+		older := false
+		for _, r := range releases {
+			if r.Draft || r.Prerelease || Newer(r.Tag, latest) {
+				continue
+			}
+			if !Newer(r.Tag, current) {
+				older = true
+				continue
+			}
+			if n := parseNotes(r.Tag, r.Body); len(n.Sections) > 0 {
+				out = append(out, n)
+			}
+		}
+		if older || len(releases) < 100 {
+			break
+		}
+	}
+	slices.SortFunc(out, func(a, b Notes) int {
+		if Newer(a.Tag, b.Tag) {
+			return -1
+		}
+		return 1
+	})
+	return out, nil
+}
+
+// parseNotes reads the What's new section of a release body: "### Title"
+// headings and "- entry" items, an item continued on the lines that follow.
+func parseNotes(tag, body string) Notes {
+	n := Notes{Tag: tag}
+	in := false
+	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "## "):
+			in = strings.EqualFold(strings.TrimSpace(line[3:]), "What's new")
+		case !in:
+		case strings.HasPrefix(line, "### "):
+			n.Sections = append(n.Sections, Section{Title: strings.TrimSpace(line[4:])})
+		case len(n.Sections) == 0:
+		case strings.HasPrefix(line, "- "):
+			sec := &n.Sections[len(n.Sections)-1]
+			sec.Entries = append(sec.Entries, strings.TrimSpace(line[2:]))
+		case strings.TrimSpace(line) != "":
+			sec := &n.Sections[len(n.Sections)-1]
+			if len(sec.Entries) > 0 {
+				sec.Entries[len(sec.Entries)-1] += " " + strings.TrimSpace(line)
+			}
+		}
+	}
+	n.Sections = slices.DeleteFunc(n.Sections, func(s Section) bool { return len(s.Entries) == 0 })
+	return n
+}
+
+func (u Updater) getJSON(ctx context.Context, path string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.API+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := u.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub: %s", resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(v)
 }
 
 // LatestTag returns the tag of the newest release from the web site's

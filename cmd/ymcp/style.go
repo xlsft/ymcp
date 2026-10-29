@@ -10,5 +10,6 @@ var (
 	styleWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	styleBold  = lipgloss.NewStyle().Bold(true)
 	styleDim   = lipgloss.NewStyle().Faint(true)
+	styleCode  = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
 	styleTitle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(brandRed).Padding(0, 1)
 )
