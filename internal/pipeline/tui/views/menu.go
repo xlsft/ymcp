@@ -219,24 +219,38 @@ func (mn *menu) view(title string, details []string, items []menuItem, maxW int)
 var menuHelp = []binding{{"↑↓", "choose"}, {"enter", "run"}, {"esc", "close"}}
 
 // namePrompt asks for a pipeline name in a small box: for Copy… and
-// Rename….
+// Rename…; with startPath, for the path of a file to export to or
+// import from where the system's dialog can't be shown.
 type namePrompt struct {
 	open  bool
 	title string
 	in    textinput.Model
 	err   string
+	path  bool
 	// done runs with the name on enter; it returns an error to keep the
 	// box open with the reason.
 	done func(name string) (tea.Cmd, error)
 }
 
 func (p *namePrompt) start(title, value string, done func(string) (tea.Cmd, error)) tea.Cmd {
+	return p.show(title, value, 40, false, done)
+}
+
+// startPath opens the prompt for a file path, of any length, in a wider
+// box.
+func (p *namePrompt) startPath(title, value string, done func(string) (tea.Cmd, error)) tea.Cmd {
+	return p.show(title, value, 0, true, done)
+}
+
+// open_ opens the prompt with value typed in. The limit is set before the
+// value, which SetValue would cut to it; 0 is no limit.
+func (p *namePrompt) show(title, value string, limit int, path bool, done func(string) (tea.Cmd, error)) tea.Cmd {
 	in := textinput.New()
 	in.Prompt = theme.Accent.Render("›") + " "
-	in.CharLimit = 40
+	in.CharLimit = limit
 	in.SetValue(value)
 	in.CursorEnd()
-	*p = namePrompt{open: true, title: title, in: in, done: done}
+	*p = namePrompt{open: true, title: title, in: in, path: path, done: done}
 	return p.in.Focus()
 }
 
@@ -272,9 +286,12 @@ func (p *namePrompt) update(msg tea.Msg) tea.Cmd {
 }
 
 func (p *namePrompt) view(maxW int) []string {
-	inner := min(44, max(maxW-4, 10))
+	inner, label := min(44, max(maxW-4, 10)), "New name"
+	if p.path {
+		inner, label = min(72, max(maxW-4, 10)), "File"
+	}
 	p.in.Width = max(inner-3, 1)
-	lines := []string{theme.Dim.Render("New name"), p.in.View()}
+	lines := []string{theme.Dim.Render(label), p.in.View()}
 	if p.err != "" {
 		lines = append(lines, "")
 		for _, l := range wrap(p.err, inner) {

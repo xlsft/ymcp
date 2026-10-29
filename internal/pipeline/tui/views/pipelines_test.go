@@ -314,14 +314,14 @@ func TestPipelinesMenu(t *testing.T) {
 	d := drive(t, NewPipelines(&f.d, "youtrack-work"), 120, 30)
 	d.keys("enter")
 	d.fits(120, 30)
-	d.has("─ backend ─", "› Open board", "Stop runner", "Edit", "Logs", "Copy…", "Rename…", "Delete…",
+	d.has("─ backend ─", "› Open board", "Stop runner", "Edit", "Logs", "Copy…", "Export…", "Rename…", "Delete…",
 		"↑↓ choose", "enter run", "esc close",
 		// what the card leaves out
 		"agent    Claude", "publish  push the branch", "repo     /home/dev/code/backend", "source   project: BE #Unresolved")
 	d.hasNot("Run in background", "o board")
 	// Each item shows its key on the right edge of the box.
 	for _, item := range [][2]string{{"Open board", "o"}, {"Stop runner", "s"}, {"Edit", "e"}, {"Logs", "L"},
-		{"Copy…", "c"}, {"Rename…", "R"}, {"Delete…", "d"}} {
+		{"Copy…", "c"}, {"Export…", "x"}, {"Rename…", "R"}, {"Delete…", "d"}} {
 		re := regexp.MustCompile(regexp.QuoteMeta(item[0]) + ` +` + item[1] + ` │`)
 		if !re.MatchString(d.view()) {
 			t.Errorf("no %q with key %s in the menu:\n%s", item[0], item[1], d.view())
@@ -336,7 +336,7 @@ func TestPipelinesMenu(t *testing.T) {
 	d.keys("enter")
 	d.has("› Logs", "✗ The runner log can't be read here; run `ymcp pipeline backend logs`.")
 	// Rename and delete wait for the runner to stop.
-	d.keys("down", "down")
+	d.keys("down", "down", "down")
 	d.has("› Rename…", "Stop the runner before", "renaming")
 	d.keys("down")
 	d.has("› Delete…", "Stop the runner before", "deleting")

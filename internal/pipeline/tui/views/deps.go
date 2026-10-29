@@ -28,6 +28,15 @@ import (
 	"github.com/xlsft/ymcp/internal/pipeline/ytwatch"
 )
 
+// Files picks a file in the system's dialog. A cancelled dialog returns
+// an empty path and no error.
+type Files interface {
+	// Save asks where to save a file, suggesting name.
+	Save(title, name string) (string, error)
+	// Open asks for a file to read.
+	Open(title string) (string, error)
+}
+
 // Daemon starts and stops background runners. The TUI's default runs the
 // CLI (`ymcp pipeline NAME run -d` / `stop`); output is what the command
 // printed, for the status line.
@@ -148,6 +157,15 @@ type Deps struct {
 	// RenamePipeline gives a pipeline a new name. Default: the rules of
 	// `ymcp pipeline NAME rename NEW` (no live runner, no active runs).
 	RenamePipeline func(ctx context.Context, st *store.Store, from, to string) error
+	// ExportPipelines writes the named pipelines and their presets to a
+	// file. Default: spec.Export and spec.WriteBundle.
+	ExportPipelines func(path string, names []string) error
+	// ImportPipelines saves the pipelines and presets of a file, the
+	// pipelines in profile. Default: spec.ReadBundle and spec.Import.
+	ImportPipelines func(path, profile string) (spec.ImportResult, error)
+	// Files picks the file to export to or import from in the system's
+	// dialog; nil, or a dialog that fails, asks for a path instead.
+	Files Files
 	// RunnerLog reads the tail of a pipeline's runner log; nil disables
 	// the logs screen. The TUI's default runs `ymcp pipeline NAME logs`.
 	RunnerLog func(ctx context.Context, pipeline string) (string, error)
@@ -207,6 +225,12 @@ func (d Deps) WithDefaults() Deps {
 	}
 	if d.RenamePipeline == nil {
 		d.RenamePipeline = renamePipeline
+	}
+	if d.ExportPipelines == nil {
+		d.ExportPipelines = exportPipelines
+	}
+	if d.ImportPipelines == nil {
+		d.ImportPipelines = importPipelines
 	}
 	if d.Answer == nil {
 		d.Answer = engine.Answer

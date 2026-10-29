@@ -34,6 +34,7 @@ func Defaults(st *store.Store) views.Deps {
 		PictureMode: termimg.Detect(os.Getenv),
 		Changes:     &CodeHost{},
 		OpenURL:     OpenURL,
+		Files:       systemFiles(os.Getenv),
 	}
 }
 

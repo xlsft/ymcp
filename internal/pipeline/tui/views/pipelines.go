@@ -126,6 +126,23 @@ func (m *Pipelines) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !found { // the pipeline of the menu is gone
 			m.menu.open, m.prompt.open = false, false
 		}
+	case fileChosen:
+		if msg.to == m.id {
+			return m, m.chosen(msg)
+		}
+	case imported:
+		if msg.to != m.id {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.fail(errors.New(importSummary(msg.res, msg.err)))
+		} else {
+			m.say(importSummary(msg.res, nil))
+		}
+		if len(msg.res.Pipelines) > 0 {
+			m.want = msg.res.Pipelines[0].To
+		}
+		return m, m.load
 	case Tick:
 		return m, m.load
 	case tea.KeyMsg:
@@ -204,6 +221,18 @@ func (m *Pipelines) key(k string) tea.Cmd {
 		return navigate(OpenWizard{Profile: m.profile})
 	case "i":
 		return navigate(OpenInbox{})
+	case "I":
+		return m.importFile()
+	case "X":
+		if len(m.rows) == 0 {
+			m.fail(errors.New("no pipelines to export"))
+			return nil
+		}
+		names := make([]string, len(m.rows))
+		for i, r := range m.rows {
+			names[i] = r.p.Name
+		}
+		return m.exportFile(names, "the pipelines of "+m.profile, exportName(m.profile))
 	}
 	r, ok := m.selected()
 	if !ok {
@@ -271,6 +300,7 @@ func (m *Pipelines) menuItems(r pipelineRow) []menuItem {
 		{label: "Edit", key: "e", run: act("e")},
 		logs,
 		{label: "Copy…", key: "c", run: act("c")},
+		{label: "Export…", key: "x", run: act("x")},
 		rename,
 		del,
 	}
@@ -310,6 +340,8 @@ func (m *Pipelines) act(k string, r pipelineRow) tea.Cmd {
 			m.want = to
 			return m.load, nil
 		})
+	case "x":
+		return m.exportFile([]string{name}, name, exportName(name))
 	case "R":
 		switch {
 		case r.runner.state == runnerRunning:
@@ -427,7 +459,8 @@ func (m *Pipelines) View() string {
 	header := []string{spread(title("ymcp pipelines")+" "+theme.Bold.Render(m.profile), inputBadge(waiting), w), ""}
 	help := []binding{
 		{"←→↑↓", "move"}, {"enter", "actions"}, {"o", "board"}, {"n", "new"}, {"r", "run"}, {"s", "stop"},
-		{"e", "edit"}, {"L", "logs"}, {"c", "copy"}, {"R", "rename"}, {"d", "delete"}, {"i", "inbox"},
+		{"e", "edit"}, {"L", "logs"}, {"c", "copy"}, {"R", "rename"}, {"d", "delete"}, {"x", "export"},
+		{"X", "export all"}, {"I", "import"}, {"i", "inbox"},
 		{"esc", "back"}, {"q", "quit"},
 	}
 	switch {
