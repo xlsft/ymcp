@@ -95,8 +95,9 @@ func (m *Pipelines) askPath(title, def string, save bool, use func(string) tea.C
 		if path == "" || strings.HasSuffix(path, string(filepath.Separator)) {
 			return nil, errors.New("type the path of a file")
 		}
-		if fi, err := os.Stat(path); save && err == nil {
-			if fi.IsDir() {
+		// Lstat, so a link that points nowhere counts as there too.
+		if _, err := os.Lstat(path); save && err == nil {
+			if fi, err := os.Stat(path); err == nil && fi.IsDir() {
 				return nil, errors.New("that is a directory; type the path of a file")
 			}
 			m.confirm("Replace "+homeShort(path, m.home)+"?", func() tea.Cmd { return use(path) })

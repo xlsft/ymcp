@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -124,6 +125,20 @@ func TestPipelinesExportWithoutDialog(t *testing.T) {
 	d.keys("x", "enter", "y")
 	if len(*out) != 2 || (*out)[1].path != filepath.Join(home, "ymcp-backend.json") {
 		t.Fatalf("exports = %+v", *out)
+	}
+
+	// So is a link that points nowhere.
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(filepath.Join(home, "gone"), filepath.Join(home, "link.json")); err != nil {
+			t.Fatal(err)
+		}
+		m.exportFile([]string{"backend"}, "backend", "link.json")
+		d.keys("enter")
+		d.has("Replace ~/link.json?")
+		d.keys("n")
+		if len(*out) != 2 {
+			t.Fatalf("replaced a link without asking: %+v", *out)
+		}
 	}
 
 	// A dialog that fails falls back to the same box.
