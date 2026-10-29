@@ -3,6 +3,7 @@ package views
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -17,6 +18,7 @@ type fileChosen struct {
 	to    int64
 	title string
 	def   string
+	save  bool
 	path  string
 	err   error
 	use   func(path string) tea.Cmd
@@ -57,7 +59,7 @@ func (m *Pipelines) importFile() tea.Cmd {
 // there is none, and runs use with it. def is the suggested file name.
 func (m *Pipelines) pickFile(title, def string, save bool, use func(string) tea.Cmd) tea.Cmd {
 	if m.d.Files == nil {
-		return m.askPath(title, def, use)
+		return m.askPath(title, def, save, use)
 	}
 	return func() tea.Msg {
 		var path string
@@ -67,7 +69,7 @@ func (m *Pipelines) pickFile(title, def string, save bool, use func(string) tea.
 		} else {
 			path, err = m.d.Files.Open(title)
 		}
-		return fileChosen{to: m.id, title: title, def: def, path: path, err: err, use: use}
+		return fileChosen{to: m.id, title: title, def: def, save: save, path: path, err: err, use: use}
 	}
 }
 
@@ -77,7 +79,7 @@ func (m *Pipelines) chosen(msg fileChosen) tea.Cmd {
 	switch {
 	case msg.err != nil:
 		m.fail(fmt.Errorf("the file dialog can't be shown (%v); type the path instead", msg.err))
-		return m.askPath(msg.title, msg.def, msg.use)
+		return m.askPath(msg.title, msg.def, msg.save, msg.use)
 	case msg.path == "":
 		return nil
 	}
@@ -85,12 +87,21 @@ func (m *Pipelines) chosen(msg fileChosen) tea.Cmd {
 }
 
 // askPath asks for a file path in a box, starting in the home directory.
-func (m *Pipelines) askPath(title, def string, use func(string) tea.Cmd) tea.Cmd {
+// A file to save that is there already is replaced only on y, as the
+// system's save dialog asks too.
+func (m *Pipelines) askPath(title, def string, save bool, use func(string) tea.Cmd) tea.Cmd {
 	start := "~" + string(filepath.Separator) + def
 	return m.prompt.startPath(title, start, func(path string) (tea.Cmd, error) {
 		path = expandHome(path, m.home)
 		if path == "" || strings.HasSuffix(path, string(filepath.Separator)) {
 			return nil, errors.New("type the path of a file")
+		}
+		if fi, err := os.Stat(path); save && err == nil {
+			if fi.IsDir() {
+				return nil, errors.New("that is a directory; type the path of a file")
+			}
+			m.confirm("Replace "+homeShort(path, m.home)+"?", func() tea.Cmd { return use(path) })
+			return nil, nil
 		}
 		return use(path), nil
 	})

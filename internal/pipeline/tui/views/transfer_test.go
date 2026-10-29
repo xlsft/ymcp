@@ -2,6 +2,7 @@ package views
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -108,12 +109,29 @@ func TestPipelinesExportWithoutDialog(t *testing.T) {
 	}
 	d.keys("esc")
 
+	// A file that is there is replaced only on y.
+	home := t.TempDir()
+	m.home = home
+	if err := os.WriteFile(filepath.Join(home, "ymcp-backend.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.keys("x", "enter")
+	d.has("Replace ~/ymcp-backend.json?")
+	d.keys("n")
+	if len(*out) != 1 {
+		t.Fatalf("replaced without asking: %+v", *out)
+	}
+	d.keys("x", "enter", "y")
+	if len(*out) != 2 || (*out)[1].path != filepath.Join(home, "ymcp-backend.json") {
+		t.Fatalf("exports = %+v", *out)
+	}
+
 	// A dialog that fails falls back to the same box.
 	f.d.Files = &fakeFiles{err: errors.New("zenity: not found")}
 	d.keys("x")
 	d.has("the file dialog can't be shown", "Export backend", "~/ymcp-backend.json")
 	d.keys("esc")
-	if len(*out) != 1 {
+	if len(*out) != 2 {
 		t.Fatalf("exported after esc: %+v", *out)
 	}
 }
