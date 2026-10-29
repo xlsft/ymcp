@@ -207,9 +207,27 @@ const (
 	btnRun  = "btn:run"
 )
 
-// Model is the wizard. Make it with New.
+// kind is what a wizard edits: a pipeline, or a profile (see
+// NewProfile). It heads the screen, picks the buttons and ends the
+// wizard.
+type kind interface {
+	header() string
+	// isNew reports whether the wizard makes something new: steps not
+	// reached yet show no status then.
+	isNew() bool
+	// buttons are the buttons of step cur of n, left to right.
+	buttons(cur, n int) []string
+	// snapshot is the draft as text, to tell whether leaving loses
+	// anything.
+	snapshot() string
+	// save ends the wizard (run: with Save & run), or says why not.
+	save(run bool) (tea.Cmd, string)
+}
+
+// Model is the wizard. Make it with New or NewProfile.
 type Model struct {
 	sh      *shared
+	kind    kind
 	steps   []step
 	cur     int
 	confirm bool // asking whether to discard the draft
@@ -244,7 +262,7 @@ func New(ctx context.Context, deps Deps, existing *spec.Pipeline) tea.Model {
 			}
 		}
 	}
-	m := &Model{sh: sh}
+	m := &Model{sh: sh, kind: pipelineKind{sh}}
 	m.steps = []step{
 		newBasicsStep(sh),
 		newBoardStep(sh),
@@ -313,11 +331,58 @@ func clonePipeline(p spec.Pipeline) spec.Pipeline {
 	return out
 }
 
-// snapshot is the draft as JSON.
-func (m *Model) snapshot() string {
-	data, _ := json.Marshal(m.sh.p)
+// pipelineKind is the pipeline wizard.
+type pipelineKind struct{ sh *shared }
+
+func (k pipelineKind) isNew() bool { return k.sh.orig == "" }
+
+func (k pipelineKind) buttons(cur, n int) []string {
+	var out []string
+	if cur > 0 {
+		out = append(out, btnBack)
+	}
+	if cur == n-1 {
+		return append(out, btnSave, btnRun)
+	}
+	return append(out, btnNext)
+}
+
+func (k pipelineKind) snapshot() string {
+	data, _ := json.Marshal(k.sh.p)
 	return string(data)
 }
+
+// save ends the wizard with the pipeline, unless it is invalid.
+func (k pipelineKind) save(run bool) (tea.Cmd, string) {
+	p := clonePipeline(*k.sh.p).WithDefaults()
+	if err := p.Validate(); err != nil {
+		return nil, "the pipeline isn't valid yet; see the list above"
+	}
+	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }, ""
+}
+
+func (k pipelineKind) header() string {
+	title := "New pipeline"
+	if k.sh.orig != "" {
+		title = "Edit pipeline " + k.sh.orig
+	}
+	head := styleTitle.Render(title)
+	if p := k.sh.p; p.Name != "" || p.Profile != "" {
+		head += " " + styleDim.Render(strings.Trim(p.Name+" · "+p.Profile, " ·"))
+	}
+	switch c := k.sh.conn; {
+	case c.pending:
+		head += "  " + markPending + styleDim.Render(" signing in")
+	case c.yt != nil:
+		head += "  " + markOK + styleDim.Render(" "+c.login+" @ "+c.yt.BaseURL())
+	case c.err != nil:
+		head += "  " + markErr + styleDim.Render(" not signed in")
+	}
+	return head
+}
+
+// snapshot is the draft as text.
+func (m *Model) snapshot() string { return m.kind.snapshot() }
 
 // dirty reports whether the draft differs from what the wizard started
 // with.
@@ -370,16 +435,7 @@ func cancelled() tea.Msg { return Cancelled{} }
 func (m *Model) last() bool { return m.cur == len(m.steps)-1 }
 
 // buttons are the buttons under the current step, left to right.
-func (m *Model) buttons() []string {
-	var out []string
-	if m.cur > 0 {
-		out = append(out, btnBack)
-	}
-	if m.last() {
-		return append(out, btnSave, btnRun)
-	}
-	return append(out, btnNext)
-}
+func (m *Model) buttons() []string { return m.kind.buttons(m.cur, len(m.steps)) }
 
 // primary is the button enter on the last field leads to.
 func (m *Model) primary() string {
@@ -625,14 +681,11 @@ func (m *Model) jump(i int) tea.Cmd {
 	return m.goTo(i)
 }
 
-// save ends the wizard with the pipeline, unless it is invalid.
+// save ends the wizard, unless what it made is not valid yet.
 func (m *Model) save(run bool) tea.Cmd {
-	p := clonePipeline(*m.sh.p).WithDefaults()
-	if err := p.Validate(); err != nil {
-		m.blocked = "the pipeline isn't valid yet; see the list above"
-		return nil
-	}
-	return func() tea.Msg { return Done{Pipeline: p, RunNow: run} }
+	cmd, why := m.kind.save(run)
+	m.blocked = why
+	return cmd
 }
 
 func (m *Model) goTo(i int) tea.Cmd {
@@ -681,32 +734,14 @@ func (m *Model) View() string {
 	return fit(m.header(), w, 1) + "\n\n" + fit(body, w, bodyH) + "\n" + fit(m.help(focus), w, 1)
 }
 
-func (m *Model) header() string {
-	title := "New pipeline"
-	if m.sh.orig != "" {
-		title = "Edit pipeline " + m.sh.orig
-	}
-	head := styleTitle.Render(title)
-	if p := m.sh.p; p.Name != "" || p.Profile != "" {
-		head += " " + styleDim.Render(strings.Trim(p.Name+" · "+p.Profile, " ·"))
-	}
-	switch c := m.sh.conn; {
-	case c.pending:
-		head += "  " + markPending + styleDim.Render(" signing in")
-	case c.yt != nil:
-		head += "  " + markOK + styleDim.Render(" "+c.login+" @ "+c.yt.BaseURL())
-	case c.err != nil:
-		head += "  " + markErr + styleDim.Render(" not signed in")
-	}
-	return head
-}
+func (m *Model) header() string { return m.kind.header() }
 
 // sidebar lists the steps with their marks, the current one highlighted.
 func (m *Model) sidebar() string {
 	lines := []string{styleDim.Render(" Steps")}
 	for i, s := range m.steps {
 		mark := s.mark()
-		if !m.seen[i] && m.sh.orig == "" {
+		if !m.seen[i] && m.kind.isNew() {
 			mark = markOff
 		}
 		label := fmt.Sprintf("%d %s", i+1, s.title())
@@ -717,7 +752,7 @@ func (m *Model) sidebar() string {
 		}
 		lines = append(lines, " "+mark+label)
 	}
-	lines = append(lines, "", styleDim.Render(" ✓ ready  ! check"), styleDim.Render(" ○ not done yet"), "", styleDim.Render(" alt+1…6 go to step"))
+	lines = append(lines, "", styleDim.Render(" ✓ ready  ! check"), styleDim.Render(" ○ not done yet"), "", styleDim.Render(fmt.Sprintf(" alt+1…%d go to step", len(m.steps))))
 	return strings.Join(lines, "\n")
 }
 
