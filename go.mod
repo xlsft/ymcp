@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/ebitengine/purego v0.11.2
+	github.com/ebitengine/purego v0.11.3
 	github.com/esiqveland/notify v0.14.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/google/jsonschema-go v0.4.3
@@ -19,9 +19,9 @@ require (
 	github.com/ncruces/zenity v0.10.15
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.47.0
-	modernc.org/sqlite v1.61.1
+	modernc.org/sqlite v1.62.0
 )
 
 require (
@@ -70,7 +70,7 @@ require (
 	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/vuln v1.9.0 // indirect
 	honnef.co/go/tools v0.8.2 // indirect
-	modernc.org/libc v1.79.0 // indirect
+	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
