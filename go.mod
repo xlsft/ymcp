@@ -9,8 +9,8 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/huh/spinner v0.0.0-20260223110133-9dc45e34a40b
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/charmbracelet/x/ansi v0.11.9
-	github.com/coder/acp-go-sdk v0.13.5
+	github.com/charmbracelet/x/ansi v0.11.10
+	github.com/coder/acp-go-sdk v0.20.0
 	github.com/ebitengine/purego v0.11.3
 	github.com/esiqveland/notify v0.14.0
 	github.com/godbus/dbus/v5 v5.2.4
@@ -20,7 +20,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/sys v0.50.0
-	golang.org/x/term v0.47.0
+	golang.org/x/term v0.48.0
 	modernc.org/sqlite v1.62.0
 )
 
